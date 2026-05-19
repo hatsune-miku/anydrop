@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="AboutAnyDrop.Text" xml:space="preserve">
+    <value>关于 AnyDrop</value>
+  </data>
+  <data name="AnyDropCloudServer.Description" xml:space="preserve">
+    <value>请只连接到您信任的服务器。</value>
+  </data>
+  <data name="AnyDropCloudServer.Text" xml:space="preserve">
+    <value>自定义 AnyDrop Cloud 服务端 URL</value>
+  </data>
+  <data name="AnyDropControlPanel.Text" xml:space="preserve">
+    <value>AnyDrop 控制面板</value>
+  </data>
+  <data name="AnyDropCore.Header" xml:space="preserve">
+    <value>AnyDrop Core</value>
+  </data>
+  <data name="AnyDropIsOffline.Text" xml:space="preserve">
+    <value>未连接至 AnyDrop 服务</value>
+  </data>
+  <data name="AnyDropIsOnline.Text" xml:space="preserve">
+    <value>已连接至 AnyDrop Cloud</value>
+  </data>
+  <data name="AnyDropTheTextFileSyncTool.Text" xml:space="preserve">
+    <value>AnyDrop - 文本和文件同步工具</value>
+  </data>
+  <data name="Build.Text" xml:space="preserve">
+    <value>构建号</value>
+  </data>
+  <data name="Cancel.Text" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="ClearCache.Content" xml:space="preserve">
+    <value>清除缓存数据</value>
+  </data>
+  <data name="ClearCacheWarning.Text" xml:space="preserve">
+    <value>确定清除缓存吗？</value>
+  </data>
+  <data name="ConfirmClear.Text" xml:space="preserve">
+    <value>清除</value>
+  </data>
+  <data name="ConfirmSignIn.Text" xml:space="preserve">
+    <value>登录</value>
+  </data>
+  <data name="Contacts.Text" xml:space="preserve">
+    <value>关于</value>
+  </data>
+  <data name="Copyright.Text" xml:space="preserve">
+    <value>版权所有</value>
+  </data>
+  <data name="CreateOne.Text" xml:space="preserve">
+    <value>点我注册！</value>
+  </data>
+  <data name="CurrentPeers.Text" xml:space="preserve">
+    <value>已发现用户</value>
+  </data>
+  <data name="Dashboard.Text" xml:space="preserve">
+    <value>仪表盘</value>
+  </data>
+  <data name="Debug.Header" xml:space="preserve">
+    <value>调试</value>
+  </data>
+  <data name="DiscoveryService.Text" xml:space="preserve">
+    <value>局域网发现服务</value>
+  </data>
+  <data name="Edited.Text" xml:space="preserve">
+    <value>未保存</value>
+  </data>
+  <data name="EnhancedDiscovery.Description" xml:space="preserve">
+    <value>周期性地广播发现数据包。可能对路由器有较大负载，尤其是当同一子网下 AnyDrop 用户很多时。</value>
+  </data>
+  <data name="EnhancedDiscovery.Text" xml:space="preserve">
+    <value>扩展发现服务</value>
+  </data>
+  <data name="Exit.Text" xml:space="preserve">
+    <value>退出</value>
+  </data>
+  <data name="Hooray.Text" xml:space="preserve">
+    <value>\^O^/</value>
+  </data>
+  <data name="LANDataServiceListenAddress.Text" xml:space="preserve">
+    <value>局域网数据服务 - 监听地址（IpV4）</value>
+  </data>
+  <data name="LANDataServiceListenPort.Description" xml:space="preserve">
+    <value>范围：1024 ~ 65535（含）</value>
+  </data>
+  <data name="LANDataServiceListenPort.Text" xml:space="preserve">
+    <value>局域网数据服务 - 服务端端口</value>
+  </data>
+  <data name="LANDiscoveryClientPort.Description" xml:space="preserve">
+    <value>范围：0 或 1024 ~ 65535（含）</value>
+  </data>
+  <data name="LANDiscoveryClientPort.Text" xml:space="preserve">
+    <value>局域网发现服务 - 客户端端口</value>
+  </data>
+  <data name="LANDiscoveryServerPort.Description" xml:space="preserve">
+    <value>范围：1024 ~ 65535（含）</value>
+  </data>
+  <data name="LANDiscoveryServerPort.Text" xml:space="preserve">
+    <value>局域网发现服务 - 服务端端口</value>
+  </data>
+  <data name="LANGroupIdentifier.Description" xml:space="preserve">
+    <value>范围：0 ~ 255（含）。只有具有相同分组标识的设备，能够互相发现。</value>
+  </data>
+  <data name="LANGroupIdentifier.Text" xml:space="preserve">
+    <value>局域网分组标识</value>
+  </data>
+  <data name="LanguagePack.Text" xml:space="preserve">
+    <value>语言包</value>
+  </data>
+  <data name="LibanydropStatus.Text" xml:space="preserve">
+    <value>libanydrop 状态</value>
+  </data>
+  <data name="LibanydropVersion.Text" xml:space="preserve">
+    <value>libanydrop 版本</value>
+  </data>
+  <data name="NoAnyDropAccountYet.Text" xml:space="preserve">
+    <value>如果没有 AnyDrop 账号，可</value>
+  </data>
+  <data name="NoReceivedFiles.Text" xml:space="preserve">
+    <value>暂无已收文件</value>
+  </data>
+  <data name="NotYetImplemented.Text" xml:space="preserve">
+    <value>这个功能暂未实现</value>
+  </data>
+  <data name="OpenControlPanel.Text" xml:space="preserve">
+    <value>打开 AnyDrop 控制面板</value>
+  </data>
+  <data name="Password.PlaceholderText" xml:space="preserve">
+    <value>密码</value>
+  </data>
+  <data name="Preferences.Text" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="ReceiveClipboardFromInternet.Description" xml:space="preserve">
+    <value>接收来自互联网的剪贴板同步数据。</value>
+  </data>
+  <data name="ReceiveClipboardFromInternet.Text" xml:space="preserve">
+    <value>互联网数据接收</value>
+  </data>
+  <data name="ReceivedFiles.Text" xml:space="preserve">
+    <value>已收文件</value>
+  </data>
+  <data name="RememberMe.Content" xml:space="preserve">
+    <value>自动登录</value>
+  </data>
+  <data name="SendFile.Text" xml:space="preserve">
+    <value>发送文件</value>
+  </data>
+  <data name="SentFiles.Text" xml:space="preserve">
+    <value>已发文件</value>
+  </data>
+  <data name="ShareClipboardOverInternet.Description" xml:space="preserve">
+    <value>同意并启用基于互联网的剪贴板同步。剪贴板数据会被上传到 AnyDrop Cloud。</value>
+  </data>
+  <data name="ShareClipboardOverInternet.Text" xml:space="preserve">
+    <value>互联网数据上传</value>
+  </data>
+  <data name="ShowAdvancedSettings.Description" xml:space="preserve">
+    <value>若要修改高级设置，请确保您了解其对应的含义。</value>
+  </data>
+  <data name="ShowAdvancedSettings.Text" xml:space="preserve">
+    <value>显示高级设置</value>
+  </data>
+  <data name="ShowDeveloperConsole.Description" xml:space="preserve">
+    <value>显示来自 libanydrop 的日志数据。</value>
+  </data>
+  <data name="ShowDeveloperConsole.Text" xml:space="preserve">
+    <value>显示开发者日志</value>
+  </data>
+  <data name="SignIn.Text" xml:space="preserve">
+    <value>登录 AnyDrop Cloud</value>
+  </data>
+  <data name="SignOut.Text" xml:space="preserve">
+    <value>退出登录</value>
+  </data>
+  <data name="SignUp.Text" xml:space="preserve">
+    <value>注册</value>
+  </data>
+  <data name="StartService.Text" xml:space="preserve">
+    <value>启动服务</value>
+  </data>
+  <data name="StopService.Text" xml:space="preserve">
+    <value>停止服务</value>
+  </data>
+  <data name="TextPopupDisplayTime.Description" xml:space="preserve">
+    <value>范围：1000 ~ 10000（含）</value>
+  </data>
+  <data name="TextPopupDisplayTime.Text" xml:space="preserve">
+    <value>文本弹框持续时间（毫秒）</value>
+  </data>
+  <data name="TextService.Text" xml:space="preserve">
+    <value>局域网数据服务</value>
+  </data>
+  <data name="UidOrEmail.PlaceholderText" xml:space="preserve">
+    <value>UID/电子邮箱地址</value>
+  </data>
+  <data name="Version.Text" xml:space="preserve">
+    <value>版本</value>
+  </data>
+  <data name="VersionCode.Text" xml:space="preserve">
+    <value>版本代号</value>
+  </data>
+  <data name="WindowsFrontend.Text" xml:space="preserve">
+    <value>Windows 客户端</value>
+  </data>
+</root>

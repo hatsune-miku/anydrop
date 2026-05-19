@@ -1,0 +1,75 @@
+<Page
+    x:Class="AnyDrop.Pages.TrayMenuHolderPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:AnyDrop.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:tb="using:H.NotifyIcon"
+    mc:Ignorable="d"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    DataContext="ViewModel"
+>
+    <Page.Resources>
+        <converters:ServiceOnlineStatusToDescriptionConverter 
+            x:Key="serviceOnlineStatusToDescriptionConverter" 
+        />
+        <converters:BooleanToVisibilityConverter
+            x:Key="booleanToVisibilityConverter"
+        />
+        <converters:BooleanToServiceToggleStringConverter
+            x:Key="booleanToServiceToggleStringConverter"
+        />
+        <converters:BooleanToSigningToggleStringConverter
+            x:Key="booleanToSigningToggleStringConverter"
+        />
+        <converters:LoggingInUidStringToDescriptionConverter
+            x:Key="loggingInUidStringToDescriptionConverter"
+        />
+    </Page.Resources>
+
+    <tb:TaskbarIcon
+            x:Name="TrayIcon"
+            x:FieldModifier="public"
+            IconSource="ms-appx:///Assets/AnyDrop.ico"
+            ToolTipText="ToolTip"
+            NoLeftClickDelay="True"
+        >
+        <tb:TaskbarIcon.ContextFlyout>
+            <MenuFlyout AreOpenCloseAnimationsEnabled="True">
+                <MenuFlyoutItem
+                    IsEnabled="False"
+                    Text="{x:Bind ViewModel.IsServiceOnline, Mode=OneWay, Converter={StaticResource serviceOnlineStatusToDescriptionConverter}}"
+                />
+                <MenuFlyoutItem
+                    Command="{x:Bind ToggleServiceCommand}"
+                    Text="{x:Bind ViewModel.IsServiceOnline, Mode=OneWay, Converter={StaticResource booleanToServiceToggleStringConverter}}"
+                />
+                <MenuFlyoutItem
+                    Command="{x:Bind OpenControlPanelCommand}"
+                    x:Uid="OpenControlPanel"
+                />
+                <MenuFlyoutSeparator />
+
+                <MenuFlyoutItem
+                    Command="{x:Bind SendFileCommand}"
+                    x:Uid="SendFile"
+                />
+
+                <MenuFlyoutItem
+                    IsEnabled="False"
+                    Visibility="{x:Bind ViewModel.IsSignedIn, Mode=OneWay, Converter={StaticResource booleanToVisibilityConverter}}"
+                    Text="{x:Bind ViewModel.LoggingInUid, Mode=OneWay, Converter={StaticResource loggingInUidStringToDescriptionConverter}}"
+                />
+                <MenuFlyoutItem
+                    Command="{x:Bind ToggleSignInOutCommand}"
+                    Text="{x:Bind ViewModel.IsSignedIn, Mode=OneWay, Converter={StaticResource booleanToSigningToggleStringConverter}}"
+                />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Command="{x:Bind ShowAboutAnyDropCommand}" x:Uid="AboutAnyDrop" />
+                <MenuFlyoutItem Command="{x:Bind ExitApplicationCommand}" x:Uid="Exit" />
+
+            </MenuFlyout>
+        </tb:TaskbarIcon.ContextFlyout>
+    </tb:TaskbarIcon>
+</Page>

@@ -1,0 +1,4 @@
+apps/desktop-tauri/src-tauri/gen/
+apps/desktop-tauri/dist/
+target/
+build-qt/

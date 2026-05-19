@@ -1,0 +1,20 @@
+yarn workspace v1.22.22
+yarn run v1.22.22
+$ vite --host 127.0.0.1
+Re-optimizing dependencies because lockfile has changed
+[31merror when starting dev server:
+Error: Port 1420 is already in use
+    at Server.onError (file:///C:/Users/miku/repo/anydrop/node_modules/vite/dist/node/chunks/dep-BK3b2jBa.js:45596:18)
+    at Server.emit (node:events:518:28)
+    at emitErrorNT (node:net:1975:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)[39m
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.
+error Command failed.
+Exit code: 1
+Command: C:\Program Files\nodejs\node.exe
+Arguments: C:\Users\miku\AppData\Roaming\nvm\v22.16.0\node_modules\yarn\lib\cli.js dev --host 127.0.0.1
+Directory: C:\Users\miku\repo\anydrop\apps\desktop-tauri
+Output:
+
+info Visit https://yarnpkg.com/en/docs/cli/workspace for documentation about this command.

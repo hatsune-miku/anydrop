@@ -1,0 +1,1001 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		08BE73B675D6AD24152FDDC7 /* Pods_AnyDropmacTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8ECA4538C8267D7840CAE204 /* Pods_AnyDropmacTests.framework */; };
+		2F03CA652A39F10F00E9D93F /* Defaults.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F03CA642A39F10F00E9D93F /* Defaults.swift */; };
+		2F03CA672A39F24700E9D93F /* CredentialType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F03CA662A39F24700E9D93F /* CredentialType.swift */; };
+		2F0615BA298621B200B151F7 /* AnyDropWrapper.m in Sources */ = {isa = PBXBuildFile; fileRef = 2F0615B9298621B200B151F7 /* AnyDropWrapper.m */; };
+		2F0615C62986322600B151F7 /* UnsafeString.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0615C52986322600B151F7 /* UnsafeString.swift */; };
+		2F069C352985B4DC009DD1E6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2F069C342985B4DC009DD1E6 /* Assets.xcassets */; };
+		2F069C382985B4DC009DD1E6 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2F069C372985B4DC009DD1E6 /* Preview Assets.xcassets */; };
+		2F069C432985B4DC009DD1E6 /* SwiftUIPracticeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F069C422985B4DC009DD1E6 /* SwiftUIPracticeTests.swift */; };
+		2F069C4D2985B4DC009DD1E6 /* SwiftUIPracticeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F069C4C2985B4DC009DD1E6 /* SwiftUIPracticeUITests.swift */; };
+		2F069C4F2985B4DC009DD1E6 /* SwiftUIPracticeUITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F069C4E2985B4DC009DD1E6 /* SwiftUIPracticeUITestsLaunchTests.swift */; };
+		2F2225C92A60EC1D006656EF /* FileSendingStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2225C82A60EC1D006656EF /* FileSendingStatus.swift */; };
+		2F2225CB2A60ED39006656EF /* ReceiveFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2225CA2A60ED39006656EF /* ReceiveFile.swift */; };
+		2F2225CD2A60F36D006656EF /* FileUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2225CC2A60F36D006656EF /* FileUtils.swift */; };
+		2F2225E22A60FE17006656EF /* FileHandleEnsureLength.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2225E12A60FE17006656EF /* FileHandleEnsureLength.swift */; };
+		2F2225E52A6100E1006656EF /* FileNoticeWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2225E42A6100E1006656EF /* FileNoticeWindow.swift */; };
+		2F2AF3282A4C573B008B291F /* Peer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F2AF3272A4C573B008B291F /* Peer.swift */; };
+		2F600AB82AB6B5C0008BB10B /* libanydrop.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 2F600AB72AB6B5C0008BB10B /* libanydrop.dylib */; };
+		2F600AB92AB6B5C0008BB10B /* libanydrop.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = 2F600AB72AB6B5C0008BB10B /* libanydrop.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		2F63CDEB2A6209F600206F64 /* ViewWrapContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F63CDEA2A6209F600206F64 /* ViewWrapContent.swift */; };
+		2F63CDED2A62118000206F64 /* PeerPickerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F63CDEC2A62118000206F64 /* PeerPickerWindow.swift */; };
+		2F782CA92A6C2E7A00E9411B /* WebSocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F782CA82A6C2E7A00E9411B /* WebSocketService.swift */; };
+		2F782CAB2A6C331F00E9411B /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F782CAA2A6C331F00E9411B /* Message.swift */; };
+		2FCF62312A3A6EB70071752F /* AnyDropCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCF62302A3A6EB70071752F /* AnyDropCloud.swift */; };
+		2FCF62352A3A75CB0071752F /* StringHash.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCF62342A3A75CB0071752F /* StringHash.swift */; };
+		2FCF62372A3A7DBB0071752F /* AnyDropmac-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 2FCF62362A3A7DBB0071752F /* AnyDropmac-Info.plist */; };
+		2FCF62392A3A95510071752F /* AccountUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCF62382A3A95510071752F /* AccountUtils.swift */; };
+		2FCF62402A3ABB1B0071752F /* GlobalState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FCF623F2A3ABB1B0071752F /* GlobalState.swift */; };
+		2FF26A682A62FE7400CAEDBC /* StringFromLengthenPointer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF26A672A62FE7400CAEDBC /* StringFromLengthenPointer.swift */; };
+		2FF46E4F2A61FF2B00848083 /* FileWriterWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF46E4E2A61FF2B00848083 /* FileWriterWorker.swift */; };
+		2FF46E522A61FFD900848083 /* BlockingQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF46E512A61FFD900848083 /* BlockingQueue.swift */; };
+		2FF46E542A6206C900848083 /* PeerPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF46E532A6206C900848083 /* PeerPickerView.swift */; };
+		2FF5EB342A39FDA7005198BF /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB332A39FDA7005198BF /* AppDelegate.swift */; };
+		2FF5EB382A3A062C005198BF /* ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB372A3A062C005198BF /* ControlPanelView.swift */; };
+		2FF5EB402A3A3F36005198BF /* AnyDropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB3F2A3A3F36005198BF /* AnyDropService.swift */; };
+		2FF5EB422A3A4C00005198BF /* UIUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB412A3A4C00005198BF /* UIUtils.swift */; };
+		2FF5EB472A3A5A6B005198BF /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB462A3A5A6B005198BF /* AboutView.swift */; };
+		2FF5EB4A2A3A5C73005198BF /* Versions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB492A3A5C73005198BF /* Versions.swift */; };
+		2FF5EB4C2A3A68D3005198BF /* ThemeMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FF5EB4B2A3A68D3005198BF /* ThemeMode.swift */; };
+		CE21E7C974BEA46F81BB73AB /* Pods_AnyDropmac_AnyDropmacUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 162699650082236BCD57D529 /* Pods_AnyDropmac_AnyDropmacUITests.framework */; };
+		D54303C63580D65DCEF1C7CF /* Pods_AnyDropmac.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3D6884FCBCB0298BDF2B74FF /* Pods_AnyDropmac.framework */; };
+		FFB055D62A0EC17300351C21 /* FileNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055D52A0EC17300351C21 /* FileNoticeView.swift */; };
+		FFB055D82A0EC34A00351C21 /* TextNoticeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055D72A0EC34A00351C21 /* TextNoticeView.swift */; };
+		FFB055DA2A0F638500351C21 /* ThemeUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055D92A0F638500351C21 /* ThemeUtils.swift */; };
+		FFB055DE2A1A712C00351C21 /* AnyDropApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055DD2A1A712C00351C21 /* AnyDropApp.swift */; };
+		FFB055E22A1A86CE00351C21 /* TextNoticeViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055E12A1A86CE00351C21 /* TextNoticeViewModel.swift */; };
+		FFB055E42A1EFC6000351C21 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB055E32A1EFC6000351C21 /* LoginView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2F069C3F2985B4DC009DD1E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2F069C252985B4DB009DD1E6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2F069C2C2985B4DB009DD1E6;
+			remoteInfo = SwiftUIPractice;
+		};
+		2F069C492985B4DC009DD1E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2F069C252985B4DB009DD1E6 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2F069C2C2985B4DB009DD1E6;
+			remoteInfo = SwiftUIPractice;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		2F600ABA2AB6B5C0008BB10B /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				2F600AB92AB6B5C0008BB10B /* libanydrop.dylib in Embed Libraries */,
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0CEF05B0FF288C331D246D2D /* Pods-AnyDropmac.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmac.debug.xcconfig"; path = "Target Support Files/Pods-AnyDropmac/Pods-AnyDropmac.debug.xcconfig"; sourceTree = "<group>"; };
+		162699650082236BCD57D529 /* Pods_AnyDropmac_AnyDropmacUITests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_AnyDropmac_AnyDropmacUITests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F03CA642A39F10F00E9D93F /* Defaults.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Defaults.swift; sourceTree = "<group>"; };
+		2F03CA662A39F24700E9D93F /* CredentialType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialType.swift; sourceTree = "<group>"; };
+		2F0615B8298621B100B151F7 /* SwiftUIPractice-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SwiftUIPractice-Bridging-Header.h"; sourceTree = "<group>"; };
+		2F0615B9298621B200B151F7 /* AnyDropWrapper.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AnyDropWrapper.m; sourceTree = "<group>"; };
+		2F0615BB2986230300B151F7 /* AnyDropBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AnyDropBridge.h; sourceTree = "<group>"; };
+		2F0615C52986322600B151F7 /* UnsafeString.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnsafeString.swift; sourceTree = "<group>"; };
+		2F069C2D2985B4DB009DD1E6 /* AnyDropmac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AnyDropmac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F069C342985B4DC009DD1E6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		2F069C372985B4DC009DD1E6 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		2F069C3E2985B4DC009DD1E6 /* AnyDropmacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnyDropmacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F069C422985B4DC009DD1E6 /* SwiftUIPracticeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIPracticeTests.swift; sourceTree = "<group>"; };
+		2F069C482985B4DC009DD1E6 /* AnyDropmacUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AnyDropmacUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F069C4C2985B4DC009DD1E6 /* SwiftUIPracticeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIPracticeUITests.swift; sourceTree = "<group>"; };
+		2F069C4E2985B4DC009DD1E6 /* SwiftUIPracticeUITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIPracticeUITestsLaunchTests.swift; sourceTree = "<group>"; };
+		2F2225C82A60EC1D006656EF /* FileSendingStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSendingStatus.swift; sourceTree = "<group>"; };
+		2F2225CA2A60ED39006656EF /* ReceiveFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReceiveFile.swift; sourceTree = "<group>"; };
+		2F2225CC2A60F36D006656EF /* FileUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUtils.swift; sourceTree = "<group>"; };
+		2F2225E12A60FE17006656EF /* FileHandleEnsureLength.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileHandleEnsureLength.swift; sourceTree = "<group>"; };
+		2F2225E42A6100E1006656EF /* FileNoticeWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNoticeWindow.swift; sourceTree = "<group>"; };
+		2F2AF3272A4C573B008B291F /* Peer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Peer.swift; sourceTree = "<group>"; };
+		2F600AB72AB6B5C0008BB10B /* libanydrop.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libanydrop.dylib; path = ../libanydrop/target/release/deps/libanydrop.dylib; sourceTree = "<group>"; };
+		2F63CDEA2A6209F600206F64 /* ViewWrapContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewWrapContent.swift; sourceTree = "<group>"; };
+		2F63CDEC2A62118000206F64 /* PeerPickerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerPickerWindow.swift; sourceTree = "<group>"; };
+		2F782CA82A6C2E7A00E9411B /* WebSocketService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketService.swift; sourceTree = "<group>"; };
+		2F782CAA2A6C331F00E9411B /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		2FCF62302A3A6EB70071752F /* AnyDropCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnyDropCloud.swift; sourceTree = "<group>"; };
+		2FCF62342A3A75CB0071752F /* StringHash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringHash.swift; sourceTree = "<group>"; };
+		2FCF62362A3A7DBB0071752F /* AnyDropmac-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "AnyDropmac-Info.plist"; sourceTree = "<group>"; };
+		2FCF62382A3A95510071752F /* AccountUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountUtils.swift; sourceTree = "<group>"; };
+		2FCF623F2A3ABB1B0071752F /* GlobalState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalState.swift; sourceTree = "<group>"; };
+		2FF26A672A62FE7400CAEDBC /* StringFromLengthenPointer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StringFromLengthenPointer.swift; sourceTree = "<group>"; };
+		2FF46E4E2A61FF2B00848083 /* FileWriterWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWriterWorker.swift; sourceTree = "<group>"; };
+		2FF46E512A61FFD900848083 /* BlockingQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockingQueue.swift; sourceTree = "<group>"; };
+		2FF46E532A6206C900848083 /* PeerPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PeerPickerView.swift; sourceTree = "<group>"; };
+		2FF5EB332A39FDA7005198BF /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		2FF5EB352A3A0092005198BF /* AnyDropmac.entitlements */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.entitlements; path = AnyDropmac.entitlements; sourceTree = "<group>"; };
+		2FF5EB372A3A062C005198BF /* ControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelView.swift; sourceTree = "<group>"; };
+		2FF5EB3F2A3A3F36005198BF /* AnyDropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnyDropService.swift; sourceTree = "<group>"; };
+		2FF5EB412A3A4C00005198BF /* UIUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UIUtils.swift; sourceTree = "<group>"; };
+		2FF5EB462A3A5A6B005198BF /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		2FF5EB492A3A5C73005198BF /* Versions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Versions.swift; sourceTree = "<group>"; };
+		2FF5EB4B2A3A68D3005198BF /* ThemeMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeMode.swift; sourceTree = "<group>"; };
+		34EF2758B4AD71ADECBCCECC /* Pods-AnyDropmac.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmac.release.xcconfig"; path = "Target Support Files/Pods-AnyDropmac/Pods-AnyDropmac.release.xcconfig"; sourceTree = "<group>"; };
+		3CD4A06877030F095FFBCA5A /* Pods-AnyDropmac-AnyDropmacUITests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmac-AnyDropmacUITests.debug.xcconfig"; path = "Target Support Files/Pods-AnyDropmac-AnyDropmacUITests/Pods-AnyDropmac-AnyDropmacUITests.debug.xcconfig"; sourceTree = "<group>"; };
+		3D6884FCBCB0298BDF2B74FF /* Pods_AnyDropmac.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_AnyDropmac.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		8923513058014BC424AB60A3 /* Pods-AnyDropmacTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmacTests.release.xcconfig"; path = "Target Support Files/Pods-AnyDropmacTests/Pods-AnyDropmacTests.release.xcconfig"; sourceTree = "<group>"; };
+		8ECA4538C8267D7840CAE204 /* Pods_AnyDropmacTests.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_AnyDropmacTests.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		928AC81A1BACA50DDCD46695 /* Pods-AnyDropmac-AnyDropmacUITests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmac-AnyDropmacUITests.release.xcconfig"; path = "Target Support Files/Pods-AnyDropmac-AnyDropmacUITests/Pods-AnyDropmac-AnyDropmacUITests.release.xcconfig"; sourceTree = "<group>"; };
+		D096C6A681D911E1B8C858AD /* Pods-AnyDropmacTests.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-AnyDropmacTests.debug.xcconfig"; path = "Target Support Files/Pods-AnyDropmacTests/Pods-AnyDropmacTests.debug.xcconfig"; sourceTree = "<group>"; };
+		FFB055D52A0EC17300351C21 /* FileNoticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNoticeView.swift; sourceTree = "<group>"; };
+		FFB055D72A0EC34A00351C21 /* TextNoticeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextNoticeView.swift; sourceTree = "<group>"; };
+		FFB055D92A0F638500351C21 /* ThemeUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeUtils.swift; sourceTree = "<group>"; };
+		FFB055DD2A1A712C00351C21 /* AnyDropApp.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AnyDropApp.swift; sourceTree = "<group>"; };
+		FFB055E12A1A86CE00351C21 /* TextNoticeViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextNoticeViewModel.swift; sourceTree = "<group>"; };
+		FFB055E32A1EFC6000351C21 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2F069C2A2985B4DB009DD1E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F600AB82AB6B5C0008BB10B /* libanydrop.dylib in Frameworks */,
+				D54303C63580D65DCEF1C7CF /* Pods_AnyDropmac.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C3B2985B4DC009DD1E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				08BE73B675D6AD24152FDDC7 /* Pods_AnyDropmacTests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C452985B4DC009DD1E6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CE21E7C974BEA46F81BB73AB /* Pods_AnyDropmac_AnyDropmacUITests.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0D3E7EECC0F3332E3523B0AE /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				0CEF05B0FF288C331D246D2D /* Pods-AnyDropmac.debug.xcconfig */,
+				34EF2758B4AD71ADECBCCECC /* Pods-AnyDropmac.release.xcconfig */,
+				3CD4A06877030F095FFBCA5A /* Pods-AnyDropmac-AnyDropmacUITests.debug.xcconfig */,
+				928AC81A1BACA50DDCD46695 /* Pods-AnyDropmac-AnyDropmacUITests.release.xcconfig */,
+				D096C6A681D911E1B8C858AD /* Pods-AnyDropmacTests.debug.xcconfig */,
+				8923513058014BC424AB60A3 /* Pods-AnyDropmacTests.release.xcconfig */,
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		2F03CA632A39F0F600E9D93F /* Util */ = {
+			isa = PBXGroup;
+			children = (
+				FFB055D92A0F638500351C21 /* ThemeUtils.swift */,
+				2F03CA642A39F10F00E9D93F /* Defaults.swift */,
+				2FF5EB412A3A4C00005198BF /* UIUtils.swift */,
+				2FCF62382A3A95510071752F /* AccountUtils.swift */,
+				2F2225CC2A60F36D006656EF /* FileUtils.swift */,
+			);
+			path = Util;
+			sourceTree = "<group>";
+		};
+		2F0615B72986218700B151F7 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				2F0615B9298621B200B151F7 /* AnyDropWrapper.m */,
+				2F0615B8298621B100B151F7 /* SwiftUIPractice-Bridging-Header.h */,
+				2F0615BB2986230300B151F7 /* AnyDropBridge.h */,
+				2F0615C52986322600B151F7 /* UnsafeString.swift */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		2F0615BC2986238200B151F7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2F600AB72AB6B5C0008BB10B /* libanydrop.dylib */,
+				3D6884FCBCB0298BDF2B74FF /* Pods_AnyDropmac.framework */,
+				162699650082236BCD57D529 /* Pods_AnyDropmac_AnyDropmacUITests.framework */,
+				8ECA4538C8267D7840CAE204 /* Pods_AnyDropmacTests.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		2F069C242985B4DB009DD1E6 = {
+			isa = PBXGroup;
+			children = (
+				2FCF62362A3A7DBB0071752F /* AnyDropmac-Info.plist */,
+				2F069C2F2985B4DB009DD1E6 /* AnyDrop */,
+				2F069C412985B4DC009DD1E6 /* AnyDropmacTests */,
+				2F069C4B2985B4DC009DD1E6 /* AnyDropmacUITests */,
+				2F069C2E2985B4DB009DD1E6 /* Products */,
+				2F0615BC2986238200B151F7 /* Frameworks */,
+				0D3E7EECC0F3332E3523B0AE /* Pods */,
+			);
+			sourceTree = "<group>";
+		};
+		2F069C2E2985B4DB009DD1E6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				2F069C2D2985B4DB009DD1E6 /* AnyDropmac.app */,
+				2F069C3E2985B4DC009DD1E6 /* AnyDropmacTests.xctest */,
+				2F069C482985B4DC009DD1E6 /* AnyDropmacUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		2F069C2F2985B4DB009DD1E6 /* AnyDrop */ = {
+			isa = PBXGroup;
+			children = (
+				2FF5EB352A3A0092005198BF /* AnyDropmac.entitlements */,
+				FFB055DD2A1A712C00351C21 /* AnyDropApp.swift */,
+				2FF5EB332A39FDA7005198BF /* AppDelegate.swift */,
+				2F0615B72986218700B151F7 /* Bridge */,
+				2F2AF3262A4C5731008B291F /* Model */,
+				2FCF623E2A3ABB020071752F /* ViewModel */,
+				2FF5EB452A3A5597005198BF /* Enum */,
+				2F2225E32A6100CF006656EF /* Window */,
+				2FF5EB432A3A5561005198BF /* View */,
+				2FF46E502A61FFBF00848083 /* Data */,
+				2FF46E4D2A61FF1900848083 /* Worker */,
+				2FF5EB3E2A3A3F2B005198BF /* Service */,
+				2F03CA632A39F0F600E9D93F /* Util */,
+				2FF5EB482A3A5C6B005198BF /* Extension */,
+				2F069C342985B4DC009DD1E6 /* Assets.xcassets */,
+				2F069C362985B4DC009DD1E6 /* Preview Content */,
+			);
+			path = AnyDrop;
+			sourceTree = "<group>";
+		};
+		2F069C362985B4DC009DD1E6 /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				2F069C372985B4DC009DD1E6 /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		2F069C412985B4DC009DD1E6 /* AnyDropmacTests */ = {
+			isa = PBXGroup;
+			children = (
+				2F069C422985B4DC009DD1E6 /* SwiftUIPracticeTests.swift */,
+			);
+			path = AnyDropmacTests;
+			sourceTree = "<group>";
+		};
+		2F069C4B2985B4DC009DD1E6 /* AnyDropmacUITests */ = {
+			isa = PBXGroup;
+			children = (
+				2F069C4C2985B4DC009DD1E6 /* SwiftUIPracticeUITests.swift */,
+				2F069C4E2985B4DC009DD1E6 /* SwiftUIPracticeUITestsLaunchTests.swift */,
+			);
+			path = AnyDropmacUITests;
+			sourceTree = "<group>";
+		};
+		2F2225E32A6100CF006656EF /* Window */ = {
+			isa = PBXGroup;
+			children = (
+				2F2225E42A6100E1006656EF /* FileNoticeWindow.swift */,
+				2F63CDEC2A62118000206F64 /* PeerPickerWindow.swift */,
+			);
+			path = Window;
+			sourceTree = "<group>";
+		};
+		2F2AF3262A4C5731008B291F /* Model */ = {
+			isa = PBXGroup;
+			children = (
+				2F2AF3272A4C573B008B291F /* Peer.swift */,
+				2F2225CA2A60ED39006656EF /* ReceiveFile.swift */,
+				2F782CAA2A6C331F00E9411B /* Message.swift */,
+			);
+			path = Model;
+			sourceTree = "<group>";
+		};
+		2FCF623E2A3ABB020071752F /* ViewModel */ = {
+			isa = PBXGroup;
+			children = (
+				2FCF623F2A3ABB1B0071752F /* GlobalState.swift */,
+				FFB055E12A1A86CE00351C21 /* TextNoticeViewModel.swift */,
+			);
+			path = ViewModel;
+			sourceTree = "<group>";
+		};
+		2FF46E4D2A61FF1900848083 /* Worker */ = {
+			isa = PBXGroup;
+			children = (
+				2FF46E4E2A61FF2B00848083 /* FileWriterWorker.swift */,
+			);
+			path = Worker;
+			sourceTree = "<group>";
+		};
+		2FF46E502A61FFBF00848083 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				2FF46E512A61FFD900848083 /* BlockingQueue.swift */,
+			);
+			path = Data;
+			sourceTree = "<group>";
+		};
+		2FF5EB3E2A3A3F2B005198BF /* Service */ = {
+			isa = PBXGroup;
+			children = (
+				2FF5EB3F2A3A3F36005198BF /* AnyDropService.swift */,
+				2FCF62302A3A6EB70071752F /* AnyDropCloud.swift */,
+				2F782CA82A6C2E7A00E9411B /* WebSocketService.swift */,
+			);
+			path = Service;
+			sourceTree = "<group>";
+		};
+		2FF5EB432A3A5561005198BF /* View */ = {
+			isa = PBXGroup;
+			children = (
+				FFB055D52A0EC17300351C21 /* FileNoticeView.swift */,
+				FFB055D72A0EC34A00351C21 /* TextNoticeView.swift */,
+				2FF5EB372A3A062C005198BF /* ControlPanelView.swift */,
+				FFB055E32A1EFC6000351C21 /* LoginView.swift */,
+				2FF5EB462A3A5A6B005198BF /* AboutView.swift */,
+				2FF46E532A6206C900848083 /* PeerPickerView.swift */,
+			);
+			path = View;
+			sourceTree = "<group>";
+		};
+		2FF5EB452A3A5597005198BF /* Enum */ = {
+			isa = PBXGroup;
+			children = (
+				2F03CA662A39F24700E9D93F /* CredentialType.swift */,
+				2FF5EB4B2A3A68D3005198BF /* ThemeMode.swift */,
+				2F2225C82A60EC1D006656EF /* FileSendingStatus.swift */,
+			);
+			path = Enum;
+			sourceTree = "<group>";
+		};
+		2FF5EB482A3A5C6B005198BF /* Extension */ = {
+			isa = PBXGroup;
+			children = (
+				2FF5EB492A3A5C73005198BF /* Versions.swift */,
+				2FCF62342A3A75CB0071752F /* StringHash.swift */,
+				2F2225E12A60FE17006656EF /* FileHandleEnsureLength.swift */,
+				2F63CDEA2A6209F600206F64 /* ViewWrapContent.swift */,
+				2FF26A672A62FE7400CAEDBC /* StringFromLengthenPointer.swift */,
+			);
+			path = Extension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2F069C2C2985B4DB009DD1E6 /* AnyDropmac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2F069C522985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmac" */;
+			buildPhases = (
+				195B29A66C4C0AB7CC582455 /* [CP] Check Pods Manifest.lock */,
+				2F069C292985B4DB009DD1E6 /* Sources */,
+				2F069C2A2985B4DB009DD1E6 /* Frameworks */,
+				2F069C2B2985B4DB009DD1E6 /* Resources */,
+				6F0E3DEE4EC84537CF538339 /* [CP] Embed Pods Frameworks */,
+				2F600ABA2AB6B5C0008BB10B /* Embed Libraries */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AnyDropmac;
+			productName = SwiftUIPractice;
+			productReference = 2F069C2D2985B4DB009DD1E6 /* AnyDropmac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		2F069C3D2985B4DC009DD1E6 /* AnyDropmacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2F069C552985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmacTests" */;
+			buildPhases = (
+				78E31C5DC960A8425249663A /* [CP] Check Pods Manifest.lock */,
+				2F069C3A2985B4DC009DD1E6 /* Sources */,
+				2F069C3B2985B4DC009DD1E6 /* Frameworks */,
+				2F069C3C2985B4DC009DD1E6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2F069C402985B4DC009DD1E6 /* PBXTargetDependency */,
+			);
+			name = AnyDropmacTests;
+			productName = SwiftUIPracticeTests;
+			productReference = 2F069C3E2985B4DC009DD1E6 /* AnyDropmacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		2F069C472985B4DC009DD1E6 /* AnyDropmacUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2F069C582985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmacUITests" */;
+			buildPhases = (
+				F651F1C2357711071DFFD541 /* [CP] Check Pods Manifest.lock */,
+				2F069C442985B4DC009DD1E6 /* Sources */,
+				2F069C452985B4DC009DD1E6 /* Frameworks */,
+				2F069C462985B4DC009DD1E6 /* Resources */,
+				427F52BCD4C48BD336E9F596 /* [CP] Embed Pods Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				2F069C4A2985B4DC009DD1E6 /* PBXTargetDependency */,
+			);
+			name = AnyDropmacUITests;
+			productName = SwiftUIPracticeUITests;
+			productReference = 2F069C482985B4DC009DD1E6 /* AnyDropmacUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2F069C252985B4DB009DD1E6 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1420;
+				LastUpgradeCheck = 1420;
+				TargetAttributes = {
+					2F069C2C2985B4DB009DD1E6 = {
+						CreatedOnToolsVersion = 14.2;
+						LastSwiftMigration = 1420;
+					};
+					2F069C3D2985B4DC009DD1E6 = {
+						CreatedOnToolsVersion = 14.2;
+						TestTargetID = 2F069C2C2985B4DB009DD1E6;
+					};
+					2F069C472985B4DC009DD1E6 = {
+						CreatedOnToolsVersion = 14.2;
+						TestTargetID = 2F069C2C2985B4DB009DD1E6;
+					};
+				};
+			};
+			buildConfigurationList = 2F069C282985B4DB009DD1E6 /* Build configuration list for PBXProject "AnyDropmac" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 2F069C242985B4DB009DD1E6;
+			productRefGroup = 2F069C2E2985B4DB009DD1E6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				2F069C2C2985B4DB009DD1E6 /* AnyDropmac */,
+				2F069C3D2985B4DC009DD1E6 /* AnyDropmacTests */,
+				2F069C472985B4DC009DD1E6 /* AnyDropmacUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2F069C2B2985B4DB009DD1E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F069C382985B4DC009DD1E6 /* Preview Assets.xcassets in Resources */,
+				2F069C352985B4DC009DD1E6 /* Assets.xcassets in Resources */,
+				2FCF62372A3A7DBB0071752F /* AnyDropmac-Info.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C3C2985B4DC009DD1E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C462985B4DC009DD1E6 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		195B29A66C4C0AB7CC582455 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-AnyDropmac-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		427F52BCD4C48BD336E9F596 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac-AnyDropmacUITests/Pods-AnyDropmac-AnyDropmacUITests-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac-AnyDropmacUITests/Pods-AnyDropmac-AnyDropmacUITests-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac-AnyDropmacUITests/Pods-AnyDropmac-AnyDropmacUITests-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		6F0E3DEE4EC84537CF538339 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac/Pods-AnyDropmac-frameworks-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac/Pods-AnyDropmac-frameworks-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-AnyDropmac/Pods-AnyDropmac-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		78E31C5DC960A8425249663A /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-AnyDropmacTests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		F651F1C2357711071DFFD541 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-AnyDropmac-AnyDropmacUITests-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2F069C292985B4DB009DD1E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F2225E52A6100E1006656EF /* FileNoticeWindow.swift in Sources */,
+				2F2225C92A60EC1D006656EF /* FileSendingStatus.swift in Sources */,
+				2FF5EB4C2A3A68D3005198BF /* ThemeMode.swift in Sources */,
+				2FF5EB472A3A5A6B005198BF /* AboutView.swift in Sources */,
+				2FF46E542A6206C900848083 /* PeerPickerView.swift in Sources */,
+				2FCF62312A3A6EB70071752F /* AnyDropCloud.swift in Sources */,
+				2F2AF3282A4C573B008B291F /* Peer.swift in Sources */,
+				2F782CA92A6C2E7A00E9411B /* WebSocketService.swift in Sources */,
+				2FF5EB342A39FDA7005198BF /* AppDelegate.swift in Sources */,
+				2FF5EB4A2A3A5C73005198BF /* Versions.swift in Sources */,
+				2F0615BA298621B200B151F7 /* AnyDropWrapper.m in Sources */,
+				2FCF62352A3A75CB0071752F /* StringHash.swift in Sources */,
+				2FF5EB422A3A4C00005198BF /* UIUtils.swift in Sources */,
+				2FF5EB402A3A3F36005198BF /* AnyDropService.swift in Sources */,
+				2FF26A682A62FE7400CAEDBC /* StringFromLengthenPointer.swift in Sources */,
+				2FF46E4F2A61FF2B00848083 /* FileWriterWorker.swift in Sources */,
+				FFB055D62A0EC17300351C21 /* FileNoticeView.swift in Sources */,
+				FFB055DA2A0F638500351C21 /* ThemeUtils.swift in Sources */,
+				2F03CA672A39F24700E9D93F /* CredentialType.swift in Sources */,
+				2FF5EB382A3A062C005198BF /* ControlPanelView.swift in Sources */,
+				2FF46E522A61FFD900848083 /* BlockingQueue.swift in Sources */,
+				2F63CDED2A62118000206F64 /* PeerPickerWindow.swift in Sources */,
+				FFB055E42A1EFC6000351C21 /* LoginView.swift in Sources */,
+				2F0615C62986322600B151F7 /* UnsafeString.swift in Sources */,
+				FFB055E22A1A86CE00351C21 /* TextNoticeViewModel.swift in Sources */,
+				2FCF62392A3A95510071752F /* AccountUtils.swift in Sources */,
+				2F03CA652A39F10F00E9D93F /* Defaults.swift in Sources */,
+				2F782CAB2A6C331F00E9411B /* Message.swift in Sources */,
+				2FCF62402A3ABB1B0071752F /* GlobalState.swift in Sources */,
+				FFB055DE2A1A712C00351C21 /* AnyDropApp.swift in Sources */,
+				FFB055D82A0EC34A00351C21 /* TextNoticeView.swift in Sources */,
+				2F2225CB2A60ED39006656EF /* ReceiveFile.swift in Sources */,
+				2F2225CD2A60F36D006656EF /* FileUtils.swift in Sources */,
+				2F63CDEB2A6209F600206F64 /* ViewWrapContent.swift in Sources */,
+				2F2225E22A60FE17006656EF /* FileHandleEnsureLength.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C3A2985B4DC009DD1E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F069C432985B4DC009DD1E6 /* SwiftUIPracticeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2F069C442985B4DC009DD1E6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2F069C4D2985B4DC009DD1E6 /* SwiftUIPracticeUITests.swift in Sources */,
+				2F069C4F2985B4DC009DD1E6 /* SwiftUIPracticeUITestsLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		2F069C402985B4DC009DD1E6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2F069C2C2985B4DB009DD1E6 /* AnyDropmac */;
+			targetProxy = 2F069C3F2985B4DC009DD1E6 /* PBXContainerItemProxy */;
+		};
+		2F069C4A2985B4DC009DD1E6 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2F069C2C2985B4DB009DD1E6 /* AnyDropmac */;
+			targetProxy = 2F069C492985B4DC009DD1E6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2F069C502985B4DC009DD1E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = /Users/miku/projects/libanydrop/target/release/deps;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		2F069C512985B4DC009DD1E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = /Users/miku/projects/libanydrop/target/release/deps;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		2F069C532985B4DC009DD1E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0CEF05B0FF288C331D246D2D /* Pods-AnyDropmac.debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = AnyDrop/AnyDropmac.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"AnyDrop/Preview Content\"";
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AnyDropmac-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = AnyDrop;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2023 Shijunyi Liu";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.AnyDropmac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "AnyDrop/Bridge/SwiftUIPractice-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		2F069C542985B4DC009DD1E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 34EF2758B4AD71ADECBCCECC /* Pods-AnyDropmac.release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = AnyDrop/AnyDropmac.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"AnyDrop/Preview Content\"";
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AnyDropmac-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = AnyDrop;
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "© 2023 Shijunyi Liu";
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited)";
+				LIBRARY_SEARCH_PATHS = "$(inherited)";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.AnyDropmac;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "AnyDrop/Bridge/SwiftUIPractice-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		2F069C562985B4DC009DD1E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D096C6A681D911E1B8C858AD /* Pods-AnyDropmacTests.debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = "$(inherited)";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.SwiftUIPracticeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftUIPractice.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwiftUIPractice";
+			};
+			name = Debug;
+		};
+		2F069C572985B4DC009DD1E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8923513058014BC424AB60A3 /* Pods-AnyDropmacTests.release.xcconfig */;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = "$(inherited)";
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.1;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.SwiftUIPracticeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwiftUIPractice.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwiftUIPractice";
+			};
+			name = Release;
+		};
+		2F069C592985B4DC009DD1E6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3CD4A06877030F095FFBCA5A /* Pods-AnyDropmac-AnyDropmacUITests.debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = "$(inherited)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.SwiftUIPracticeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SwiftUIPractice;
+			};
+			name = Debug;
+		};
+		2F069C5A2985B4DC009DD1E6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 928AC81A1BACA50DDCD46695 /* Pods-AnyDropmac-AnyDropmacUITests.release.xcconfig */;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = "$(inherited)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 275C3GY4R5;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mikutart.SwiftUIPracticeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = SwiftUIPractice;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2F069C282985B4DB009DD1E6 /* Build configuration list for PBXProject "AnyDropmac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F069C502985B4DC009DD1E6 /* Debug */,
+				2F069C512985B4DC009DD1E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2F069C522985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F069C532985B4DC009DD1E6 /* Debug */,
+				2F069C542985B4DC009DD1E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2F069C552985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmacTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F069C562985B4DC009DD1E6 /* Debug */,
+				2F069C572985B4DC009DD1E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2F069C582985B4DC009DD1E6 /* Build configuration list for PBXNativeTarget "AnyDropmacUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F069C592985B4DC009DD1E6 /* Debug */,
+				2F069C5A2985B4DC009DD1E6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 2F069C252985B4DB009DD1E6 /* Project object */;
+}

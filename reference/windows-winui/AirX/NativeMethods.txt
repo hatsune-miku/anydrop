@@ -1,0 +1,4 @@
+﻿MessageBox
+ShowWindow
+GetSystemMetrics
+AllocConsole

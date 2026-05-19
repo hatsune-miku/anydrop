@@ -1,0 +1,6 @@
+framework module Pods_AirXmac {
+  umbrella header "Pods-AirXmac-umbrella.h"
+
+  export *
+  module * { export * }
+}

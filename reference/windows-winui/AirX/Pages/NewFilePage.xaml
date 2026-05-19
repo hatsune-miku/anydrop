@@ -1,0 +1,95 @@
+<Page
+    x:Class="AnyDrop.Pages.NewFilePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AnyDrop.Pages"
+    xmlns:converters="using:AnyDrop.Converters"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    xmlns:muxc="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    Loading="OnPageLoading"
+    Loaded="OnPageLoaded"
+>
+    <Page.Resources>
+        <converters:IpAdrressToTextSourceConverter
+            x:Name="ipAdrressToTextSourceConverter"
+        />
+        <converters:StringToFixedLengthStringConverter
+            x:Name="stringToFixedLengthStringConverter"
+        />
+        <converters:ProgressTo100BasedProgressConverter
+            x:Name="progressTo100BasedProgressConverter"
+            TotalSize="{x:Bind ViewModel.ReceivingFile.TotalSize}"
+        />
+        <converters:ProgressToProgressStringConverter
+            x:Name="progressToProgressStringConverter"
+            TotalSize="{x:Bind ViewModel.ReceivingFile.TotalSize}"
+        />
+        <converters:FilePathToNameConverter
+            x:Name="filePathToNameConverter"
+        />
+        <converters:ProgressToStopOrOpenTextConverter
+            x:Name="progressToStopOrOpenTextConverter"
+            TotalSize="{x:Bind ViewModel.ReceivingFile.TotalSize}"
+        />
+    </Page.Resources>
+    <Grid
+        HorizontalAlignment="Stretch"
+        Background="{x:Bind ViewModel.BackgroundColor, Mode=OneWay}"
+        CornerRadius="12"
+    >
+        <Grid RowDefinitions="Auto, *, Auto">
+            <StackPanel Grid.Row="0" Padding="20, 30, 30, 0">
+                <TextBlock
+                    Text="{x:Bind ViewModel.ReceivingFile.RemoteFullPath, Converter={StaticResource filePathToNameConverter}, Mode=OneWay}"
+                    FontFamily="Inter" FontSize="20" FontWeight="Black" Foreground="Black"
+                />
+                <TextBlock
+                    Text="{x:Bind GetFileSizeDescription()}"
+                    FontFamily="Inter" FontSize="16" Margin="0,0,0,5" Foreground="Black"
+                />
+                <TextBlock
+                    Text="{x:Bind GetFrom()}"
+                    FontFamily="Inter" FontSize="13" Margin="0,20,0,5" Foreground="DimGray"
+                />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1">
+
+            </StackPanel>
+
+            <Grid Grid.Row="2" Background="{x:Bind ViewModel.AccentColor, Mode=OneWay}" Padding="5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="90"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <muxc:ProgressBar
+                    Value="{x:Bind ViewModel.ReceivingFile.DisplayProgress, Converter={StaticResource progressTo100BasedProgressConverter}, Mode=OneWay}" 
+                    Maximum="100"
+                    IsIndeterminate="False" 
+                    Grid.Column="0"
+                    Width="80"
+                />
+
+                <TextBlock Grid.Column="1" FontFamily="Inter" Text="{x:Bind ViewModel.ReceivingFile.DisplayProgress, Converter={StaticResource progressToProgressStringConverter}, Mode=OneWay}" Foreground="LightGray" FontWeight="Bold" FontSize="10" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="2"></TextBlock>
+                <HyperlinkButton
+                    Click="OnStopOrOpenFolderClicked"
+                    Grid.Column="3" FontFamily="Inter"
+                    Content="{x:Bind ViewModel.ReceivingFile.DisplayProgress, Converter={StaticResource progressToStopOrOpenTextConverter}, Mode=OneWay}"
+                    FontSize="15" Foreground="{x:Bind ViewModel.DimmedAccentColor, Mode=OneWay}" FontWeight="Bold"
+                />
+                <HyperlinkButton
+                    Click="OnBlockClicked"
+                    Grid.Column="4" FontFamily="Inter" Content="BLOCK" FontSize="15" Foreground="{x:Bind ViewModel.DimmedAccentColor, Mode=OneWay}" FontWeight="Bold"
+                />
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

@@ -1,0 +1,21 @@
+<localView:BaseWindow
+    x:Class="AnyDrop.View.LoginWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AnyDrop"
+    xmlns:localView="using:AnyDrop.View"
+    xmlns:converters="using:AnyDrop.Converters"
+    xmlns:pages="using:AnyDrop.Pages"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Grid RowDefinitions="32, *">
+        <Grid
+            Grid.Row="0"
+            x:Name="titleBar"
+            Background="Transparent"
+            Opacity="0"
+        />
+        <pages:LoginPage Grid.Row="1" />
+    </Grid>
+</localView:BaseWindow>

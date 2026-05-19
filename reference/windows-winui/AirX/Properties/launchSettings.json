@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "AnyDrop": {
+      "commandName": "Project",
+      "nativeDebugging": false
+    }
+  }
+}

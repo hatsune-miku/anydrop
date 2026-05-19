@@ -1,0 +1,140 @@
+name: Release Candidate
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Windows ────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(grep '^version' apps/desktop-tauri/src-tauri/Cargo.toml \
+            | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Get Yarn cache dir
+        id: yarn-cache
+        shell: bash
+        run: echo "dir=$(yarn cache dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build core (anydrop.dll)
+        run: cargo build -p anydrop --release
+
+      - name: Build Tauri Windows installer
+        run: yarn workspace @anydrop/desktop-tauri tauri build --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anydrop-dll
+          path: target/release/anydrop.dll
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: apps/desktop-tauri/src-tauri/target/release/bundle/nsis/*.exe
+
+  # ── macOS ──────────────────────────────────────────────────────────────────
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Get Yarn cache dir
+        id: yarn-cache
+        run: echo "dir=$(yarn cache dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.yarn-cache.outputs.dir }}
+          key: ${{ runner.os }}-yarn-${{ hashFiles('yarn.lock') }}
+          restore-keys: ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build core (libanydrop.dylib)
+        run: cargo build -p anydrop --release
+
+      - name: Build Tauri macOS app
+        run: yarn workspace @anydrop/desktop-tauri tauri build --bundles app,dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libanydrop-dylib
+          path: target/release/libanydrop.dylib
+
+      - name: Zip .app bundle
+        run: |
+          cd apps/desktop-tauri/src-tauri/target/release/bundle/macos
+          zip -r AnyDrop.app.zip AnyDrop.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: |
+            apps/desktop-tauri/src-tauri/target/release/bundle/macos/AnyDrop.app.zip
+            apps/desktop-tauri/src-tauri/target/release/bundle/dmg/*.dmg
+
+  # ── Release candidate ──────────────────────────────────────────────────────
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: rc-v${{ needs.build-windows.outputs.version }}-${{ github.run_number }}
+          name: "RC v${{ needs.build-windows.outputs.version }} #${{ github.run_number }}"
+          prerelease: true
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            artifacts/anydrop-dll/anydrop.dll
+            artifacts/libanydrop-dylib/libanydrop.dylib
+            artifacts/windows-installer/*.exe
+            artifacts/macos-app/AnyDrop.app.zip
+            artifacts/macos-app/*.dmg
