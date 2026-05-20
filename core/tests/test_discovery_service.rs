@@ -67,6 +67,7 @@ fn handle_new_peer_sends_response_as_single_datagram() {
         None,
         packet,
         7,
+        "test-host",
     )
     .unwrap();
 
@@ -99,6 +100,7 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
         None,
         first,
         7,
+        "test-host",
     )
     .unwrap();
     DiscoveryService::handle_new_peer(
@@ -108,6 +110,7 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
         None,
         second,
         7,
+        "test-host",
     )
     .unwrap();
 
@@ -133,6 +136,7 @@ fn discovery_run_accepts_single_datagram_packets() {
             None,
             Box::new(move || run_should_stop.load(Ordering::SeqCst)),
             99,
+            "test-host".to_string(),
         )
         .unwrap();
     });

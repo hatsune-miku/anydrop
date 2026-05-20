@@ -2,7 +2,6 @@ use crate::extension::ip_to_u32::ConvertIpU32;
 use crate::network::peer::Peer;
 use crate::proto::discovery_packet::DiscoveryPacket;
 use crate::service::ShouldInterruptFunctionType;
-use crate::util::os::OSUtil;
 use log::{error, info};
 use protobuf::Message;
 use std::collections::{HashMap, HashSet};
@@ -137,6 +136,7 @@ impl DiscoveryService {
         last_seen: Option<PeerLastSeenType>,
         packet: DiscoveryPacket,
         group_identifier: u32,
+        hostname: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let sender_address = packet.address();
         let sender_address_ipv4 = Ipv4Addr::from(sender_address);
@@ -161,29 +161,31 @@ impl DiscoveryService {
         );
 
         if packet.need_response() {
-            // Respond to our new friend on behalf of each local address.
+            // Send a single response directed at the actual UDP source.
+            // Previously we looped over every local address and sent one
+            // response per NIC, which polluted the remote peer set with all
+            // our virtual-adapter IPs.  One response is enough: the receiver
+            // learns our reachable IP from the UDP source of this response,
+            // exactly as we do on our end.
             info!("Responding to discovery request from {}", sender_address);
-            let self_hostname = OSUtil::hostname();
-            for local_addr_ipv4 in local_addresses {
-                let mut response_packet = DiscoveryPacket::new();
-                response_packet.set_address(local_addr_ipv4.into());
-                response_packet.set_server_port(packet.server_port());
-                response_packet.set_group_identifier(group_identifier);
-                response_packet.set_need_response(false);
-                response_packet.set_host_name(self_hostname.clone());
+            let mut response_packet = DiscoveryPacket::new();
+            response_packet.set_address(0); // see broadcast_discovery_request
+            response_packet.set_server_port(packet.server_port());
+            response_packet.set_group_identifier(group_identifier);
+            response_packet.set_need_response(false);
+            response_packet.set_host_name(hostname.to_string());
 
-                match Self::send_discovery_packet(
-                    server_socket,
-                    &response_packet,
-                    SocketAddrV4::new(sender_address_ipv4, packet.server_port() as u16),
-                ) {
-                    Ok(_) => {
-                        info!("Successfully sent response packet to {}", sender_address);
-                    }
-                    Err(e) => {
-                        error!("Failed to send response packet: {}", e);
-                        return Err(e);
-                    }
+            match Self::send_discovery_packet(
+                server_socket,
+                &response_packet,
+                SocketAddrV4::new(sender_address_ipv4, packet.server_port() as u16),
+            ) {
+                Ok(_) => {
+                    info!("Sent response to {}", sender_address);
+                }
+                Err(e) => {
+                    error!("Failed to send response: {}", e);
+                    return Err(e);
                 }
             }
         }
@@ -211,6 +213,7 @@ impl DiscoveryService {
         client_port: u16,
         server_port: u16,
         group_identifier: u32,
+        hostname: &str,
     ) -> Result<(), io::Error> {
         let client_socket = Self::create_broadcast_socket(client_port)?;
         let broadcast_addresses = match scan_broadcast_addresses() {
@@ -223,45 +226,30 @@ impl DiscoveryService {
                 ));
             }
         };
-        let local_addresses = match scan_local_addresses() {
-            Ok(x) => x,
-            Err(e) => {
-                error!("Failed to get local addresses: {}", e);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Failed to get local addresses: {}", e),
-                ));
-            }
-        };
 
-        let self_hostname = OSUtil::hostname();
         let mut broadcast_packet = DiscoveryPacket::new();
+        // address = 0: receivers derive our reachable IP from the UDP source
+        // reported by recv_from (OS routing table choice) rather than from
+        // this field.  Advertising local addresses here was the root cause of
+        // the multi-virtual-NIC pollution bug (one broadcast per NIC, all
+        // NIC IPs ending up in the remote peer set).  The field is kept in
+        // the proto for wire compatibility; updated receivers ignore it.
+        broadcast_packet.set_address(0);
         broadcast_packet.set_server_port(server_port as u32);
         broadcast_packet.set_group_identifier(group_identifier);
         broadcast_packet.set_need_response(true);
-        broadcast_packet.set_host_name(self_hostname.clone());
+        broadcast_packet.set_host_name(hostname.to_string());
 
         for broadcast_addr_ipv4 in &broadcast_addresses {
-            for local_addr_ipv4 in &local_addresses {
-                broadcast_packet.set_address(local_addr_ipv4.clone().to_u32());
-
-                let result = Self::send_discovery_packet(
-                    &client_socket,
-                    &broadcast_packet,
-                    SocketAddrV4::new(*broadcast_addr_ipv4, server_port),
-                );
-
-                if result.is_ok() {
-                    info!(
-                        "Successfully broadcast discovery packet to {}",
-                        broadcast_addr_ipv4
-                    );
-                } else {
-                    error!(
-                        "Failed to broadcast discovery packet to {}",
-                        broadcast_addr_ipv4
-                    );
-                }
+            let result = Self::send_discovery_packet(
+                &client_socket,
+                &broadcast_packet,
+                SocketAddrV4::new(*broadcast_addr_ipv4, server_port),
+            );
+            if result.is_ok() {
+                info!("Broadcast discovery to {}", broadcast_addr_ipv4);
+            } else {
+                error!("Failed to broadcast to {}", broadcast_addr_ipv4);
             }
         }
         Ok(())
@@ -274,20 +262,21 @@ impl DiscoveryService {
         last_seen: Option<PeerLastSeenType>,
         should_interrupt: ShouldInterruptFunctionType,
         group_identifier: u32,
+        hostname: String,
     ) -> Result<(), io::Error> {
         let server_socket = Self::create_broadcast_socket(server_port)?;
         let mut buf = [0u8; MAX_DISCOVERY_PACKET_BYTES];
 
         // Broadcast discovery request twice to ensure that we are discovered.
         for _ in 0..2 {
-            let _ = Self::broadcast_discovery_request(client_port, server_port, group_identifier);
+            let _ = Self::broadcast_discovery_request(client_port, server_port, group_identifier, &hostname);
         }
 
         info!("Discovery service online and ready for connections.");
 
         loop {
-            let packet_size = match server_socket.recv_from(&mut buf) {
-                Ok((size, _)) => size,
+            let (packet_size, src_addr) = match server_socket.recv_from(&mut buf) {
+                Ok(r) => r,
                 Err(e) if e.kind() == WouldBlock || e.kind() == TimedOut => {
                     if should_interrupt() {
                         info!("Discovery service interrupted by caller.");
@@ -303,19 +292,33 @@ impl DiscoveryService {
                         client_port,
                         server_port,
                         group_identifier,
+                        &hostname,
                     );
                     continue;
                 }
             };
 
             if let Ok(local_addresses) = scan_local_addresses() {
-                let packet = match DiscoveryPacket::parse_from_bytes(&buf[..packet_size]) {
+                let mut packet = match DiscoveryPacket::parse_from_bytes(&buf[..packet_size]) {
                     Ok(x) => x,
                     Err(e) => {
                         error!("Failed to parse discovery packet ({})", e);
                         continue;
                     }
                 };
+
+                // Override the peer address in the packet with the actual UDP
+                // source IP reported by the OS.  Peers advertise all their
+                // local addresses in the packet payload (one broadcast per
+                // NIC), so a machine with many virtual adapters would inject
+                // all of its NIC IPs into our peer set.  The real source IP
+                // chosen by the kernel routing table is the one interface that
+                // is genuinely reachable from us, which is the only address we
+                // should ever try for data connections.
+                if let SocketAddr::V4(v4_src) = src_addr {
+                    packet.set_address(v4_src.ip().to_u32());
+                }
+
                 let _ = Self::handle_new_peer(
                     local_addresses,
                     &server_socket,
@@ -323,6 +326,7 @@ impl DiscoveryService {
                     last_seen.clone(),
                     packet,
                     group_identifier,
+                    &hostname,
                 );
             } else {
                 error!("Failed to scan local addresses.");

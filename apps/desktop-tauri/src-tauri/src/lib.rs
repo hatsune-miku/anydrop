@@ -13,6 +13,7 @@ use anydrop::service::anydrop_service::{AnyDropService, AnyDropServiceConfig};
 use anydrop::service::context::data_service_context::DataServiceContext;
 use anydrop::service::data_service::DataService;
 use anydrop::service::discovery_service::DiscoveryService;
+use anydrop::util::os::OSUtil;
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
@@ -45,19 +46,22 @@ fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.data_port == 0 {
         settings.data_port = DEFAULT_DATA_PORT;
     }
+    if settings.display_name.trim().is_empty() {
+        settings.display_name = OSUtil::hostname();
+    }
     settings
 }
 
 fn load_settings() -> AppSettings {
     let Ok(path) = settings_path() else {
-        return AppSettings::default();
+        return normalize_settings(AppSettings::default());
     };
     let Ok(raw) = fs::read_to_string(path) else {
-        return AppSettings::default();
+        return normalize_settings(AppSettings::default());
     };
     serde_json::from_str::<AppSettings>(&raw)
         .map(normalize_settings)
-        .unwrap_or_default()
+        .unwrap_or_else(|_| normalize_settings(AppSettings::default()))
 }
 
 fn save_settings_file(settings: &AppSettings) -> Result<(), String> {
@@ -75,6 +79,9 @@ struct AppSettings {
     group_identity: u32,
     discovery_port: u16,
     data_port: u16,
+    /// Display name advertised to peers. Defaults to the system hostname.
+    #[serde(default)]
+    display_name: String,
 }
 
 impl Default for AppSettings {
@@ -86,6 +93,7 @@ impl Default for AppSettings {
             group_identity: 0,
             discovery_port: DEFAULT_DISCOVERY_PORT,
             data_port: DEFAULT_DATA_PORT,
+            display_name: String::new(), // normalize_settings fills from OSUtil
         }
     }
 }
@@ -449,6 +457,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let peer_cache = backend.peers.clone();
     let peer_app = app.clone();
     let discovery_config = config.clone();
+    let discovery_display_name = settings.display_name.clone();
     threads.push(thread::spawn(move || {
         let _ = DiscoveryService::run(
             discovery_config.discovery_service_client_port,
@@ -457,6 +466,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             Some(discovery_last_seen),
             Box::new(move || discovery_stop.load(Ordering::SeqCst)),
             discovery_config.group_identifier,
+            discovery_display_name,
         );
     }));
 
@@ -465,6 +475,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     // hide them).
     let rebroadcast_stop = stop.clone();
     let rebroadcast_config = config.clone();
+    let rebroadcast_display_name = settings.display_name.clone();
     threads.push(thread::spawn(move || {
         // 3s heartbeat with 250ms granularity for responsive stop.
         let mut tick: u32 = 0;
@@ -476,6 +487,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     rebroadcast_config.discovery_service_client_port,
                     rebroadcast_config.discovery_service_server_port,
                     rebroadcast_config.group_identifier,
+                    &rebroadcast_display_name,
                 );
             }
         }
@@ -793,12 +805,14 @@ fn refresh_peers(backend: State<'_, Backend>) -> Result<Snapshot, String> {
     // Fire-and-forget: 3 broadcasts with small spacing to reliably reach peers
     // even with UDP packet loss.
     let cfg = config.clone();
+    let display_name = backend.settings.lock().unwrap().display_name.clone();
     thread::spawn(move || {
         for _ in 0..3 {
             let _ = DiscoveryService::broadcast_discovery_request(
                 cfg.discovery_service_client_port,
                 cfg.discovery_service_server_port,
                 cfg.group_identifier,
+                &display_name,
             );
             thread::sleep(Duration::from_millis(120));
         }

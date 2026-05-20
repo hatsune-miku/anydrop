@@ -27,6 +27,7 @@ type SettingsModel = {
   groupIdentity: number
   discoveryPort: number
   dataPort: number
+  displayName: string
 }
 
 type PeerGroup = {
@@ -73,6 +74,7 @@ const fallbackSettings: SettingsModel = {
   groupIdentity: 0,
   discoveryPort: 9818,
   dataPort: 9819,
+  displayName: '',
 }
 
 const emptySnapshot: Snapshot = {
@@ -616,6 +618,17 @@ function App() {
                   }
                 />
                 <span>仅双击复制时发送</span>
+              </label>
+              <label className="field">
+                <span>本机外显名</span>
+                <input
+                  type="text"
+                  placeholder={snapshot.settings.displayName || '（系统主机名）'}
+                  value={settingsDraft.displayName}
+                  onChange={(event) =>
+                    setSettingsDraft({ ...settingsDraft, displayName: event.target.value })
+                  }
+                />
               </label>
               <label className="field">
                 <span>组 ID</span>

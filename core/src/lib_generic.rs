@@ -110,6 +110,7 @@ pub extern "C" fn anydrop_lan_discovery_service(
         None,
         Box::new(move || should_interrupt()),
         config.group_identifier,
+        crate::util::os::OSUtil::hostname(),
     );
 
     info!("lib: Discovery service stopped.");
@@ -225,6 +226,7 @@ pub extern "C" fn anydrop_lan_broadcast(anydrop_ptr: *mut AnyDropService) -> boo
         config.discovery_service_client_port,
         config.discovery_service_server_port,
         config.group_identifier,
+        &crate::util::os::OSUtil::hostname(),
     )
     .is_ok()
 }
