@@ -62,7 +62,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: apps/desktop-tauri/src-tauri/target/release/bundle/nsis/*.exe
+          path: target/release/bundle/nsis/*.exe
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
@@ -105,15 +105,15 @@ jobs:
 
       - name: Zip .app bundle
         run: |
-          cd apps/desktop-tauri/src-tauri/target/release/bundle/macos
+          cd target/release/bundle/macos
           zip -r AnyDrop.app.zip AnyDrop.app
 
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
           path: |
-            apps/desktop-tauri/src-tauri/target/release/bundle/macos/AnyDrop.app.zip
-            apps/desktop-tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/AnyDrop.app.zip
+            target/release/bundle/dmg/*.dmg
 
   # ── Release candidate ──────────────────────────────────────────────────────
   release:
