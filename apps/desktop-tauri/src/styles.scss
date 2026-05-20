@@ -95,6 +95,13 @@ textarea {
   white-space: nowrap;
 }
 
+/* macOS variant: no custom controls; pad left to clear native traffic lights.
+   Traffic lights sit at roughly x=12–70px; 80px gives comfortable clearance. */
+.window-titlebar--mac {
+  grid-template-columns: 1fr;
+  padding-left: 80px;
+}
+
 .window-controls {
   display: flex;
   align-self: stretch;

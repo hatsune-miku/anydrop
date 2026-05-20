@@ -307,7 +307,21 @@ function App() {
 
   return (
     <main className="app-shell">
-      {!isMac && (
+      {isMac ? (
+        // macOS: decorations=true + transparent=true gives us fullSizeContentView.
+        // The native traffic lights sit in the top-left of the window frame
+        // overlapping our webview.  We render a custom drag bar with the title
+        // on the right and leave ~80px on the left clear for the traffic lights.
+        <header
+          className="window-titlebar window-titlebar--mac"
+          data-tauri-drag-region
+          onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+        >
+          <div className="window-title" data-tauri-drag-region>
+            AnyDrop
+          </div>
+        </header>
+      ) : (
         <header
           className="window-titlebar"
           data-tauri-drag-region
