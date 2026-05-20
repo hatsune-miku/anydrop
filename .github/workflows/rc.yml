@@ -136,5 +136,5 @@ jobs:
             artifacts/anydrop-dll/anydrop.dll
             artifacts/libanydrop-dylib/libanydrop.dylib
             artifacts/windows-installer/*.exe
-            artifacts/macos-app/AnyDrop.app.zip
-            artifacts/macos-app/*.dmg
+            artifacts/macos-app/**/AnyDrop.app.zip
+            artifacts/macos-app/**/*.dmg
