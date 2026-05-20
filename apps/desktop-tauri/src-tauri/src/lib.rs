@@ -403,6 +403,10 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let discovery_stop = stop.clone();
     let discovery_peers = service.discovery_service().peers();
     let discovery_thread_peers = discovery_peers.clone();
+    let peer_last_seen: Arc<Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let discovery_last_seen = peer_last_seen.clone();
+    let polling_last_seen = peer_last_seen.clone();
     let peer_cache = backend.peers.clone();
     let peer_app = app.clone();
     let discovery_config = config.clone();
@@ -411,6 +415,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             discovery_config.discovery_service_client_port,
             discovery_config.discovery_service_server_port,
             discovery_thread_peers,
+            Some(discovery_last_seen),
             Box::new(move || discovery_stop.load(Ordering::SeqCst)),
             discovery_config.group_identifier,
         );
@@ -438,9 +443,25 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
 
     let peer_stop = stop.clone();
     threads.push(thread::spawn(move || {
+        const PEER_TTL: Duration = Duration::from_secs(15);
         while !peer_stop.load(Ordering::SeqCst) {
+            let now = std::time::Instant::now();
+            let fresh: Option<std::collections::HashSet<String>> = polling_last_seen
+                .try_lock()
+                .ok()
+                .map(|seen| {
+                    seen.iter()
+                        .filter(|(_, t)| now.duration_since(**t) < PEER_TTL)
+                        .map(|(host, _)| host.clone())
+                        .collect()
+                });
+
             if let Ok(peers) = discovery_peers.try_lock() {
-                let next = group_peers(peers.iter().cloned());
+                let alive = peers.iter().filter(|p| match &fresh {
+                    Some(set) => set.contains(p.host()),
+                    None => true,
+                });
+                let next = group_peers(alive.cloned());
                 drop(peers);
                 if let Ok(mut cache) = peer_cache.lock() {
                     if cache.len() != next.len()

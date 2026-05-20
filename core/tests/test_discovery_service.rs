@@ -60,8 +60,15 @@ fn handle_new_peer_sends_response_as_single_datagram() {
     let local_addresses = HashSet::from([Ipv4Addr::new(192, 0, 2, 10)]);
     let packet = packet(Ipv4Addr::LOCALHOST, response_port, true, 7);
 
-    DiscoveryService::handle_new_peer(local_addresses, &server_socket, peers.clone(), packet, 7)
-        .unwrap();
+    DiscoveryService::handle_new_peer(
+        local_addresses,
+        &server_socket,
+        peers.clone(),
+        None,
+        packet,
+        7,
+    )
+    .unwrap();
 
     let mut buf = [0u8; 4096];
     let (len, _) = response_socket.recv_from(&mut buf).unwrap();
@@ -89,12 +96,20 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
         local_addresses.clone(),
         &server_socket,
         peers.clone(),
+        None,
         first,
         7,
     )
     .unwrap();
-    DiscoveryService::handle_new_peer(local_addresses, &server_socket, peers.clone(), second, 7)
-        .unwrap();
+    DiscoveryService::handle_new_peer(
+        local_addresses,
+        &server_socket,
+        peers.clone(),
+        None,
+        second,
+        7,
+    )
+    .unwrap();
 
     let locked = peers.lock().unwrap();
     assert_eq!(locked.len(), 2);
@@ -115,6 +130,7 @@ fn discovery_run_accepts_single_datagram_packets() {
             0,
             server_port,
             run_peers,
+            None,
             Box::new(move || run_should_stop.load(Ordering::SeqCst)),
             99,
         )

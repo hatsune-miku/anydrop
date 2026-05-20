@@ -107,6 +107,7 @@ pub extern "C" fn anydrop_lan_discovery_service(
         config.discovery_service_client_port,
         config.discovery_service_server_port,
         peers_ptr,
+        None,
         Box::new(move || should_interrupt()),
         config.group_identifier,
     );

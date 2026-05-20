@@ -5,17 +5,18 @@ use crate::service::ShouldInterruptFunctionType;
 use crate::util::os::OSUtil;
 use log::{error, info};
 use protobuf::Message;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::ErrorKind::{TimedOut, WouldBlock};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DISCOVERY_TIMEOUT_MILLIS: u64 = 1000;
 const MAX_DISCOVERY_PACKET_BYTES: usize = 4096;
 
 pub type PeerCollectionType = Arc<Mutex<HashSet<Peer>>>;
+pub type PeerLastSeenType = Arc<Mutex<HashMap<String, Instant>>>;
 
 trait ToIpV4Addr {
     fn to_ipv4_addr(&self) -> Option<Ipv4Addr>;
@@ -133,6 +134,7 @@ impl DiscoveryService {
         local_addresses: HashSet<Ipv4Addr>,
         server_socket: &UdpSocket,
         peers: PeerCollectionType,
+        last_seen: Option<PeerLastSeenType>,
         packet: DiscoveryPacket,
         group_identifier: u32,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -194,6 +196,12 @@ impl DiscoveryService {
                 Some(&packet.host_name().to_string()),
             ));
             info!("Added peer {} to peer set.", sender_address);
+        }
+
+        if let Some(last_seen_arc) = last_seen {
+            if let Ok(mut map) = last_seen_arc.lock() {
+                map.insert(sender_address_ipv4.to_string(), Instant::now());
+            }
         }
 
         Ok(())
@@ -263,6 +271,7 @@ impl DiscoveryService {
         client_port: u16,
         server_port: u16,
         peer_set_ptr: PeerCollectionType,
+        last_seen: Option<PeerLastSeenType>,
         should_interrupt: ShouldInterruptFunctionType,
         group_identifier: u32,
     ) -> Result<(), io::Error> {
@@ -311,6 +320,7 @@ impl DiscoveryService {
                     local_addresses,
                     &server_socket,
                     peer_set_ptr.clone(),
+                    last_seen.clone(),
                     packet,
                     group_identifier,
                 );

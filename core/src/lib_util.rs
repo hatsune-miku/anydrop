@@ -15,7 +15,6 @@ use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
 use std::fs::File;
 use std::os::raw::c_char;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -99,17 +98,15 @@ pub fn shared_anydrop_try_send_file(
         }
     };
 
-    let file_name = Path::new(&file_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| file_path.clone());
-
     info!(
-        "lib: Sending file info {} (basename={}) to (addr={}:{})",
-        file_path, file_name, host, config.data_service_listen_port
+        "lib: Sending file info {} to (addr={}:{})",
+        file_path, host, config.data_service_listen_port
     );
-    let packet = FileComingPacket::new(metadata.len(), file_name);
+    // NOTE: protocol uses file_name as both display name AND local-path lookup
+    // key on the sender side (see file_receive_response_packet_handler.rs:83).
+    // Until we add a sender-side file_id->path map, we must send the full path.
+    // Receiver-side display already strips basename via the `file_name()` helper.
+    let packet = FileComingPacket::new(metadata.len(), file_path.clone());
     match DataService::send_once_with_retry(
         &Peer::new(&host, config.data_service_listen_port, None),
         config.data_service_listen_port,
