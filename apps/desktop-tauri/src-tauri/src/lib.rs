@@ -274,10 +274,12 @@ fn outgoing_key(file_id: u8) -> String {
 }
 
 fn file_name(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
+    // Cross-platform basename: Path::file_name() on Unix only treats '/' as a
+    // separator, so Windows paths like "C:\Users\foo.txt" survive intact on
+    // macOS. Manually split on both separators to handle peer paths from any
+    // platform.
+    path.rsplit(|c| c == '/' || c == '\\')
+        .find(|s| !s.is_empty())
         .unwrap_or("received-file")
         .to_string()
 }
@@ -349,9 +351,14 @@ fn port_available(discovery_port: u16, data_port: u16) -> Result<(), String> {
 }
 
 fn first_reachable_host(hosts: &[String], data_port: u16) -> Option<String> {
+    // Use a generous timeout matching CONNECTION_TIMEOUT_MILLIS — a tight
+    // probe (250ms) caused legitimate peers to be considered unreachable on
+    // Windows when the TCP handshake had any latency, while the actual send
+    // would have succeeded with the 3s send timeout.
+    let probe_timeout = Duration::from_millis(CONNECTION_TIMEOUT_MILLIS);
     hosts.iter().find_map(|host| {
         let socket = format!("{host}:{data_port}").parse::<SocketAddr>().ok()?;
-        TcpStream::connect_timeout(&socket, Duration::from_millis(250))
+        TcpStream::connect_timeout(&socket, probe_timeout)
             .ok()
             .map(|_| host.clone())
     })
@@ -421,17 +428,18 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         );
     }));
 
-    // Periodic discovery rebroadcast so new/restarted peers are seen.
+    // Periodic discovery rebroadcast so new/restarted peers are seen and so
+    // existing peers' last_seen stays fresh (otherwise the expiry filter would
+    // hide them).
     let rebroadcast_stop = stop.clone();
     let rebroadcast_config = config.clone();
     threads.push(thread::spawn(move || {
-        // Heartbeat broadcast every 5s, with a short sleep granularity so
-        // stopping the service is responsive.
+        // 3s heartbeat with 250ms granularity for responsive stop.
         let mut tick: u32 = 0;
         while !rebroadcast_stop.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(250));
             tick = tick.wrapping_add(1);
-            if tick % 20 == 0 {
+            if tick % 12 == 0 {
                 let _ = DiscoveryService::broadcast_discovery_request(
                     rebroadcast_config.discovery_service_client_port,
                     rebroadcast_config.discovery_service_server_port,
@@ -446,32 +454,55 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         const PEER_TTL: Duration = Duration::from_secs(15);
         while !peer_stop.load(Ordering::SeqCst) {
             let now = std::time::Instant::now();
-            let fresh: Option<std::collections::HashSet<String>> = polling_last_seen
+
+            // Build a deny-list of stale hosts. Peers not in the map at all
+            // (race during init / freshly added) are kept, so we never filter
+            // out a peer the discovery service just inserted.
+            let stale_hosts: std::collections::HashSet<String> = polling_last_seen
                 .try_lock()
                 .ok()
                 .map(|seen| {
                     seen.iter()
-                        .filter(|(_, t)| now.duration_since(**t) < PEER_TTL)
+                        .filter(|(_, t)| now.duration_since(**t) >= PEER_TTL)
                         .map(|(host, _)| host.clone())
                         .collect()
-                });
+                })
+                .unwrap_or_default();
+
+            // Prune the underlying peer set so stale entries don't linger.
+            if !stale_hosts.is_empty() {
+                if let Ok(mut peers) = discovery_peers.try_lock() {
+                    peers.retain(|p| !stale_hosts.contains(p.host()));
+                }
+                if let Ok(mut seen) = polling_last_seen.try_lock() {
+                    seen.retain(|host, _| !stale_hosts.contains(host));
+                }
+            }
 
             if let Ok(peers) = discovery_peers.try_lock() {
-                let alive = peers.iter().filter(|p| match &fresh {
-                    Some(set) => set.contains(p.host()),
-                    None => true,
-                });
-                let next = group_peers(alive.cloned());
+                let next = group_peers(peers.iter().cloned());
                 drop(peers);
-                if let Ok(mut cache) = peer_cache.lock() {
-                    if cache.len() != next.len()
-                        || cache.iter().zip(next.iter()).any(|(left, right)| {
-                            left.name != right.name || left.hosts != right.hosts
-                        })
-                    {
-                        *cache = next;
-                        emit_snapshot(&peer_app);
+                // Detect change, update cache, then RELEASE the lock before
+                // emitting. emit_snapshot → backend.snapshot() calls
+                // peer_cache.try_lock(); if we still hold it here the
+                // try_lock fails and the snapshot is emitted with an empty
+                // peer list, making auto-refresh look broken.
+                let changed = {
+                    if let Ok(mut cache) = peer_cache.lock() {
+                        let differs = cache.len() != next.len()
+                            || cache.iter().zip(next.iter()).any(|(left, right)| {
+                                left.name != right.name || left.hosts != right.hosts
+                            });
+                        if differs {
+                            *cache = next;
+                        }
+                        differs
+                    } else {
+                        false
                     }
+                }; // lock released here
+                if changed {
+                    emit_snapshot(&peer_app);
                 }
             }
             thread::sleep(Duration::from_millis(750));
@@ -716,15 +747,18 @@ fn refresh_peers(backend: State<'_, Backend>) -> Result<Snapshot, String> {
     let Some(config) = backend.config() else {
         return Err("Service is offline".to_string());
     };
-    // Fire-and-forget: the discovery server listens regardless; this just
-    // re-broadcasts our presence to wake up any peers that joined late.
+    // Fire-and-forget: 3 broadcasts with small spacing to reliably reach peers
+    // even with UDP packet loss.
     let cfg = config.clone();
     thread::spawn(move || {
-        let _ = DiscoveryService::broadcast_discovery_request(
-            cfg.discovery_service_client_port,
-            cfg.discovery_service_server_port,
-            cfg.group_identifier,
-        );
+        for _ in 0..3 {
+            let _ = DiscoveryService::broadcast_discovery_request(
+                cfg.discovery_service_client_port,
+                cfg.discovery_service_server_port,
+                cfg.group_identifier,
+            );
+            thread::sleep(Duration::from_millis(120));
+        }
     });
     Ok(backend.snapshot())
 }
@@ -818,11 +852,17 @@ fn send_files_to_peer(
         return Err("Service is offline".to_string());
     };
     let Some(host) = first_reachable_host(&hosts, config.data_service_listen_port) else {
+        eprintln!(
+            "send_files_to_peer: no reachable host among {:?} on port {}",
+            hosts, config.data_service_listen_port
+        );
         return Err("No reachable address for peer".to_string());
     };
+    eprintln!("send_files_to_peer: chosen host = {}", host);
     let mut queued = 0;
     for file in files {
         if !Path::new(&file).exists() {
+            eprintln!("send_files_to_peer: skipping missing file {}", file);
             continue;
         }
         // Pre-populate the outgoing transfer so the UI shows real filename
