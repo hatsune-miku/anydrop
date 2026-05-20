@@ -228,6 +228,10 @@ function App() {
       return
     }
 
+    // Trigger a fresh discovery broadcast; ignore errors if service is offline.
+    try {
+      await invoke<Snapshot>('refresh_peers')
+    } catch {}
     const next = await invoke<Snapshot>('get_snapshot')
     setSnapshot(next)
     setSettingsDraft(next.settings)

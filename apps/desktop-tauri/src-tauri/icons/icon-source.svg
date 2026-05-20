@@ -1,0 +1,20 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Pink squircle background -->
+  <rect width="1024" height="1024" rx="225" fill="#D55276"/>
+
+  <!-- White droplet -->
+  <path d="M 512 150
+           C 700 330 760 500 760 602
+           A 248 248 0 1 1 264 602
+           C 264 500 324 330 512 150 Z"
+        fill="white"/>
+
+  <!-- Pink 'A' inscribed in the droplet -->
+  <path d="M 384 730 L 512 390 L 640 730
+           M 436 620 L 588 620"
+        stroke="#D55276"
+        stroke-width="60"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        fill="none"/>
+</svg>

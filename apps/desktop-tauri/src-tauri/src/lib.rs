@@ -23,7 +23,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 
 const DEFAULT_DISCOVERY_PORT: u16 = 9818;
 const DEFAULT_DATA_PORT: u16 = 9819;
@@ -414,6 +416,26 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         );
     }));
 
+    // Periodic discovery rebroadcast so new/restarted peers are seen.
+    let rebroadcast_stop = stop.clone();
+    let rebroadcast_config = config.clone();
+    threads.push(thread::spawn(move || {
+        // Heartbeat broadcast every 5s, with a short sleep granularity so
+        // stopping the service is responsive.
+        let mut tick: u32 = 0;
+        while !rebroadcast_stop.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(250));
+            tick = tick.wrapping_add(1);
+            if tick % 20 == 0 {
+                let _ = DiscoveryService::broadcast_discovery_request(
+                    rebroadcast_config.discovery_service_client_port,
+                    rebroadcast_config.discovery_service_server_port,
+                    rebroadcast_config.group_identifier,
+                );
+            }
+        }
+    }));
+
     let peer_stop = stop.clone();
     threads.push(thread::spawn(move || {
         while !peer_stop.load(Ordering::SeqCst) {
@@ -669,6 +691,24 @@ fn get_snapshot(backend: State<'_, Backend>) -> Snapshot {
 }
 
 #[tauri::command]
+fn refresh_peers(backend: State<'_, Backend>) -> Result<Snapshot, String> {
+    let Some(config) = backend.config() else {
+        return Err("Service is offline".to_string());
+    };
+    // Fire-and-forget: the discovery server listens regardless; this just
+    // re-broadcasts our presence to wake up any peers that joined late.
+    let cfg = config.clone();
+    thread::spawn(move || {
+        let _ = DiscoveryService::broadcast_discovery_request(
+            cfg.discovery_service_client_port,
+            cfg.discovery_service_server_port,
+            cfg.group_identifier,
+        );
+    });
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
 fn start_service(app: AppHandle, backend: State<'_, Backend>) -> Result<Snapshot, String> {
     backend.set_status("Starting service");
     start_service_background(app.clone());
@@ -761,10 +801,36 @@ fn send_files_to_peer(
     };
     let mut queued = 0;
     for file in files {
-        if Path::new(&file).exists() {
-            shared_anydrop_try_send_file(host.clone(), file, &config);
-            queued += 1;
+        if !Path::new(&file).exists() {
+            continue;
         }
+        // Pre-populate the outgoing transfer so the UI shows real filename
+        // before the core's sending callback fires.
+        let file_id = backend.next_file_id.fetch_add(1, Ordering::SeqCst);
+        let key = outgoing_key(file_id);
+        let display_name = file_name(&file);
+        let total = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+        let entry = Transfer {
+            key: key.clone(),
+            file_id,
+            file_name: display_name,
+            remote_path: file.clone(),
+            local_path: file.clone(),
+            peer: host.clone(),
+            host: host.clone(),
+            direction: "outgoing".to_string(),
+            progress: 0,
+            total,
+            status: 1,
+        };
+        backend
+            .transfers
+            .lock()
+            .unwrap()
+            .insert(key, entry);
+
+        shared_anydrop_try_send_file(host.clone(), file, &config);
+        queued += 1;
     }
     backend.set_status(format!("Queued {queued} file(s)"));
     emit_snapshot(&app);
@@ -869,23 +935,90 @@ fn open_transfer_folder(backend: State<'_, Backend>, transfer_key: String) -> Re
     open::that(folder).map_err(|err| err.to_string())
 }
 
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn toggle_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let visible = window.is_visible().unwrap_or(false);
+        if visible {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "显示 AnyDrop", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .expect("bundle missing default window icon");
+
+    TrayIconBuilder::with_id("main")
+        .icon(icon)
+        .tooltip("AnyDrop")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                toggle_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
 pub fn run() {
     shared_anydrop_init();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Backend::new(load_settings()))
+        .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             if let Some(backend) = handle.try_state::<Backend>() {
                 backend.set_status("Opening UI");
                 emit_snapshot(&handle);
             }
+            if let Err(err) = build_tray(&handle) {
+                eprintln!("tray setup failed: {err}");
+            }
             auto_start_service(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
+            refresh_peers,
             start_service,
             stop_service,
             save_settings,

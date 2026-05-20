@@ -29,7 +29,8 @@
     "targets": ["nsis"],
     "windows": {
       "nsis": {
-        "installMode": "both"
+        "installMode": "both",
+        "installerHooks": "installer.nsh"
       }
     }
   }
