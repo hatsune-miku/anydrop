@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   Check,
@@ -57,7 +57,14 @@ type Snapshot = {
   lastClipboardText: string
   lastReceivedText: string
   statusText: string
+  logs: string[]
 }
+
+// Detect macOS once at module level. On macOS we rely on the native window
+// chrome (traffic lights + drag) and skip the custom titlebar entirely.
+const isMac =
+  typeof navigator !== 'undefined' &&
+  (navigator.platform.startsWith('Mac') || navigator.userAgent.includes('Macintosh'))
 
 const fallbackSettings: SettingsModel = {
   sendClipboardEnabled: true,
@@ -76,6 +83,7 @@ const emptySnapshot: Snapshot = {
   lastClipboardText: '',
   lastReceivedText: '',
   statusText: 'Loading',
+  logs: [],
 }
 
 function Surface({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -136,6 +144,7 @@ function App() {
   const [settingsDraft, setSettingsDraft] = useState<SettingsModel>(fallbackSettings)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const logListRef = useRef<HTMLDivElement>(null)
   const [darkMode, setDarkMode] = useState(() => {
     try {
       const stored = localStorage.getItem('darkMode')
@@ -148,6 +157,13 @@ function App() {
     document.documentElement.classList.toggle('dark', darkMode)
     try { localStorage.setItem('darkMode', String(darkMode)) } catch {}
   }, [darkMode])
+
+  // Auto-scroll the log panel to the newest entry whenever logs change.
+  useEffect(() => {
+    if (logListRef.current) {
+      logListRef.current.scrollTop = logListRef.current.scrollHeight
+    }
+  }, [snapshot.logs])
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => event.preventDefault()
@@ -289,41 +305,43 @@ function App() {
 
   return (
     <main className="app-shell">
-      <header
-        className="window-titlebar"
-        data-tauri-drag-region
-        onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
-      >
-        <div className="window-title" data-tauri-drag-region>
-          AnyDrop
-        </div>
-        <div className="window-controls">
-          <button
-            aria-label="最小化"
-            className="window-control"
-            type="button"
-            onClick={(e) => void runWindowAction(e, 'minimize')}
-          >
-            <Minus size={13} strokeWidth={1.5} />
-          </button>
-          <button
-            aria-label="最大化或还原"
-            className="window-control"
-            type="button"
-            onClick={(e) => void runWindowAction(e, 'toggleMaximize')}
-          >
-            <Square size={11} strokeWidth={1.5} />
-          </button>
-          <button
-            aria-label="关闭"
-            className="window-control close"
-            type="button"
-            onClick={(e) => void runWindowAction(e, 'close')}
-          >
-            <X size={13} strokeWidth={1.5} />
-          </button>
-        </div>
-      </header>
+      {!isMac && (
+        <header
+          className="window-titlebar"
+          data-tauri-drag-region
+          onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+        >
+          <div className="window-title" data-tauri-drag-region>
+            AnyDrop
+          </div>
+          <div className="window-controls">
+            <button
+              aria-label="最小化"
+              className="window-control"
+              type="button"
+              onClick={(e) => void runWindowAction(e, 'minimize')}
+            >
+              <Minus size={13} strokeWidth={1.5} />
+            </button>
+            <button
+              aria-label="最大化或还原"
+              className="window-control"
+              type="button"
+              onClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+            >
+              <Square size={11} strokeWidth={1.5} />
+            </button>
+            <button
+              aria-label="关闭"
+              className="window-control close"
+              type="button"
+              onClick={(e) => void runWindowAction(e, 'close')}
+            >
+              <X size={13} strokeWidth={1.5} />
+            </button>
+          </div>
+        </header>
+      )}
 
       {notice ? (
         <div className="notice" role="status">
@@ -429,7 +447,7 @@ function App() {
             </section>
           </Surface>
 
-          <div className="main-stack">
+          <div className="main-stack main-stack--with-log">
             <Surface>
               <section className="card send-card">
                 <div className="section-heading">
@@ -519,6 +537,30 @@ function App() {
                     ))}
                   </div>
                 )}
+              </section>
+            </Surface>
+            <Surface>
+              <section className="card log-card">
+                <div className="section-heading">
+                  <span>日志</span>
+                  <button
+                    className="button quiet"
+                    type="button"
+                    style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
+                    onClick={() => void runCommand<Snapshot>('clear_logs')}
+                  >
+                    清空
+                  </button>
+                </div>
+                <div className="log-list" ref={logListRef}>
+                  {snapshot.logs.length === 0 ? (
+                    <p className="empty">暂无日志。</p>
+                  ) : (
+                    snapshot.logs.map((entry, i) => (
+                      <div className="log-entry" key={i}>{entry}</div>
+                    ))
+                  )}
+                </div>
               </section>
             </Surface>
           </div>

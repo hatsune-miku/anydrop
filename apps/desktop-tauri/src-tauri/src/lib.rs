@@ -14,7 +14,7 @@ use anydrop::service::context::data_service_context::DataServiceContext;
 use anydrop::service::data_service::DataService;
 use anydrop::service::discovery_service::DiscoveryService;
 use serde::{Deserialize, Serialize as SerdeSerialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
@@ -124,6 +124,7 @@ struct Snapshot {
     last_clipboard_text: String,
     last_received_text: String,
     status_text: String,
+    logs: Vec<String>,
 }
 
 struct ReceivingFile {
@@ -174,6 +175,7 @@ struct Backend {
     clipboard: Arc<Mutex<ClipboardState>>,
     next_file_id: AtomicU8,
     status_text: Mutex<String>,
+    log_entries: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl Backend {
@@ -217,6 +219,11 @@ impl Backend {
             .try_lock()
             .map(|status| status.clone())
             .unwrap_or_else(|_| "Busy".to_string());
+        let logs = self
+            .log_entries
+            .try_lock()
+            .map(|l| l.iter().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
 
         Snapshot {
             running: self.is_running(),
@@ -226,11 +233,16 @@ impl Backend {
             last_clipboard_text,
             last_received_text,
             status_text,
+            logs,
         }
     }
 
     fn set_status(&self, text: impl Into<String>) {
         *self.status_text.lock().unwrap() = text.into();
+    }
+
+    fn log(&self, msg: impl Into<String>) {
+        add_log(&self.log_entries, msg);
     }
 
     fn config(&self) -> Option<AnyDropServiceConfig> {
@@ -321,6 +333,26 @@ fn chrono_like_timestamp() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0)
+}
+
+fn add_log(entries: &Arc<Mutex<VecDeque<String>>>, msg: impl Into<String>) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| {
+            let s = d.as_secs();
+            let h = (s % 86400) / 3600;
+            let m = (s % 3600) / 60;
+            let sc = s % 60;
+            let ms = d.subsec_millis();
+            format!("{h:02}:{m:02}:{sc:02}.{ms:03}")
+        })
+        .unwrap_or_else(|_| "??:??:??.???".to_string());
+    if let Ok(mut log) = entries.lock() {
+        log.push_back(format!("[{ts}] {}", msg.into()));
+        while log.len() > 200 {
+            log.pop_front();
+        }
+    }
 }
 
 fn peer_text(peer: Option<&Peer>) -> String {
@@ -515,6 +547,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let transfers = backend.transfers.clone();
     let receiving = backend.receiving.clone();
     let clipboard_state = backend.clipboard.clone();
+    let data_log = backend.log_entries.clone();
     threads.push(thread::spawn(move || {
         let text_app = data_app.clone();
         let text_clipboard = clipboard_state.clone();
@@ -543,7 +576,9 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
 
         let file_app = data_app.clone();
         let file_transfers = transfers.clone();
+        let file_log = data_log.clone();
         let file_callback = move |packet: &FileComingPacket, peer: Option<&Peer>| {
+            add_log(&file_log, format!("incoming: name={} size={} from={}", file_name(packet.file_name()), packet.file_size(), peer_text(peer)));
             let file_id = file_app
                 .try_state::<Backend>()
                 .map(|backend| backend.next_file_id.fetch_add(1, Ordering::SeqCst))
@@ -572,7 +607,13 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
 
         let sending_app = data_app.clone();
         let sending_transfers = transfers.clone();
+        let sending_log = data_log.clone();
         let sending_callback = move |packet: &FileSendingPacket, _peer: Option<&Peer>| {
+            // Log non-progress status changes (skip status=4 to avoid noise).
+            let status = packet.status().to_u8();
+            if status != 4 {
+                add_log(&sending_log, format!("send: file_id={} status={} total={}", packet.file_id(), status, packet.total()));
+            }
             let key = outgoing_key(packet.file_id());
             let mut map = sending_transfers.lock().unwrap();
             let entry = map.entry(key.clone()).or_insert_with(|| Transfer {
@@ -702,6 +743,8 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         threads,
     });
     backend.set_status(format!("Online on LAN Group #{}", settings.group_identity));
+    backend.log(format!("service started (discovery_port={} data_port={} group={})",
+        settings.discovery_port, settings.data_port, settings.group_identity));
     Ok(())
 }
 
@@ -851,14 +894,12 @@ fn send_files_to_peer(
     let Some(config) = backend.config() else {
         return Err("Service is offline".to_string());
     };
+    backend.log(format!("send_files: hosts={hosts:?} port={}", config.data_service_listen_port));
     let Some(host) = first_reachable_host(&hosts, config.data_service_listen_port) else {
-        eprintln!(
-            "send_files_to_peer: no reachable host among {:?} on port {}",
-            hosts, config.data_service_listen_port
-        );
+        backend.log(format!("send_files: no_reachable_host (tried {hosts:?})"));
         return Err("No reachable address for peer".to_string());
     };
-    eprintln!("send_files_to_peer: chosen host = {}", host);
+    backend.log(format!("send_files: host_ok={host}"));
     let mut queued = 0;
     for file in files {
         if !Path::new(&file).exists() {
@@ -890,6 +931,7 @@ fn send_files_to_peer(
             .unwrap()
             .insert(key, entry);
 
+        backend.log(format!("send_files: queuing file_id={file_id} path={file}"));
         shared_anydrop_try_send_file(host.clone(), file, &config);
         queued += 1;
     }
@@ -915,6 +957,7 @@ fn accept_transfer(
         .cloned()
         .ok_or_else(|| "Transfer not found".to_string())?;
     let path = local_receive_path(&transfer.remote_path)?;
+    backend.log(format!("accept: key={transfer_key} saving_to={}", path.display()));
     let file = File::create(&path).map_err(|err| err.to_string())?;
     file.set_len(transfer.total)
         .map_err(|err| err.to_string())?;
@@ -972,6 +1015,15 @@ fn reject_transfer(
     );
     emit_snapshot(&app);
     Ok(backend.snapshot())
+}
+
+#[tauri::command]
+fn clear_logs(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
+    if let Ok(mut log) = backend.log_entries.lock() {
+        log.clear();
+    }
+    emit_snapshot(&app);
+    backend.snapshot()
 }
 
 #[tauri::command]
@@ -1089,7 +1141,8 @@ pub fn run() {
             accept_transfer,
             reject_transfer,
             dismiss_transfer,
-            open_transfer_folder
+            open_transfer_folder,
+            clear_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");
