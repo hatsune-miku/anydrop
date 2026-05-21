@@ -96,6 +96,28 @@ pub(crate) async fn send_paths_impl(
                     "transfer: attempt {}/{} failed: {}",
                     attempt, MAX_ATTEMPTS, e
                 );
+                // Echo the per-attempt error into the progress stream so the
+                // host UI's log can show it — otherwise the only signal a
+                // user sees is the final aggregate failure after all retries.
+                let total_done: u64 =
+                    bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+                on_progress(ProgressUpdate {
+                    transfer_id,
+                    direction: Direction::Send,
+                    remote_addr: target,
+                    display_name: display_name.clone(),
+                    item_idx: 0,
+                    rel_path: String::new(),
+                    item_size: 0,
+                    bytes_done: total_done,
+                    total_size,
+                    total_done,
+                    status: TransferStatus::InProgress,
+                    error: Some(format!(
+                        "attempt {}/{} failed: {}",
+                        attempt, MAX_ATTEMPTS, e
+                    )),
+                });
                 last_error = Some(e);
                 if attempt >= MAX_ATTEMPTS {
                     break;

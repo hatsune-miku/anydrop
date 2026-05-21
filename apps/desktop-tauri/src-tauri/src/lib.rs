@@ -686,10 +686,14 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let prog_transfers = backend.transfers.clone();
     let prog_log = backend.log_entries.clone();
     let on_progress = move |p: TransferProgress| {
-        if matches!(
+        // Log terminal states unconditionally, plus any InProgress event that
+        // carries an error string — that's how the client surfaces transient
+        // per-attempt failures (used to diagnose stalls / retries).
+        let should_log = matches!(
             p.status,
             TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected
-        ) {
+        ) || p.error.is_some();
+        if should_log {
             add_log(
                 &prog_log,
                 format!(

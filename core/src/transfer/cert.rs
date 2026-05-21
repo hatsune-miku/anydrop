@@ -4,12 +4,46 @@
 //! client accepts any cert without verification. Suitable only for local
 //! networks where you accept the risk of MITM.
 
+use quinn::VarInt;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use std::sync::Arc;
 use std::sync::Once;
+use std::time::Duration;
 
 use super::protocol::ALPN;
+
+/// Build a `TransportConfig` tuned for LAN bulk transfer.
+///
+/// quinn's defaults are tuned for ~100 Mbps WAN traffic. On a 1 Gbps LAN with
+/// sustained multi-GB transfers they cause two failure modes:
+///   * `stream_receive_window = 1.25 MB` lets the sender get only that far
+///     ahead of the receiver. Any pause in MAX_STREAM_DATA delivery (Wi-Fi
+///     blip, brief disk stall on the receiver) freezes the stream — and once
+///     frozen, `max_idle_timeout = 30 s` kills the connection.
+///   * 30 s idle timeout is way too tight for "user puts laptop to sleep,
+///     comes back" type of scenarios.
+///
+/// We crank both up so flow control / idle timeout are essentially never the
+/// bottleneck. The 1.25 MB / 60 s defaults caused transfers to die around
+/// 150 MB in field testing.
+fn build_transport() -> quinn::TransportConfig {
+    let mut transport = quinn::TransportConfig::default();
+    // 5 min idle is generous; combined with the 10 s keep-alive interval
+    // below this should ride out any plausible LAN hiccup.
+    transport.max_idle_timeout(Some(Duration::from_secs(5 * 60).try_into().unwrap()));
+    transport.keep_alive_interval(Some(Duration::from_secs(10)));
+    // 64 MB per-stream window: receiver can buffer this much in flight before
+    // the sender has to pause for a MAX_STREAM_DATA. At 1 Gbps that's ~500 ms
+    // of pipeline depth, more than enough.
+    transport.stream_receive_window(VarInt::from_u32(64 * 1024 * 1024));
+    // 256 MB connection-wide window across all streams.
+    transport.receive_window(VarInt::from_u32(256 * 1024 * 1024));
+    // 256 MB outbound in-flight cap (controls how much the local endpoint
+    // allows ITSELF to push out before ACKs).
+    transport.send_window(256 * 1024 * 1024);
+    transport
+}
 
 static INSTALL_CRYPTO: Once = Once::new();
 
@@ -46,14 +80,7 @@ pub fn server_config(
     let server_crypto = quinn::crypto::rustls::QuicServerConfig::try_from(crypto)
         .map_err(|e| format!("quinn server crypto: {}", e))?;
     let mut cfg = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
-
-    // Allow long-lived idle connections (file transfers may be slow).
-    let mut transport = quinn::TransportConfig::default();
-    transport.max_idle_timeout(Some(
-        std::time::Duration::from_secs(60).try_into().unwrap(),
-    ));
-    transport.keep_alive_interval(Some(std::time::Duration::from_secs(15)));
-    cfg.transport_config(Arc::new(transport));
+    cfg.transport_config(Arc::new(build_transport()));
     Ok(cfg)
 }
 
@@ -69,13 +96,7 @@ pub fn client_config() -> Result<quinn::ClientConfig, String> {
     let client_crypto = quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
         .map_err(|e| format!("quinn client crypto: {}", e))?;
     let mut cfg = quinn::ClientConfig::new(Arc::new(client_crypto));
-
-    let mut transport = quinn::TransportConfig::default();
-    transport.max_idle_timeout(Some(
-        std::time::Duration::from_secs(60).try_into().unwrap(),
-    ));
-    transport.keep_alive_interval(Some(std::time::Duration::from_secs(15)));
-    cfg.transport_config(Arc::new(transport));
+    cfg.transport_config(Arc::new(build_transport()));
     Ok(cfg)
 }
 
