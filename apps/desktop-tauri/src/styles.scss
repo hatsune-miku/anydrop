@@ -484,6 +484,27 @@ textarea:focus,
   background: rgba(255, 255, 255, 0.42);
 }
 
+.transfer-row--error {
+  background: rgba(213, 82, 118, 0.06);
+  border-left: 3px solid var(--accent-pink);
+  padding-left: 6px;
+
+  .progress-track span {
+    background: var(--accent-pink);
+  }
+}
+
+.transfer-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--accent-pink);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .progress-track {
   height: 5px;
   overflow: hidden;

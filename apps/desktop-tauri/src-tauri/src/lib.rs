@@ -117,6 +117,12 @@ struct Transfer {
     progress: u64,
     total: u64,
     status: u8,
+    /// Latest error string reported for this transfer, if any. Set when a
+    /// receive task fails (invalid filename, disk full, permission denied,
+    /// …) or when the peer aborts. Cleared only on a fresh Transfer entry —
+    /// once we've shown an error, we keep showing it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Clone, SerdeSerialize)]
@@ -243,12 +249,19 @@ fn apply_progress(
         progress: 0,
         total: p.total_size,
         status: transfer_status_to_u8(p.status),
+        error: None,
     });
     entry.progress = p.total_done;
     if p.total_size > 0 {
         entry.total = p.total_size;
     }
     entry.status = transfer_status_to_u8(p.status);
+    // Sticky: once we've recorded an error, surface it for the rest of the
+    // transfer's lifetime so the user can see what went wrong. New errors
+    // overwrite old ones (most recent diagnosis wins).
+    if let Some(err) = p.error.as_ref() {
+        entry.error = Some(err.clone());
+    }
     entry.clone()
 }
 
@@ -676,6 +689,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             progress: 0,
             total: offer.total_size,
             status: 1,
+            error: None,
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         let _ = offer_app.emit("incoming-file", t);

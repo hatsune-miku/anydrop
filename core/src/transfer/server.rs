@@ -204,9 +204,9 @@ async fn handle_connection(
         }));
     }
 
-    // Surface per-task errors into the host log via the progress channel so
-    // the user (or developer) can see exactly which file / which step failed
-    // when a transfer mysteriously stalls.
+    // Collect per-task errors so we can both report them individually and
+    // synthesize an overall abort reason.
+    let mut task_errors: Vec<String> = Vec::new();
     for t in tasks {
         match t.await {
             Ok(Ok(())) => (),
@@ -218,8 +218,9 @@ async fn handle_connection(
                     remote_addr,
                     &hello.display_name,
                     &entry,
-                    format!("recv task error: {}", e),
+                    format!("recv error: {}", e),
                 );
+                task_errors.push(e);
             }
             Err(join_err) => {
                 warn!("transfer: recv task panicked: {}", join_err);
@@ -231,6 +232,7 @@ async fn handle_connection(
                     &entry,
                     format!("recv task panic: {}", join_err),
                 );
+                task_errors.push(format!("task panic: {}", join_err));
             }
         }
     }
@@ -242,6 +244,58 @@ async fn handle_connection(
         .enumerate()
         .filter(|(_, it)| !it.is_dir)
         .all(|(idx, it)| entry.item_bytes[idx].load(Ordering::Relaxed) >= it.size);
+
+    // Errors trump completion: if any file failed (e.g. invalid filename on
+    // NTFS, disk full, permission denied), we abort the whole transfer.
+    // These failures are typically not transient — a retry would hit the
+    // same wall — so we drop the in-memory state to prevent the client's
+    // resume logic from looping forever on the same error.
+    if !task_errors.is_empty() {
+        let reason = if task_errors.len() == 1 {
+            task_errors[0].clone()
+        } else {
+            format!(
+                "{} (and {} more)",
+                task_errors[0],
+                task_errors.len() - 1
+            )
+        };
+        warn!(
+            "transfer: aborting transfer_id={} due to {} error(s); first: {}",
+            transfer_id,
+            task_errors.len(),
+            task_errors[0]
+        );
+        active.lock().unwrap().remove(&transfer_id);
+        let _ = write_msg(
+            &mut ctrl_send,
+            &Status::Abort {
+                reason: reason.clone(),
+            },
+        )
+        .await;
+        let _ = ctrl_send.finish();
+        let total_done: u64 = entry
+            .item_bytes
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .sum();
+        on_progress(ProgressUpdate {
+            transfer_id,
+            direction: Direction::Recv,
+            remote_addr,
+            display_name: hello.display_name,
+            item_idx: 0,
+            rel_path: String::new(),
+            item_size: 0,
+            bytes_done: total_done,
+            total_size: entry.total_size,
+            total_done,
+            status: TransferStatus::Error,
+            error: Some(reason),
+        });
+        return Ok(());
+    }
 
     if all_done {
         active.lock().unwrap().remove(&transfer_id);

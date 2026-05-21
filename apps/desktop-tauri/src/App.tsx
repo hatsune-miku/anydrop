@@ -48,6 +48,8 @@ type Transfer = {
   progress: number
   total: number
   status: number
+  /** Latest error reported for the transfer, if any. Sticky once set. */
+  error?: string
 }
 
 type Snapshot = {
@@ -558,13 +560,21 @@ function App() {
                 ) : (
                   <div className="transfer-list">
                     {transfers.map((transfer) => (
-                      <article className="transfer-row" key={transfer.key}>
+                      <article
+                        className={`transfer-row${transfer.error ? ' transfer-row--error' : ''}`}
+                        key={transfer.key}
+                      >
                         <div className="row-main">
                           <strong>{transfer.fileName}</strong>
                           <span>
                             {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)} ·{' '}
                             {formatBytes(transfer.progress)} / {formatBytes(transfer.total)}
                           </span>
+                          {transfer.error ? (
+                            <span className="transfer-error" title={transfer.error}>
+                              ⚠ {transfer.error}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="progress-track">
                           <span style={{ width: `${percent(transfer)}%` }} />

@@ -15,33 +15,29 @@ use super::protocol::ALPN;
 
 /// Build a `TransportConfig` tuned for LAN bulk transfer.
 ///
-/// quinn's defaults are tuned for ~100 Mbps WAN traffic. On a 1 Gbps LAN with
-/// sustained multi-GB transfers they cause two failure modes:
-///   * `stream_receive_window = 1.25 MB` lets the sender get only that far
-///     ahead of the receiver. Any pause in MAX_STREAM_DATA delivery (Wi-Fi
-///     blip, brief disk stall on the receiver) freezes the stream — and once
-///     frozen, `max_idle_timeout = 30 s` kills the connection.
-///   * 30 s idle timeout is way too tight for "user puts laptop to sleep,
-///     comes back" type of scenarios.
+/// quinn's defaults are tuned for ~100 Mbps WAN traffic; on a 1 Gbps LAN with
+/// sustained transfers they caused stalls around 150 MB (the 1.25 MB per-
+/// stream window left the sender / receiver one credit refresh away from
+/// hitting the 30-second idle timeout).
 ///
-/// We crank both up so flow control / idle timeout are essentially never the
-/// bottleneck. The 1.25 MB / 60 s defaults caused transfers to die around
-/// 150 MB in field testing.
+/// On the other hand: cranking the per-stream window too high makes the
+/// sender's "bytes pushed into QUIC" counter run far ahead of the receiver's
+/// "bytes actually on disk", which looks like a bug to users. We pick a
+/// comfortable middle: 8 MB per-stream is well above any plausible LAN BDP
+/// (1 Gbps × 10 ms RTT ≈ 1.25 MB) but small enough that the sender stays
+/// within ~8 MB of the receiver visually.
 fn build_transport() -> quinn::TransportConfig {
     let mut transport = quinn::TransportConfig::default();
     // 5 min idle is generous; combined with the 10 s keep-alive interval
     // below this should ride out any plausible LAN hiccup.
     transport.max_idle_timeout(Some(Duration::from_secs(5 * 60).try_into().unwrap()));
     transport.keep_alive_interval(Some(Duration::from_secs(10)));
-    // 64 MB per-stream window: receiver can buffer this much in flight before
-    // the sender has to pause for a MAX_STREAM_DATA. At 1 Gbps that's ~500 ms
-    // of pipeline depth, more than enough.
-    transport.stream_receive_window(VarInt::from_u32(64 * 1024 * 1024));
-    // 256 MB connection-wide window across all streams.
-    transport.receive_window(VarInt::from_u32(256 * 1024 * 1024));
-    // 256 MB outbound in-flight cap (controls how much the local endpoint
-    // allows ITSELF to push out before ACKs).
-    transport.send_window(256 * 1024 * 1024);
+    // 8 MB per-stream — roughly 6× the worst-case LAN BDP.
+    transport.stream_receive_window(VarInt::from_u32(8 * 1024 * 1024));
+    // 32 MB connection-wide; folder transfers spawn many concurrent streams
+    // briefly during the open/close handoff, this gives them room.
+    transport.receive_window(VarInt::from_u32(32 * 1024 * 1024));
+    transport.send_window(32 * 1024 * 1024);
     transport
 }
 

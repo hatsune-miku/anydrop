@@ -16,7 +16,7 @@ use log::{info, warn};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use super::cert::client_config;
-use super::protocol::{Hello, HelloAck, Item, DATA_HEADER_LEN};
+use super::protocol::{Hello, HelloAck, Item, Status, DATA_HEADER_LEN};
 use super::server::{read_msg, write_msg};
 use super::walk::walk_paths;
 use super::{Direction, OnProgress, ProgressUpdate, TransferStatus};
@@ -109,6 +109,25 @@ pub(crate) async fn send_paths_impl(
                 });
                 return Ok(());
             }
+            Ok(AttemptOutcome::Aborted(reason)) => {
+                let total_done: u64 =
+                    bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+                on_progress(ProgressUpdate {
+                    transfer_id,
+                    direction: Direction::Send,
+                    remote_addr: target,
+                    display_name: display_name.clone(),
+                    item_idx: 0,
+                    rel_path: String::new(),
+                    item_size: 0,
+                    bytes_done: total_done,
+                    total_size,
+                    total_done,
+                    status: TransferStatus::Error,
+                    error: Some(reason.clone()),
+                });
+                return Err(reason);
+            }
             Err(e) => {
                 warn!(
                     "transfer: attempt {}/{} failed: {}",
@@ -167,6 +186,10 @@ pub(crate) async fn send_paths_impl(
 enum AttemptOutcome {
     Done,
     Rejected(String),
+    /// Server received our streams but reported a permanent failure (e.g. it
+    /// can't write a file because the name is illegal on its filesystem). No
+    /// retry — the same error would happen again.
+    Aborted(String),
 }
 
 /// Human-friendly label for the whole transfer, used by the host UI as the
@@ -353,30 +376,52 @@ async fn attempt_send(
         });
     }
 
-    // Wait for server's AllDone (or for it to close the stream).
-    let _ = tokio::time::timeout(
-        Duration::from_secs(30),
-        read_msg::<serde_json::Value>(&mut ctrl_recv),
+    // Wait for the server's terminal Status message. Three relevant outcomes:
+    //   * `AllDone` — every file landed cleanly, this attempt is a success
+    //   * `Abort { reason }` — server hit a permanent error, surface it and
+    //     skip the retry loop
+    //   * read error / timeout — connection died mid-flight; bubble that up
+    //     as an attempt-level error so the outer loop retries
+    let final_status = tokio::time::timeout(
+        Duration::from_secs(60),
+        read_msg::<Status>(&mut ctrl_recv),
     )
     .await;
     let _ = ctrl_send.finish();
 
-    on_progress(ProgressUpdate {
-        transfer_id,
-        direction: Direction::Send,
-        remote_addr: target,
-        display_name,
-        item_idx: 0,
-        rel_path: String::new(),
-        item_size: 0,
-        bytes_done: total_size,
-        total_size,
-        total_done: bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum(),
-        status: TransferStatus::AllDone,
-        error: None,
-    });
-
-    conn.close(0u32.into(), b"done");
-    let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
-    Ok(AttemptOutcome::Done)
+    match final_status {
+        Ok(Ok(Status::AllDone)) => {
+            on_progress(ProgressUpdate {
+                transfer_id,
+                direction: Direction::Send,
+                remote_addr: target,
+                display_name,
+                item_idx: 0,
+                rel_path: String::new(),
+                item_size: 0,
+                bytes_done: total_size,
+                total_size,
+                total_done: bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum(),
+                status: TransferStatus::AllDone,
+                error: None,
+            });
+            conn.close(0u32.into(), b"done");
+            let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
+            Ok(AttemptOutcome::Done)
+        }
+        Ok(Ok(Status::Abort { reason })) => {
+            conn.close(0u32.into(), b"abort");
+            let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
+            Ok(AttemptOutcome::Aborted(reason))
+        }
+        Ok(Ok(Status::ItemDone { .. })) => {
+            // Stray per-item ack at the end — shouldn't happen with our
+            // protocol, but treat as a transient anomaly so the outer loop
+            // retries rather than hanging.
+            conn.close(0u32.into(), b"unexpected");
+            Err("server sent ItemDone instead of terminal status".into())
+        }
+        Ok(Err(e)) => Err(format!("read final status: {}", e)),
+        Err(_) => Err("timed out waiting for final status from server".into()),
+    }
 }
