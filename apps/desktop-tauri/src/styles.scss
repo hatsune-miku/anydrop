@@ -95,11 +95,20 @@ textarea {
   white-space: nowrap;
 }
 
-/* macOS variant: no custom controls; pad left to clear native traffic lights.
-   Traffic lights sit at roughly x=12–70px; 80px gives comfortable clearance. */
+/* macOS Overlay titlebar: webview fills full window; native traffic lights float
+   over the top-left (~12–70px). We pad left to clear them and right-align the
+   title so it sits neatly on the right side of the traffic-light row. */
 .window-titlebar--mac {
   grid-template-columns: 1fr;
+  min-height: 38px;
   padding-left: 80px;
+
+  .window-title {
+    line-height: 38px;
+    text-align: right;
+    padding-left: 0;
+    padding-right: 16px;
+  }
 }
 
 .window-controls {
