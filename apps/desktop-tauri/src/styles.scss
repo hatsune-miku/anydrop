@@ -95,25 +95,23 @@ textarea {
   white-space: nowrap;
 }
 
-/* macOS Overlay titlebar: webview fills full window; native traffic lights float
-   over the top-left (~12–70px). We pad left to clear them and right-align the
-   title so it sits neatly on the right side of the traffic-light row. */
+/* macOS Overlay titlebar: just a thin drag region. No background, no border,
+   no title text — let the webview content blend right up to the window edge.
+   The native traffic lights float above this area automatically. */
 .window-titlebar--mac {
   grid-template-columns: 1fr;
-  min-height: 38px;
-  padding-left: 80px;
-
-  .window-title {
-    line-height: 38px;
-    text-align: right;
-    padding-left: 0;
-    padding-right: 16px;
-  }
+  min-height: 32px;
+  padding: 0;
+  background: transparent;
+  border-bottom: 0;
 }
 
 .window-controls {
   display: flex;
   align-self: stretch;
+  /* Pull the row in from the absolute window edge so the close-button hover
+     state has a tiny gutter; matches the Fluent style on Windows 11. */
+  padding-right: 4px;
 }
 
 .window-control {

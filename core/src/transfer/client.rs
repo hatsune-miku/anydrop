@@ -57,6 +57,24 @@ pub(crate) async fn send_paths_impl(
         target
     );
 
+    // Seed the host UI with a transfer-summary label before any per-item
+    // progress fires — otherwise the row gets named after the first file in
+    // the list, which is wrong/confusing when the user picked a folder.
+    on_progress(ProgressUpdate {
+        transfer_id,
+        direction: Direction::Send,
+        remote_addr: target,
+        display_name: display_name.clone(),
+        item_idx: 0,
+        rel_path: build_summary_label(&items),
+        item_size: 0,
+        bytes_done: 0,
+        total_size,
+        total_done: 0,
+        status: TransferStatus::InProgress,
+        error: None,
+    });
+
     let mut attempt: u32 = 0;
     let mut last_error: Option<String>;
     loop {
@@ -149,6 +167,37 @@ pub(crate) async fn send_paths_impl(
 enum AttemptOutcome {
     Done,
     Rejected(String),
+}
+
+/// Human-friendly label for the whole transfer, used by the host UI as the
+/// row title. Avoids forward slashes so the host's `file_name()` basename
+/// helper doesn't strip parts off.
+fn build_summary_label(items: &[Item]) -> String {
+    let files: Vec<&Item> = items.iter().filter(|i| !i.is_dir).collect();
+    let dirs: Vec<&Item> = items.iter().filter(|i| i.is_dir).collect();
+
+    // Pure single-file send.
+    if files.len() == 1 && dirs.is_empty() {
+        return last_segment(&files[0].rel_path);
+    }
+    // Folder(s) — use the shallowest directory's basename as the root name.
+    if let Some(root) = dirs
+        .iter()
+        .min_by_key(|d| d.rel_path.trim_end_matches('/').matches('/').count())
+    {
+        let name = last_segment(root.rel_path.trim_end_matches('/'));
+        return format!("{} ({} 个文件)", name, files.len());
+    }
+    // Multiple loose files.
+    if files.is_empty() {
+        return format!("传输 #{}", items.len());
+    }
+    let first = last_segment(&files[0].rel_path);
+    format!("{} 等 {} 个文件", first, files.len())
+}
+
+fn last_segment(s: &str) -> String {
+    s.rsplit('/').next().unwrap_or(s).to_string()
 }
 
 #[allow(clippy::too_many_arguments)]

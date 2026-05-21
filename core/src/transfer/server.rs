@@ -177,6 +177,14 @@ async fn handle_connection(
             Ok(s) => s,
             Err(e) => {
                 warn!("transfer: accept_uni: {}", e);
+                emit_diagnostic(
+                    &on_progress,
+                    transfer_id,
+                    remote_addr,
+                    &hello.display_name,
+                    &entry,
+                    format!("accept_uni failed: {}", e),
+                );
                 break;
             }
         };
@@ -184,7 +192,7 @@ async fn handle_connection(
         let on_progress_c = on_progress.clone();
         let display_name_c = hello.display_name.clone();
         tasks.push(tokio::spawn(async move {
-            if let Err(e) = receive_one_file(
+            receive_one_file(
                 uni,
                 transfer_id,
                 entry_c,
@@ -193,14 +201,38 @@ async fn handle_connection(
                 on_progress_c,
             )
             .await
-            {
-                warn!("transfer: file recv error: {}", e);
-            }
         }));
     }
 
+    // Surface per-task errors into the host log via the progress channel so
+    // the user (or developer) can see exactly which file / which step failed
+    // when a transfer mysteriously stalls.
     for t in tasks {
-        let _ = t.await;
+        match t.await {
+            Ok(Ok(())) => (),
+            Ok(Err(e)) => {
+                warn!("transfer: file recv error: {}", e);
+                emit_diagnostic(
+                    &on_progress,
+                    transfer_id,
+                    remote_addr,
+                    &hello.display_name,
+                    &entry,
+                    format!("recv task error: {}", e),
+                );
+            }
+            Err(join_err) => {
+                warn!("transfer: recv task panicked: {}", join_err);
+                emit_diagnostic(
+                    &on_progress,
+                    transfer_id,
+                    remote_addr,
+                    &hello.display_name,
+                    &entry,
+                    format!("recv task panic: {}", join_err),
+                );
+            }
+        }
     }
 
     *entry.last_activity.lock().unwrap() = Instant::now();
@@ -337,6 +369,41 @@ async fn negotiate_new_offer(
     }
 }
 
+/// Push a diagnostic line through the progress channel.
+///
+/// Uses `TransferStatus::InProgress` with an `error` string — the host's log
+/// surfaces any progress update that carries an error message, regardless of
+/// status, so this lets server-side problems show up in the in-app log
+/// without inventing a new event channel.
+fn emit_diagnostic(
+    on_progress: &OnProgress,
+    transfer_id: u64,
+    remote_addr: std::net::SocketAddr,
+    display_name: &str,
+    entry: &ActiveTransfer,
+    msg: String,
+) {
+    let total_done: u64 = entry
+        .item_bytes
+        .iter()
+        .map(|c| c.load(Ordering::Relaxed))
+        .sum();
+    on_progress(ProgressUpdate {
+        transfer_id,
+        direction: Direction::Recv,
+        remote_addr,
+        display_name: display_name.to_string(),
+        item_idx: 0,
+        rel_path: String::new(),
+        item_size: 0,
+        bytes_done: total_done,
+        total_size: entry.total_size,
+        total_done,
+        status: TransferStatus::InProgress,
+        error: Some(msg),
+    });
+}
+
 /// Two transfers with the same id are "the same" iff their item lists match.
 fn items_match(a: &[Item], b: &[Item]) -> bool {
     if a.len() != b.len() {
@@ -397,6 +464,10 @@ async fn receive_one_file(
     if let Some(parent) = abs.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
+    info!(
+        "transfer: recv start item_idx={} path={:?} offset={} size={}",
+        item_idx, abs, start_offset, item.size
+    );
 
     // Fresh start truncates; resume keeps existing bytes and seeks past them.
     let mut opts = OpenOptions::new();
@@ -488,6 +559,10 @@ async fn receive_one_file(
         .iter()
         .map(|c| c.load(Ordering::Relaxed))
         .sum();
+    info!(
+        "transfer: recv done item_idx={} bytes={} (expected {})",
+        item_idx, item_total, item.size
+    );
 
     on_progress(ProgressUpdate {
         transfer_id,
