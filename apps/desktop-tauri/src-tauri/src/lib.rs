@@ -13,12 +13,16 @@ use anydrop::service::anydrop_service::{AnyDropService, AnyDropServiceConfig};
 use anydrop::service::context::data_service_context::DataServiceContext;
 use anydrop::service::data_service::DataService;
 use anydrop::service::discovery_service::DiscoveryService;
+use anydrop::transfer_v2::{
+    self, Decision as V2Decision, Direction as V2Direction, ProgressUpdate as V2Progress,
+    ServerHandle as V2ServerHandle, TransferOffer as V2Offer, TransferStatus as V2Status,
+};
 use anydrop::util::os::OSUtil;
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -184,6 +188,81 @@ struct Backend {
     next_file_id: AtomicU8,
     status_text: Mutex<String>,
     log_entries: Arc<Mutex<VecDeque<String>>>,
+    /// QUIC-based transfer_v2 server. Started alongside the legacy data
+    /// service when the runtime spins up.
+    v2_handle: Mutex<Option<Arc<V2ServerHandle>>>,
+}
+
+fn v2_key(transfer_id: u64) -> String {
+    format!("v2:{}", transfer_id)
+}
+
+fn v2_status_to_u8(status: V2Status) -> u8 {
+    match status {
+        V2Status::PendingDecision => 1,
+        V2Status::InProgress | V2Status::ItemDone => 4,
+        V2Status::AllDone => 7,
+        V2Status::Error => 6,
+        V2Status::Rejected => 2,
+    }
+}
+
+fn v2_label(offer: &V2Offer) -> String {
+    let files: Vec<&transfer_v2::Item> = offer.items.iter().filter(|i| !i.is_dir).collect();
+    if files.len() == 1 {
+        return file_name(&files[0].rel_path);
+    }
+    if files.is_empty() {
+        return offer
+            .items
+            .first()
+            .map(|i| file_name(&i.rel_path))
+            .unwrap_or_else(|| "传输".to_string());
+    }
+    let first = file_name(&files[0].rel_path);
+    format!("{} 等 {} 个项目", first, files.len())
+}
+
+/// Convert the v2 progress event into a Transfer entry that the existing UI
+/// can render. Uses the v2:{transfer_id} key namespace.
+fn apply_v2_progress(
+    transfers: &Arc<Mutex<HashMap<String, Transfer>>>,
+    p: &V2Progress,
+    initial_label: Option<&str>,
+) -> Transfer {
+    let key = v2_key(p.transfer_id);
+    let mut map = transfers.lock().unwrap();
+    let entry = map.entry(key.clone()).or_insert_with(|| Transfer {
+        key: key.clone(),
+        file_id: 0,
+        file_name: initial_label
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                if p.rel_path.is_empty() {
+                    format!("传输 #{}", p.transfer_id)
+                } else {
+                    file_name(&p.rel_path)
+                }
+            }),
+        remote_path: format!("transfer_id:{}", p.transfer_id),
+        local_path: String::new(),
+        peer: format!("{}@{}", p.display_name, p.remote_addr),
+        host: p.remote_addr.ip().to_string(),
+        direction: if matches!(p.direction, V2Direction::Send) {
+            "outgoing".to_string()
+        } else {
+            "incoming".to_string()
+        },
+        progress: 0,
+        total: p.total_size,
+        status: v2_status_to_u8(p.status),
+    });
+    entry.progress = p.total_done;
+    if p.total_size > 0 {
+        entry.total = p.total_size;
+    }
+    entry.status = v2_status_to_u8(p.status);
+    entry.clone()
 }
 
 impl Backend {
@@ -754,15 +833,98 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         stop,
         threads,
     });
+
+    // Spin up the QUIC-based transfer_v2 server on the same UDP port number
+    // as the legacy TCP data service (UDP/TCP namespaces don't collide).
+    let v2_bind: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.data_port);
+    let v2_app_offer = app.clone();
+    let v2_transfers_offer = backend.transfers.clone();
+    let v2_log_offer = backend.log_entries.clone();
+    let on_offer = move |offer: V2Offer| {
+        add_log(
+            &v2_log_offer,
+            format!(
+                "v2 offer: from='{}' addr={} items={} bytes={}",
+                offer.display_name,
+                offer.remote_addr,
+                offer.items.len(),
+                offer.total_size
+            ),
+        );
+        let label = v2_label(&offer);
+        let key = v2_key(offer.transfer_id);
+        let t = Transfer {
+            key: key.clone(),
+            file_id: 0,
+            file_name: label,
+            remote_path: format!("transfer_id:{}", offer.transfer_id),
+            local_path: String::new(),
+            peer: format!("{}@{}", offer.display_name, offer.remote_addr),
+            host: offer.remote_addr.ip().to_string(),
+            direction: "incoming".to_string(),
+            progress: 0,
+            total: offer.total_size,
+            status: 1,
+        };
+        v2_transfers_offer.lock().unwrap().insert(key, t.clone());
+        let _ = v2_app_offer.emit("incoming-file", t);
+        emit_snapshot(&v2_app_offer);
+    };
+
+    let v2_app_prog = app.clone();
+    let v2_transfers_prog = backend.transfers.clone();
+    let v2_log_prog = backend.log_entries.clone();
+    let on_progress = move |p: V2Progress| {
+        if matches!(
+            p.status,
+            V2Status::AllDone | V2Status::Error | V2Status::Rejected
+        ) {
+            add_log(
+                &v2_log_prog,
+                format!(
+                    "v2 {:?}: id={} dir={:?} done={}/{}{}",
+                    p.status,
+                    p.transfer_id,
+                    p.direction,
+                    p.total_done,
+                    p.total_size,
+                    p.error
+                        .as_ref()
+                        .map(|e| format!(" err={}", e))
+                        .unwrap_or_default()
+                ),
+            );
+        }
+        let t = apply_v2_progress(&v2_transfers_prog, &p, None);
+        let _ = v2_app_prog.emit("transfer-updated", t);
+        emit_snapshot(&v2_app_prog);
+    };
+
+    let display_name = settings.display_name.clone();
+    match transfer_v2::start_server(v2_bind, display_name, on_offer, on_progress) {
+        Ok(handle) => {
+            *backend.v2_handle.lock().unwrap() = Some(Arc::new(handle));
+            backend.log(format!("v2 server listening on udp/{}", settings.data_port));
+        }
+        Err(err) => {
+            backend.log(format!("v2 server failed: {}", err));
+        }
+    }
+
     backend.set_status(format!("Online on LAN Group #{}", settings.group_identity));
-    backend.log(format!("service started (discovery_port={} data_port={} group={})",
-        settings.discovery_port, settings.data_port, settings.group_identity));
+    backend.log(format!(
+        "service started (discovery_port={} data_port={} group={})",
+        settings.discovery_port, settings.data_port, settings.group_identity
+    ));
     Ok(())
 }
 
 fn stop_runtime(backend: &Backend) {
     if let Some(runtime) = backend.runtime.lock().unwrap().take() {
         runtime.stop();
+    }
+    if let Some(handle) = backend.v2_handle.lock().unwrap().take() {
+        handle.close();
     }
 }
 
@@ -1032,6 +1194,118 @@ fn reject_transfer(
 }
 
 #[tauri::command]
+fn send_paths_v2(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    hosts: Vec<String>,
+    paths: Vec<String>,
+) -> Result<Snapshot, String> {
+    let handle = backend
+        .v2_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
+    let cfg = backend
+        .config()
+        .ok_or_else(|| "Service is offline".to_string())?;
+    let port = cfg.data_service_listen_port;
+    if hosts.is_empty() {
+        return Err("no host".to_string());
+    }
+    // Resolve to the first IPv4 socket addr we can produce. QUIC doesn't have
+    // a cheap probe; we just hand it to send_paths and let connect fail loud
+    // if the host is unreachable.
+    let mut target: Option<SocketAddr> = None;
+    for host in &hosts {
+        let candidate = format!("{}:{}", host, port);
+        if let Ok(addrs) = candidate.to_socket_addrs() {
+            for a in addrs {
+                if a.is_ipv4() {
+                    target = Some(a);
+                    break;
+                }
+            }
+        }
+        if target.is_some() {
+            break;
+        }
+    }
+    let target = target.ok_or_else(|| "no resolvable host".to_string())?;
+    let path_bufs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    backend.log(format!(
+        "v2 send: target={} paths={}",
+        target,
+        path_bufs.len()
+    ));
+    handle.send_paths(target, path_bufs);
+    backend.set_status(format!("Sending {} item(s) via QUIC", paths.len()));
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+fn parse_v2_key(key: &str) -> Result<u64, String> {
+    key.strip_prefix("v2:")
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| format!("not a v2 transfer key: {}", key))
+}
+
+#[tauri::command]
+fn accept_transfer_v2(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<Snapshot, String> {
+    let transfer_id = parse_v2_key(&transfer_key)?;
+    let handle = backend
+        .v2_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
+    let save_root = dirs::download_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        .join("AnyDrop");
+    fs::create_dir_all(&save_root).map_err(|err| err.to_string())?;
+    backend.log(format!(
+        "v2 accept: id={transfer_id} save_root={}",
+        save_root.display()
+    ));
+    if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+        t.status = 4;
+        t.local_path = save_root.to_string_lossy().to_string();
+    }
+    handle.respond(transfer_id, V2Decision::Accept { save_root });
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
+fn reject_transfer_v2(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<Snapshot, String> {
+    let transfer_id = parse_v2_key(&transfer_key)?;
+    let handle = backend
+        .v2_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
+    backend.log(format!("v2 reject: id={transfer_id}"));
+    handle.respond(
+        transfer_id,
+        V2Decision::Reject {
+            reason: "user rejected".to_string(),
+        },
+    );
+    backend.transfers.lock().unwrap().remove(&transfer_key);
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
 fn clear_logs(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
     if let Ok(mut log) = backend.log_entries.lock() {
         log.clear();
@@ -1156,7 +1430,10 @@ pub fn run() {
             reject_transfer,
             dismiss_transfer,
             open_transfer_folder,
-            clear_logs
+            clear_logs,
+            send_paths_v2,
+            accept_transfer_v2,
+            reject_transfer_v2
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

@@ -148,6 +148,7 @@ pub fn handle(context: HandlerContext) -> ConnectionControl {
             }
 
             // Report on every 10th packet.
+            log_counter += 1;
             if log_counter >= 10 {
                 log_counter = 0;
                 info!(

@@ -272,14 +272,42 @@ function App() {
       multiple: true,
       directory: false,
     })
-    const files = Array.isArray(selected) ? selected : selected ? [selected] : []
-    if (files.length === 0) {
+    const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
+    if (paths.length === 0) {
       return
     }
-    await runCommand<Snapshot>('send_files_to_peer', {
+    // Use QUIC-based transfer_v2; the legacy send_files_to_peer is kept in the
+    // backend for compatibility but no longer used from the desktop UI.
+    await runCommand<Snapshot>('send_paths_v2', {
       hosts: selectedPeer.hosts,
-      files,
+      paths,
     })
+  }
+
+  async function sendFolder() {
+    if (!selectedPeer) {
+      return
+    }
+    const selected = await open({
+      multiple: false,
+      directory: true,
+    })
+    const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
+    if (paths.length === 0) {
+      return
+    }
+    await runCommand<Snapshot>('send_paths_v2', {
+      hosts: selectedPeer.hosts,
+      paths,
+    })
+  }
+
+  function acceptCmd(key: string) {
+    return key.startsWith('v2:') ? 'accept_transfer_v2' : 'accept_transfer'
+  }
+
+  function rejectCmd(key: string) {
+    return key.startsWith('v2:') ? 'reject_transfer_v2' : 'reject_transfer'
   }
 
   async function runWindowAction(event: React.MouseEvent, action: 'close' | 'minimize' | 'toggleMaximize') {
@@ -386,7 +414,7 @@ function App() {
                       className="button primary"
                       type="button"
                       onClick={() =>
-                        void runCommand<Snapshot>('accept_transfer', {
+                        void runCommand<Snapshot>(acceptCmd(transfer.key), {
                           transferKey: transfer.key,
                         })
                       }
@@ -398,7 +426,7 @@ function App() {
                       className="button"
                       type="button"
                       onClick={() =>
-                        void runCommand<Snapshot>('reject_transfer', {
+                        void runCommand<Snapshot>(rejectCmd(transfer.key), {
                           transferKey: transfer.key,
                         })
                       }
@@ -487,6 +515,15 @@ function App() {
                   >
                     <Upload size={16} />
                     选择文件
+                  </button>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={!selectedPeer || busy}
+                    onClick={() => void sendFolder()}
+                  >
+                    <FolderOpen size={16} />
+                    选择文件夹
                   </button>
                   <button
                     className="button"
