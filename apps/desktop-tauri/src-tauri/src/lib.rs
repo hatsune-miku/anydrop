@@ -12,6 +12,7 @@ use anydrop::transfer::{
     ServerHandle as TransferServerHandle, TransferOffer, TransferStatus,
 };
 use anydrop::util::os::OSUtil;
+use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
@@ -449,6 +450,104 @@ fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
         .collect()
 }
 
+/// Window inside which two consecutive clipboard updates count as a "double
+/// copy" gesture (≈ user hammering Ctrl+C twice).  Long enough to forgive
+/// shaky fingers, short enough not to chain unrelated copies together.
+const DOUBLE_COPY_WINDOW_MS: u128 = 600;
+
+/// Adapter that turns clipboard-master's per-event callback into our existing
+/// send-text plumbing. Holds enough state to:
+///   * detect double-copy gestures (last_event_at)
+///   * suppress the echo when we just pasted text received from a peer
+///   * read the actual clipboard contents on demand (clipboard handle)
+struct ClipboardListener {
+    app: AppHandle,
+    state: Arc<Mutex<ClipboardState>>,
+    service: Arc<anydrop::service::discovery_service::DiscoveryService>,
+    config: AnyDropServiceConfig,
+    last_event_at: Option<std::time::Instant>,
+    clipboard: Option<arboard::Clipboard>,
+}
+
+impl ClipboardHandler for ClipboardListener {
+    fn on_clipboard_change(&mut self) -> CallbackResult {
+        let now = std::time::Instant::now();
+        let elapsed_ms = self
+            .last_event_at
+            .map(|t| now.duration_since(t).as_millis())
+            .unwrap_or(u128::MAX);
+        let is_double_tap = elapsed_ms <= DOUBLE_COPY_WINDOW_MS;
+        self.last_event_at = Some(now);
+
+        // Read the current clipboard text. arboard returns Err on non-text
+        // payloads (images, files) — silently ignore those.
+        let clipboard = match self.clipboard.as_mut() {
+            Some(c) => c,
+            None => return CallbackResult::Next,
+        };
+        let text = match clipboard.get_text() {
+            Ok(t) => t,
+            Err(_) => return CallbackResult::Next,
+        };
+        if text.is_empty() {
+            return CallbackResult::Next;
+        }
+
+        let backend = match self.app.try_state::<Backend>() {
+            Some(b) => b,
+            None => return CallbackResult::Next,
+        };
+        let settings = backend.settings.lock().unwrap().clone();
+
+        // Suppression catches our own loopback: when a peer's text arrives,
+        // we write it to the local clipboard which fires this very event.
+        let mut state = self.state.lock().unwrap();
+        if state.suppressed_text.as_deref() == Some(text.as_str()) {
+            state.suppressed_text = None;
+            state.last_text = text;
+            return CallbackResult::Next;
+        }
+
+        if !settings.send_clipboard_enabled {
+            state.last_text = text;
+            return CallbackResult::Next;
+        }
+
+        let should_send = if settings.send_only_on_double_copy {
+            // The OS clipboard sequence ticks even when the user re-copies
+            // the same content, so this works for "select+Ctrl+C+Ctrl+C" too.
+            is_double_tap
+        } else {
+            // Default mode: send on every distinct content change. (Two
+            // consecutive copies of the same text won't broadcast twice.)
+            state.last_text != text
+        };
+
+        state.last_text = text.clone();
+        if !should_send {
+            return CallbackResult::Next;
+        }
+
+        // Suppress the broadcast's own loopback before we send.
+        state.suppressed_text = Some(text.clone());
+        drop(state);
+
+        // Re-arm: require a fresh pair of taps for the next double-copy send.
+        if settings.send_only_on_double_copy {
+            self.last_event_at = None;
+        }
+
+        shared_anydrop_broadcast_text(text, self.service.clone(), &self.config);
+        emit_snapshot(&self.app);
+        CallbackResult::Next
+    }
+
+    fn on_clipboard_error(&mut self, error: std::io::Error) -> CallbackResult {
+        eprintln!("clipboard listener error: {error}");
+        CallbackResult::Next
+    }
+}
+
 fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> Result<(), String> {
     stop_runtime(backend);
     *backend.peers.lock().unwrap() = Vec::new();
@@ -612,42 +711,46 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         let _ = DataService::run(context, Box::new(move || data_stop.load(Ordering::SeqCst)));
     }));
 
+    // Clipboard listener (event-driven).
+    //
+    // The previous polling implementation could only react to *content*
+    // changes, which made the "send on double Ctrl+C" toggle impossible to
+    // satisfy — copying the same text twice produced one content change, not
+    // two events. `clipboard-master` taps the OS-level clipboard sequence
+    // (Win: GetClipboardSequenceNumber, mac: NSPasteboard.changeCount,
+    // Linux: X11/Wayland selection events) so we genuinely see every copy.
     let clipboard_app = app.clone();
     let clipboard_stop = stop.clone();
     let clipboard_state = backend.clipboard.clone();
     let clipboard_service = service.discovery_service();
     let clipboard_config = config.clone();
     threads.push(thread::spawn(move || {
-        let mut clipboard = match arboard::Clipboard::new() {
-            Ok(clipboard) => clipboard,
-            Err(_) => return,
+        let handler = ClipboardListener {
+            app: clipboard_app,
+            state: clipboard_state,
+            service: clipboard_service,
+            config: clipboard_config,
+            last_event_at: None,
+            clipboard: arboard::Clipboard::new().ok(),
         };
-
-        while !clipboard_stop.load(Ordering::SeqCst) {
-            if let Ok(text) = clipboard.get_text() {
-                let mut should_send = false;
-                if let Some(backend) = clipboard_app.try_state::<Backend>() {
-                    let settings = backend.settings.lock().unwrap().clone();
-                    let mut state = clipboard_state.lock().unwrap();
-                    if state.suppressed_text.as_deref() == Some(text.as_str()) {
-                        state.suppressed_text = None;
-                    } else if state.last_text != text {
-                        state.last_text = text.clone();
-                        should_send = settings.send_clipboard_enabled
-                            && !settings.send_only_on_double_copy
-                            && !text.is_empty();
-                    }
-                }
-                if should_send {
-                    shared_anydrop_broadcast_text(
-                        text,
-                        clipboard_service.clone(),
-                        &clipboard_config,
-                    );
-                    emit_snapshot(&clipboard_app);
-                }
+        let mut master = match Master::new(handler) {
+            Ok(m) => m,
+            Err(err) => {
+                eprintln!("clipboard listener init failed: {err}");
+                return;
             }
-            thread::sleep(Duration::from_millis(650));
+        };
+        // Bridge our AtomicBool shutdown flag to clipboard-master's channel.
+        let shutdown = master.shutdown_channel();
+        let stop_flag = clipboard_stop.clone();
+        thread::spawn(move || {
+            while !stop_flag.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(250));
+            }
+            let _ = shutdown.signal();
+        });
+        if let Err(err) = master.run() {
+            eprintln!("clipboard listener stopped: {err}");
         }
     }));
 

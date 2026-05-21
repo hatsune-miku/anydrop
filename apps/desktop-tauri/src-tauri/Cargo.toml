@@ -15,6 +15,10 @@ tauri-build = { version = "2.2.0", features = [] }
 [dependencies]
 anydrop = { path = "../../../core" }
 arboard = "3.4.1"
+# Event-driven clipboard change notifications. arboard only does get/set —
+# we need this to detect when the user re-copies the same content, which a
+# content-diff poll fundamentally can't see.
+clipboard-master = "4"
 dirs = "5.0.1"
 open = "5.3.2"
 serde = { version = "1", features = ["derive"] }
