@@ -6,7 +6,7 @@ pub mod proto;
 pub mod service;
 pub mod util;
 
-pub mod transfer_v2;
+pub mod transfer;
 
 pub mod lib_generic;
 pub mod lib_util;

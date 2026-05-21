@@ -1,6 +1,7 @@
-use crate::network::peer::Peer;
-use crate::packet::data::file_coming_packet::FileComingPacket;
-use crate::packet::data::file_receive_response_packet::FileReceiveResponsePacket;
+//! Shared helpers reused by the desktop wrapper. File-related helpers were
+//! removed when file transfer migrated to the QUIC `transfer` module — only
+//! text broadcast, the data-service runner, and init/utility code remain.
+
 use crate::packet::data::magic_numbers::MagicNumbers;
 use crate::packet::data::text_packet::TextPacket;
 use crate::packet::protocol::serialize::Serialize;
@@ -13,7 +14,6 @@ use log::{error, info, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
-use std::fs::File;
 use std::os::raw::c_char;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,62 +70,6 @@ pub fn shared_anydrop_broadcast_text(
     }
 }
 
-pub fn shared_anydrop_try_send_file(
-    host: String,
-    file_path: String,
-    config: &AnyDropServiceConfig,
-) {
-    info!(
-        "lib: Sending file info {} to (addr={}:{})",
-        file_path, host, config.data_service_listen_port
-    );
-
-    info!("lib: Reading file info {}", file_path);
-    let file_info = match File::open(file_path.clone()) {
-        Ok(f) => f,
-        Err(e) => {
-            error!("lib: Failed to open file {}: {}", file_path, e);
-            return;
-        }
-    };
-
-    info!("lib: Reading metadata of file {}", file_path);
-    let metadata = match file_info.metadata() {
-        Ok(d) => d,
-        Err(e) => {
-            error!("lib: Failed to read metadata of file {}: {}", file_path, e);
-            return;
-        }
-    };
-
-    info!(
-        "lib: Sending file info {} to (addr={}:{})",
-        file_path, host, config.data_service_listen_port
-    );
-    // NOTE: protocol uses file_name as both display name AND local-path lookup
-    // key on the sender side (see file_receive_response_packet_handler.rs:83).
-    // Until we add a sender-side file_id->path map, we must send the full path.
-    // Receiver-side display already strips basename via the `file_name()` helper.
-    let packet = FileComingPacket::new(metadata.len(), file_path.clone());
-    match DataService::send_once_with_retry(
-        &Peer::new(&host, config.data_service_listen_port, None),
-        config.data_service_listen_port,
-        MagicNumbers::FileComing,
-        &packet.serialize(),
-        Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
-    ) {
-        Ok(_) => {
-            info!(
-                "lib: File info {} sent to (addr={}:{})",
-                file_path, host, config.data_service_listen_port
-            );
-        }
-        Err(e) => {
-            error!("lib: Failed to send file info {}: {}", file_path, e);
-        }
-    }
-}
-
 pub fn shared_anydrop_data_service(
     context: DataServiceContext,
     config: &AnyDropServiceConfig,
@@ -141,39 +85,7 @@ pub fn shared_anydrop_data_service(
     info!("lib: Data service stopped");
 }
 
-pub fn shared_anydrop_respond_to_file(
-    host: String,
-    file_id: u8,
-    file_size: u64,
-    file_path: String,
-    accept: bool,
-    config: &AnyDropServiceConfig,
-) {
-    let packet = FileReceiveResponsePacket::new(file_id, file_size, file_path, accept);
-    match DataService::send_once_with_retry(
-        &Peer::new(&host, config.data_service_listen_port, None),
-        config.data_service_listen_port,
-        MagicNumbers::FileReceiveResponse,
-        &packet.serialize(),
-        Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
-    ) {
-        Ok(_) => {
-            info!(
-                "lib: Successfully sent file response to (addr={}:{})",
-                host, config.data_service_listen_port
-            );
-        }
-        Err(e) => {
-            error!(
-                "lib: Failed to send file response to (addr={}:{}): {}",
-                host, config.data_service_listen_port, e
-            );
-        }
-    }
-}
-
 pub fn shared_anydrop_init() {
-    // Init logger.
     if let Ok(logger_config) = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(ConsoleAppender::builder().build())))
         .logger(Logger::builder().build("libanydrop", LevelFilter::Trace))

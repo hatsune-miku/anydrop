@@ -1,18 +1,14 @@
-use crate::packet::data::file_coming_packet::FileComingPacket;
-use crate::packet::data::file_part_packet::FilePartPacket;
-use crate::packet::data::local::file_sending_packet::FileSendingPacket;
 use crate::packet::data::text_packet::TextPacket;
 use crate::service::data_service::OnPacketReceivedFunctionType;
 use crate::service::discovery_service::DiscoveryService;
 use std::sync::Arc;
 
+/// Context handed to the legacy TCP data service. Since file transfer moved
+/// to the QUIC-based `transfer` module, this is now a text-only carrier.
 pub struct DataServiceContext {
     host: String,
     port: u16,
     text_callback: OnPacketReceivedFunctionType<TextPacket, ()>,
-    file_coming_callback: OnPacketReceivedFunctionType<FileComingPacket, ()>,
-    file_sending_callback: OnPacketReceivedFunctionType<FileSendingPacket, ()>,
-    file_part_callback: OnPacketReceivedFunctionType<FilePartPacket, bool>,
     discovery_service: Arc<DiscoveryService>,
 }
 
@@ -21,18 +17,12 @@ impl DataServiceContext {
         host: String,
         port: u16,
         text_callback: OnPacketReceivedFunctionType<TextPacket, ()>,
-        file_coming_callback: OnPacketReceivedFunctionType<FileComingPacket, ()>,
-        file_sending_callback: OnPacketReceivedFunctionType<FileSendingPacket, ()>,
-        file_part_callback: OnPacketReceivedFunctionType<FilePartPacket, bool>,
         discovery_service: Arc<DiscoveryService>,
     ) -> Self {
         Self {
             host,
             port,
             text_callback,
-            file_coming_callback,
-            file_sending_callback,
-            file_part_callback,
             discovery_service,
         }
     }
@@ -45,20 +35,8 @@ impl DataServiceContext {
         self.port
     }
 
-    pub fn file_coming_callback(&self) -> OnPacketReceivedFunctionType<FileComingPacket, ()> {
-        self.file_coming_callback.clone()
-    }
-
     pub fn text_callback(&self) -> OnPacketReceivedFunctionType<TextPacket, ()> {
         self.text_callback.clone()
-    }
-
-    pub fn file_sending_callback(&self) -> OnPacketReceivedFunctionType<FileSendingPacket, ()> {
-        self.file_sending_callback.clone()
-    }
-
-    pub fn file_part_callback(&self) -> OnPacketReceivedFunctionType<FilePartPacket, bool> {
-        self.file_part_callback.clone()
     }
 
     pub fn discovery_service(&self) -> Arc<DiscoveryService> {
@@ -72,9 +50,6 @@ impl Clone for DataServiceContext {
             host: self.host.clone(),
             port: self.port,
             text_callback: self.text_callback.clone(),
-            file_coming_callback: self.file_coming_callback.clone(),
-            file_sending_callback: self.file_sending_callback.clone(),
-            file_part_callback: self.file_part_callback.clone(),
             discovery_service: self.discovery_service.clone(),
         }
     }

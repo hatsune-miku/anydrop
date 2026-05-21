@@ -1,11 +1,5 @@
-use anydrop::lib_util::{
-    shared_anydrop_broadcast_text, shared_anydrop_init, shared_anydrop_respond_to_file,
-    shared_anydrop_try_send_file, CONNECTION_TIMEOUT_MILLIS,
-};
+use anydrop::lib_util::{shared_anydrop_broadcast_text, shared_anydrop_init, CONNECTION_TIMEOUT_MILLIS};
 use anydrop::network::peer::Peer;
-use anydrop::packet::data::file_coming_packet::FileComingPacket;
-use anydrop::packet::data::file_part_packet::FilePartPacket;
-use anydrop::packet::data::local::file_sending_packet::FileSendingPacket;
 use anydrop::packet::data::magic_numbers::MagicNumbers;
 use anydrop::packet::data::text_packet::TextPacket;
 use anydrop::packet::protocol::serialize::Serialize;
@@ -13,18 +7,17 @@ use anydrop::service::anydrop_service::{AnyDropService, AnyDropServiceConfig};
 use anydrop::service::context::data_service_context::DataServiceContext;
 use anydrop::service::data_service::DataService;
 use anydrop::service::discovery_service::DiscoveryService;
-use anydrop::transfer_v2::{
-    self, Decision as V2Decision, Direction as V2Direction, ProgressUpdate as V2Progress,
-    ServerHandle as V2ServerHandle, TransferOffer as V2Offer, TransferStatus as V2Status,
+use anydrop::transfer::{
+    self, Decision, Direction as TransferDirection, ProgressUpdate as TransferProgress,
+    ServerHandle as TransferServerHandle, TransferOffer, TransferStatus,
 };
 use anydrop::util::os::OSUtil;
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::fs::{self, File, OpenOptions};
-use std::io::{Seek, SeekFrom, Write};
+use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -139,12 +132,6 @@ struct Snapshot {
     logs: Vec<String>,
 }
 
-struct ReceivingFile {
-    path: PathBuf,
-    total: u64,
-    progress: u64,
-}
-
 struct ClipboardState {
     last_text: String,
     last_received_text: String,
@@ -183,32 +170,33 @@ struct Backend {
     settings: Mutex<AppSettings>,
     peers: Arc<Mutex<Vec<PeerGroup>>>,
     transfers: Arc<Mutex<HashMap<String, Transfer>>>,
-    receiving: Arc<Mutex<HashMap<u8, ReceivingFile>>>,
     clipboard: Arc<Mutex<ClipboardState>>,
-    next_file_id: AtomicU8,
     status_text: Mutex<String>,
     log_entries: Arc<Mutex<VecDeque<String>>>,
-    /// QUIC-based transfer_v2 server. Started alongside the legacy data
-    /// service when the runtime spins up.
-    v2_handle: Mutex<Option<Arc<V2ServerHandle>>>,
+    /// QUIC transfer server. Started alongside the legacy text data service
+    /// when the runtime spins up.
+    transfer_handle: Mutex<Option<Arc<TransferServerHandle>>>,
 }
 
-fn v2_key(transfer_id: u64) -> String {
-    format!("v2:{}", transfer_id)
+/// Build the `Transfer.key` for a given transfer_id. Currently a plain decimal
+/// string; the "v2:" prefix used during the migration is gone now that v1
+/// transfers no longer exist.
+fn make_transfer_key(transfer_id: u64) -> String {
+    transfer_id.to_string()
 }
 
-fn v2_status_to_u8(status: V2Status) -> u8 {
+fn transfer_status_to_u8(status: TransferStatus) -> u8 {
     match status {
-        V2Status::PendingDecision => 1,
-        V2Status::InProgress | V2Status::ItemDone => 4,
-        V2Status::AllDone => 7,
-        V2Status::Error => 6,
-        V2Status::Rejected => 2,
+        TransferStatus::PendingDecision => 1,
+        TransferStatus::InProgress | TransferStatus::ItemDone => 4,
+        TransferStatus::AllDone => 7,
+        TransferStatus::Error => 6,
+        TransferStatus::Rejected => 2,
     }
 }
 
-fn v2_label(offer: &V2Offer) -> String {
-    let files: Vec<&transfer_v2::Item> = offer.items.iter().filter(|i| !i.is_dir).collect();
+fn offer_label(offer: &TransferOffer) -> String {
+    let files: Vec<&transfer::Item> = offer.items.iter().filter(|i| !i.is_dir).collect();
     if files.len() == 1 {
         return file_name(&files[0].rel_path);
     }
@@ -223,14 +211,13 @@ fn v2_label(offer: &V2Offer) -> String {
     format!("{} 等 {} 个项目", first, files.len())
 }
 
-/// Convert the v2 progress event into a Transfer entry that the existing UI
-/// can render. Uses the v2:{transfer_id} key namespace.
-fn apply_v2_progress(
+/// Convert a transfer progress event into a Transfer row the UI can render.
+fn apply_progress(
     transfers: &Arc<Mutex<HashMap<String, Transfer>>>,
-    p: &V2Progress,
+    p: &TransferProgress,
     initial_label: Option<&str>,
 ) -> Transfer {
-    let key = v2_key(p.transfer_id);
+    let key = make_transfer_key(p.transfer_id);
     let mut map = transfers.lock().unwrap();
     let entry = map.entry(key.clone()).or_insert_with(|| Transfer {
         key: key.clone(),
@@ -248,20 +235,20 @@ fn apply_v2_progress(
         local_path: String::new(),
         peer: format!("{}@{}", p.display_name, p.remote_addr),
         host: p.remote_addr.ip().to_string(),
-        direction: if matches!(p.direction, V2Direction::Send) {
+        direction: if matches!(p.direction, TransferDirection::Send) {
             "outgoing".to_string()
         } else {
             "incoming".to_string()
         },
         progress: 0,
         total: p.total_size,
-        status: v2_status_to_u8(p.status),
+        status: transfer_status_to_u8(p.status),
     });
     entry.progress = p.total_done;
     if p.total_size > 0 {
         entry.total = p.total_size;
     }
-    entry.status = v2_status_to_u8(p.status);
+    entry.status = transfer_status_to_u8(p.status);
     entry.clone()
 }
 
@@ -364,14 +351,6 @@ fn emit_snapshot(app: &AppHandle) {
     }
 }
 
-fn incoming_key(file_id: u8) -> String {
-    format!("incoming:{file_id}")
-}
-
-fn outgoing_key(file_id: u8) -> String {
-    format!("outgoing:{file_id}")
-}
-
 fn file_name(path: &str) -> String {
     // Cross-platform basename: Path::file_name() on Unix only treats '/' as a
     // separator, so Windows paths like "C:\Users\foo.txt" survive intact on
@@ -381,45 +360,6 @@ fn file_name(path: &str) -> String {
         .find(|s| !s.is_empty())
         .unwrap_or("received-file")
         .to_string()
-}
-
-fn local_receive_path(remote_path: &str) -> Result<PathBuf, String> {
-    let base = dirs::download_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("AnyDrop");
-    fs::create_dir_all(&base).map_err(|err| err.to_string())?;
-
-    let name = file_name(remote_path);
-    let candidate = base.join(&name);
-    if !candidate.exists() {
-        return Ok(candidate);
-    }
-
-    let path = Path::new(&name);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("received-file");
-    let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    for index in 1..10_000 {
-        let next = if ext.is_empty() {
-            base.join(format!("{stem} ({index})"))
-        } else {
-            base.join(format!("{stem} ({index}).{ext}"))
-        };
-        if !next.exists() {
-            return Ok(next);
-        }
-    }
-
-    Ok(base.join(format!("received-file-{}", chrono_like_timestamp())))
-}
-
-fn chrono_like_timestamp() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
 }
 
 fn add_log(entries: &Arc<Mutex<VecDeque<String>>>, msg: impl Into<String>) {
@@ -445,20 +385,6 @@ fn add_log(entries: &Arc<Mutex<VecDeque<String>>>, msg: impl Into<String>) {
 fn peer_text(peer: Option<&Peer>) -> String {
     peer.map(ToString::to_string)
         .unwrap_or_else(|| Peer::default().to_string())
-}
-
-fn parse_peer_host(peer: &str) -> String {
-    let Some(at) = peer.find('@') else {
-        return peer.to_string();
-    };
-    let Some(colon) = peer.rfind(':') else {
-        return peer.to_string();
-    };
-    if colon > at {
-        peer[at + 1..colon].to_string()
-    } else {
-        peer.to_string()
-    }
 }
 
 fn port_available(discovery_port: u16, data_port: u16) -> Result<(), String> {
@@ -635,10 +561,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let data_stop = stop.clone();
     let data_service = service.clone();
     let data_app = app.clone();
-    let transfers = backend.transfers.clone();
-    let receiving = backend.receiving.clone();
     let clipboard_state = backend.clipboard.clone();
-    let data_log = backend.log_entries.clone();
     threads.push(thread::spawn(move || {
         let text_app = data_app.clone();
         let text_clipboard = clipboard_state.clone();
@@ -665,124 +588,12 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             emit_snapshot(&text_app);
         };
 
-        let file_app = data_app.clone();
-        let file_transfers = transfers.clone();
-        let file_log = data_log.clone();
-        let file_callback = move |packet: &FileComingPacket, peer: Option<&Peer>| {
-            add_log(&file_log, format!("incoming: name={} size={} from={}", file_name(packet.file_name()), packet.file_size(), peer_text(peer)));
-            let file_id = file_app
-                .try_state::<Backend>()
-                .map(|backend| backend.next_file_id.fetch_add(1, Ordering::SeqCst))
-                .unwrap_or(0);
-            let peer_label = peer_text(peer);
-            let transfer = Transfer {
-                key: incoming_key(file_id),
-                file_id,
-                file_name: file_name(packet.file_name()),
-                remote_path: packet.file_name().clone(),
-                local_path: String::new(),
-                peer: peer_label.clone(),
-                host: parse_peer_host(&peer_label),
-                direction: "incoming".to_string(),
-                progress: 0,
-                total: packet.file_size(),
-                status: 1,
-            };
-            file_transfers
-                .lock()
-                .unwrap()
-                .insert(transfer.key.clone(), transfer.clone());
-            let _ = file_app.emit("incoming-file", transfer);
-            emit_snapshot(&file_app);
-        };
-
-        let sending_app = data_app.clone();
-        let sending_transfers = transfers.clone();
-        let sending_log = data_log.clone();
-        let sending_callback = move |packet: &FileSendingPacket, _peer: Option<&Peer>| {
-            // Log non-progress status changes (skip status=4 to avoid noise).
-            let status = packet.status().to_u8();
-            if status != 4 {
-                add_log(&sending_log, format!("send: file_id={} status={} total={}", packet.file_id(), status, packet.total()));
-            }
-            let key = outgoing_key(packet.file_id());
-            let mut map = sending_transfers.lock().unwrap();
-            let entry = map.entry(key.clone()).or_insert_with(|| Transfer {
-                key: key.clone(),
-                file_id: packet.file_id(),
-                file_name: format!("Send #{}", packet.file_id()),
-                remote_path: String::new(),
-                local_path: String::new(),
-                peer: String::new(),
-                host: String::new(),
-                direction: "outgoing".to_string(),
-                progress: 0,
-                total: packet.total(),
-                status: 1,
-            });
-            entry.progress = packet.progress();
-            entry.total = packet.total();
-            entry.status = packet.status().to_u8();
-            if entry.status == 7 {
-                entry.progress = entry.total;
-            }
-            let transfer = entry.clone();
-            drop(map);
-            let _ = sending_app.emit("transfer-updated", transfer);
-            emit_snapshot(&sending_app);
-        };
-
-        let part_app = data_app.clone();
-        let part_receiving = receiving.clone();
-        let part_transfers = transfers.clone();
-        let part_callback = move |packet: &FilePartPacket, _peer: Option<&Peer>| -> bool {
-            let mut receiving_map = part_receiving.lock().unwrap();
-            let Some(file) = receiving_map.get_mut(&packet.file_id()) else {
-                return true;
-            };
-
-            let write_result =
-                OpenOptions::new()
-                    .write(true)
-                    .open(&file.path)
-                    .and_then(|mut handle| {
-                        handle.seek(SeekFrom::Start(packet.offset()))?;
-                        handle.write_all(packet.data())
-                    });
-            if write_result.is_err() {
-                return true;
-            }
-
-            file.progress = file
-                .progress
-                .max(packet.offset().saturating_add(packet.length()));
-            let progress = file.progress;
-            let total = file.total;
-            let local_path = file.path.to_string_lossy().to_string();
-            if progress >= total && total > 0 {
-                receiving_map.remove(&packet.file_id());
-            }
-            drop(receiving_map);
-
-            let key = incoming_key(packet.file_id());
-            if let Some(transfer) = part_transfers.lock().unwrap().get_mut(&key) {
-                transfer.progress = progress;
-                transfer.total = total;
-                transfer.local_path = local_path;
-                transfer.status = if progress >= total && total > 0 { 7 } else { 4 };
-                let _ = part_app.emit("transfer-updated", transfer.clone());
-            }
-            emit_snapshot(&part_app);
-            false
-        };
-
+        // File transfer is owned by the QUIC `transfer` server (see below);
+        // the legacy TCP DataService now only carries clipboard text.
         let context = DataServiceContext::new(
             data_service.config().text_service_listen_addr,
             data_service.config().data_service_listen_port,
             Arc::new(Box::new(text_callback)),
-            Arc::new(Box::new(file_callback)),
-            Arc::new(Box::new(sending_callback)),
-            Arc::new(Box::new(part_callback)),
             data_service.discovery_service(),
         );
         let _ = DataService::run(context, Box::new(move || data_stop.load(Ordering::SeqCst)));
@@ -834,25 +645,25 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         threads,
     });
 
-    // Spin up the QUIC-based transfer_v2 server on the same UDP port number
-    // as the legacy TCP data service (UDP/TCP namespaces don't collide).
-    let v2_bind: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.data_port);
-    let v2_app_offer = app.clone();
-    let v2_transfers_offer = backend.transfers.clone();
-    let v2_log_offer = backend.log_entries.clone();
-    let on_offer = move |offer: V2Offer| {
+    // Spin up the QUIC transfer server on the same port number as the legacy
+    // TCP text data service (UDP/TCP namespaces don't collide).
+    let transfer_bind: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.data_port);
+    let offer_app = app.clone();
+    let offer_transfers = backend.transfers.clone();
+    let offer_log = backend.log_entries.clone();
+    let on_offer = move |offer: TransferOffer| {
         add_log(
-            &v2_log_offer,
+            &offer_log,
             format!(
-                "v2 offer: from='{}' addr={} items={} bytes={}",
+                "offer: from='{}' addr={} items={} bytes={}",
                 offer.display_name,
                 offer.remote_addr,
                 offer.items.len(),
                 offer.total_size
             ),
         );
-        let label = v2_label(&offer);
-        let key = v2_key(offer.transfer_id);
+        let label = offer_label(&offer);
+        let key = make_transfer_key(offer.transfer_id);
         let t = Transfer {
             key: key.clone(),
             file_id: 0,
@@ -866,23 +677,23 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             total: offer.total_size,
             status: 1,
         };
-        v2_transfers_offer.lock().unwrap().insert(key, t.clone());
-        let _ = v2_app_offer.emit("incoming-file", t);
-        emit_snapshot(&v2_app_offer);
+        offer_transfers.lock().unwrap().insert(key, t.clone());
+        let _ = offer_app.emit("incoming-file", t);
+        emit_snapshot(&offer_app);
     };
 
-    let v2_app_prog = app.clone();
-    let v2_transfers_prog = backend.transfers.clone();
-    let v2_log_prog = backend.log_entries.clone();
-    let on_progress = move |p: V2Progress| {
+    let prog_app = app.clone();
+    let prog_transfers = backend.transfers.clone();
+    let prog_log = backend.log_entries.clone();
+    let on_progress = move |p: TransferProgress| {
         if matches!(
             p.status,
-            V2Status::AllDone | V2Status::Error | V2Status::Rejected
+            TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected
         ) {
             add_log(
-                &v2_log_prog,
+                &prog_log,
                 format!(
-                    "v2 {:?}: id={} dir={:?} done={}/{}{}",
+                    "{:?}: id={} dir={:?} done={}/{}{}",
                     p.status,
                     p.transfer_id,
                     p.direction,
@@ -895,19 +706,19 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 ),
             );
         }
-        let t = apply_v2_progress(&v2_transfers_prog, &p, None);
-        let _ = v2_app_prog.emit("transfer-updated", t);
-        emit_snapshot(&v2_app_prog);
+        let t = apply_progress(&prog_transfers, &p, None);
+        let _ = prog_app.emit("transfer-updated", t);
+        emit_snapshot(&prog_app);
     };
 
     let display_name = settings.display_name.clone();
-    match transfer_v2::start_server(v2_bind, display_name, on_offer, on_progress) {
+    match transfer::start_server(transfer_bind, display_name, on_offer, on_progress) {
         Ok(handle) => {
-            *backend.v2_handle.lock().unwrap() = Some(Arc::new(handle));
-            backend.log(format!("v2 server listening on udp/{}", settings.data_port));
+            *backend.transfer_handle.lock().unwrap() = Some(Arc::new(handle));
+            backend.log(format!("transfer server listening on udp/{}", settings.data_port));
         }
         Err(err) => {
-            backend.log(format!("v2 server failed: {}", err));
+            backend.log(format!("transfer server failed: {}", err));
         }
     }
 
@@ -923,7 +734,7 @@ fn stop_runtime(backend: &Backend) {
     if let Some(runtime) = backend.runtime.lock().unwrap().take() {
         runtime.stop();
     }
-    if let Some(handle) = backend.v2_handle.lock().unwrap().take() {
+    if let Some(handle) = backend.transfer_handle.lock().unwrap().take() {
         handle.close();
     }
 }
@@ -1061,151 +872,18 @@ fn send_text_to_peer(
 }
 
 #[tauri::command]
-fn send_files_to_peer(
-    app: AppHandle,
-    backend: State<'_, Backend>,
-    hosts: Vec<String>,
-    files: Vec<String>,
-) -> Result<Snapshot, String> {
-    let Some(config) = backend.config() else {
-        return Err("Service is offline".to_string());
-    };
-    backend.log(format!("send_files: hosts={hosts:?} port={}", config.data_service_listen_port));
-    let Some(host) = first_reachable_host(&hosts, config.data_service_listen_port) else {
-        backend.log(format!("send_files: no_reachable_host (tried {hosts:?})"));
-        return Err("No reachable address for peer".to_string());
-    };
-    backend.log(format!("send_files: host_ok={host}"));
-    let mut queued = 0;
-    for file in files {
-        if !Path::new(&file).exists() {
-            eprintln!("send_files_to_peer: skipping missing file {}", file);
-            continue;
-        }
-        // Pre-populate the outgoing transfer so the UI shows real filename
-        // before the core's sending callback fires.
-        let file_id = backend.next_file_id.fetch_add(1, Ordering::SeqCst);
-        let key = outgoing_key(file_id);
-        let display_name = file_name(&file);
-        let total = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
-        let entry = Transfer {
-            key: key.clone(),
-            file_id,
-            file_name: display_name,
-            remote_path: file.clone(),
-            local_path: file.clone(),
-            peer: host.clone(),
-            host: host.clone(),
-            direction: "outgoing".to_string(),
-            progress: 0,
-            total,
-            status: 1,
-        };
-        backend
-            .transfers
-            .lock()
-            .unwrap()
-            .insert(key, entry);
-
-        backend.log(format!("send_files: queuing file_id={file_id} path={file}"));
-        shared_anydrop_try_send_file(host.clone(), file, &config);
-        queued += 1;
-    }
-    backend.set_status(format!("Queued {queued} file(s)"));
-    emit_snapshot(&app);
-    Ok(backend.snapshot())
-}
-
-#[tauri::command]
-fn accept_transfer(
-    app: AppHandle,
-    backend: State<'_, Backend>,
-    transfer_key: String,
-) -> Result<Snapshot, String> {
-    let Some(config) = backend.config() else {
-        return Err("Service is offline".to_string());
-    };
-    let mut transfer = backend
-        .transfers
-        .lock()
-        .unwrap()
-        .get(&transfer_key)
-        .cloned()
-        .ok_or_else(|| "Transfer not found".to_string())?;
-    let path = local_receive_path(&transfer.remote_path)?;
-    backend.log(format!("accept: key={transfer_key} saving_to={}", path.display()));
-    let file = File::create(&path).map_err(|err| err.to_string())?;
-    file.set_len(transfer.total)
-        .map_err(|err| err.to_string())?;
-    backend.receiving.lock().unwrap().insert(
-        transfer.file_id,
-        ReceivingFile {
-            path: path.clone(),
-            total: transfer.total,
-            progress: 0,
-        },
-    );
-
-    transfer.local_path = path.to_string_lossy().to_string();
-    transfer.status = 3;
-    backend
-        .transfers
-        .lock()
-        .unwrap()
-        .insert(transfer_key, transfer.clone());
-    shared_anydrop_respond_to_file(
-        transfer.host.clone(),
-        transfer.file_id,
-        transfer.total,
-        transfer.remote_path.clone(),
-        true,
-        &config,
-    );
-    let _ = app.emit("transfer-updated", transfer);
-    emit_snapshot(&app);
-    Ok(backend.snapshot())
-}
-
-#[tauri::command]
-fn reject_transfer(
-    app: AppHandle,
-    backend: State<'_, Backend>,
-    transfer_key: String,
-) -> Result<Snapshot, String> {
-    let Some(config) = backend.config() else {
-        return Err("Service is offline".to_string());
-    };
-    let transfer = backend
-        .transfers
-        .lock()
-        .unwrap()
-        .remove(&transfer_key)
-        .ok_or_else(|| "Transfer not found".to_string())?;
-    shared_anydrop_respond_to_file(
-        transfer.host,
-        transfer.file_id,
-        transfer.total,
-        transfer.remote_path,
-        false,
-        &config,
-    );
-    emit_snapshot(&app);
-    Ok(backend.snapshot())
-}
-
-#[tauri::command]
-fn send_paths_v2(
+fn send_paths(
     app: AppHandle,
     backend: State<'_, Backend>,
     hosts: Vec<String>,
     paths: Vec<String>,
 ) -> Result<Snapshot, String> {
     let handle = backend
-        .v2_handle
+        .transfer_handle
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
+        .ok_or_else(|| "transfer server not running".to_string())?;
     let cfg = backend
         .config()
         .ok_or_else(|| "Service is offline".to_string())?;
@@ -1234,7 +912,7 @@ fn send_paths_v2(
     let target = target.ok_or_else(|| "no resolvable host".to_string())?;
     let path_bufs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
     backend.log(format!(
-        "v2 send: target={} paths={}",
+        "send: target={} paths={}",
         target,
         path_bufs.len()
     ));
@@ -1244,59 +922,58 @@ fn send_paths_v2(
     Ok(backend.snapshot())
 }
 
-fn parse_v2_key(key: &str) -> Result<u64, String> {
-    key.strip_prefix("v2:")
-        .and_then(|s| s.parse::<u64>().ok())
-        .ok_or_else(|| format!("not a v2 transfer key: {}", key))
+fn parse_transfer_key(key: &str) -> Result<u64, String> {
+    key.parse::<u64>()
+        .map_err(|_| format!("not a transfer key: {}", key))
 }
 
 #[tauri::command]
-fn accept_transfer_v2(
+fn accept_transfer(
     app: AppHandle,
     backend: State<'_, Backend>,
     transfer_key: String,
 ) -> Result<Snapshot, String> {
-    let transfer_id = parse_v2_key(&transfer_key)?;
+    let transfer_id = parse_transfer_key(&transfer_key)?;
     let handle = backend
-        .v2_handle
+        .transfer_handle
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
+        .ok_or_else(|| "transfer server not running".to_string())?;
     let save_root = dirs::download_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join("AnyDrop");
     fs::create_dir_all(&save_root).map_err(|err| err.to_string())?;
     backend.log(format!(
-        "v2 accept: id={transfer_id} save_root={}",
+        "accept: id={transfer_id} save_root={}",
         save_root.display()
     ));
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
         t.status = 4;
         t.local_path = save_root.to_string_lossy().to_string();
     }
-    handle.respond(transfer_id, V2Decision::Accept { save_root });
+    handle.respond(transfer_id, Decision::Accept { save_root });
     emit_snapshot(&app);
     Ok(backend.snapshot())
 }
 
 #[tauri::command]
-fn reject_transfer_v2(
+fn reject_transfer(
     app: AppHandle,
     backend: State<'_, Backend>,
     transfer_key: String,
 ) -> Result<Snapshot, String> {
-    let transfer_id = parse_v2_key(&transfer_key)?;
+    let transfer_id = parse_transfer_key(&transfer_key)?;
     let handle = backend
-        .v2_handle
+        .transfer_handle
         .lock()
         .unwrap()
         .clone()
-        .ok_or_else(|| "transfer_v2 server not running".to_string())?;
-    backend.log(format!("v2 reject: id={transfer_id}"));
+        .ok_or_else(|| "transfer server not running".to_string())?;
+    backend.log(format!("reject: id={transfer_id}"));
     handle.respond(
         transfer_id,
-        V2Decision::Reject {
+        Decision::Reject {
             reason: "user rejected".to_string(),
         },
     );
@@ -1425,15 +1102,12 @@ pub fn run() {
             save_settings,
             send_clipboard_now,
             send_text_to_peer,
-            send_files_to_peer,
             accept_transfer,
             reject_transfer,
             dismiss_transfer,
             open_transfer_folder,
             clear_logs,
-            send_paths_v2,
-            accept_transfer_v2,
-            reject_transfer_v2
+            send_paths
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

@@ -179,8 +179,12 @@ function App() {
     void refresh()
     const unlisteners = [
       listen<Snapshot>('snapshot', (event) => {
+        // Update the canonical snapshot only. Do NOT touch settingsDraft —
+        // the backend's clipboard / discovery threads emit snapshots
+        // frequently, and overwriting the draft here clobbers any unsaved
+        // edits (notoriously: flipping the "double-copy" toggle, then having
+        // it snap back the moment a clipboard event fires).
         setSnapshot(event.payload)
-        setSettingsDraft(event.payload.settings)
       }),
       listen<Transfer>('incoming-file', (event) => {
         setNotice(`收到文件请求：${event.payload.fileName}`)
@@ -202,7 +206,8 @@ function App() {
   }, [])
 
   useEffect(() => {
-    setSettingsDraft(snapshot.settings)
+    // Peer-selection reconciliation only — settings draft is intentionally
+    // left alone here (see snapshot listener above for rationale).
     if (!selectedPeerName && snapshot.peers.length > 0) {
       setSelectedPeerName(snapshot.peers[0].name)
     }
@@ -264,6 +269,24 @@ function App() {
     setNotice('设置已保存')
   }
 
+  /**
+   * Flip a boolean setting and persist it immediately.
+   *
+   * Booleans behave like switches — users expect them to take effect on
+   * click, not after a separate "save" step. We commit straight against
+   * `snapshot.settings` (the last-saved values) so that any in-progress
+   * draft edits (ports, group id, display name) are not accidentally
+   * persisted alongside.
+   */
+  async function setBoolSetting(
+    key: 'sendClipboardEnabled' | 'receiveClipboardEnabled' | 'sendOnlyOnDoubleCopy',
+    value: boolean
+  ) {
+    const next = { ...snapshot.settings, [key]: value }
+    setSettingsDraft((draft) => ({ ...draft, [key]: value }))
+    await runCommand<Snapshot>('save_settings', { settings: next })
+  }
+
   async function sendFiles() {
     if (!selectedPeer) {
       return
@@ -276,9 +299,7 @@ function App() {
     if (paths.length === 0) {
       return
     }
-    // Use QUIC-based transfer_v2; the legacy send_files_to_peer is kept in the
-    // backend for compatibility but no longer used from the desktop UI.
-    await runCommand<Snapshot>('send_paths_v2', {
+    await runCommand<Snapshot>('send_paths', {
       hosts: selectedPeer.hosts,
       paths,
     })
@@ -296,18 +317,10 @@ function App() {
     if (paths.length === 0) {
       return
     }
-    await runCommand<Snapshot>('send_paths_v2', {
+    await runCommand<Snapshot>('send_paths', {
       hosts: selectedPeer.hosts,
       paths,
     })
-  }
-
-  function acceptCmd(key: string) {
-    return key.startsWith('v2:') ? 'accept_transfer_v2' : 'accept_transfer'
-  }
-
-  function rejectCmd(key: string) {
-    return key.startsWith('v2:') ? 'reject_transfer_v2' : 'reject_transfer'
   }
 
   async function runWindowAction(event: React.MouseEvent, action: 'close' | 'minimize' | 'toggleMaximize') {
@@ -414,7 +427,7 @@ function App() {
                       className="button primary"
                       type="button"
                       onClick={() =>
-                        void runCommand<Snapshot>(acceptCmd(transfer.key), {
+                        void runCommand<Snapshot>('accept_transfer', {
                           transferKey: transfer.key,
                         })
                       }
@@ -426,7 +439,7 @@ function App() {
                       className="button"
                       type="button"
                       onClick={() =>
-                        void runCommand<Snapshot>(rejectCmd(transfer.key), {
+                        void runCommand<Snapshot>('reject_transfer', {
                           transferKey: transfer.key,
                         })
                       }
@@ -633,39 +646,30 @@ function App() {
               </label>
               <label className="toggle-row">
                 <input
-                  checked={settingsDraft.sendClipboardEnabled}
+                  checked={snapshot.settings.sendClipboardEnabled}
                   type="checkbox"
                   onChange={(event) =>
-                    setSettingsDraft({
-                      ...settingsDraft,
-                      sendClipboardEnabled: event.target.checked,
-                    })
+                    void setBoolSetting('sendClipboardEnabled', event.target.checked)
                   }
                 />
                 <span>同步本机剪贴板</span>
               </label>
               <label className="toggle-row">
                 <input
-                  checked={settingsDraft.receiveClipboardEnabled}
+                  checked={snapshot.settings.receiveClipboardEnabled}
                   type="checkbox"
                   onChange={(event) =>
-                    setSettingsDraft({
-                      ...settingsDraft,
-                      receiveClipboardEnabled: event.target.checked,
-                    })
+                    void setBoolSetting('receiveClipboardEnabled', event.target.checked)
                   }
                 />
                 <span>接收远端剪贴板</span>
               </label>
               <label className="toggle-row">
                 <input
-                  checked={settingsDraft.sendOnlyOnDoubleCopy}
+                  checked={snapshot.settings.sendOnlyOnDoubleCopy}
                   type="checkbox"
                   onChange={(event) =>
-                    setSettingsDraft({
-                      ...settingsDraft,
-                      sendOnlyOnDoubleCopy: event.target.checked,
-                    })
+                    void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)
                   }
                 />
                 <span>仅双击复制时发送</span>

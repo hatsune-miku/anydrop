@@ -4,6 +4,18 @@ on:
   push:
     branches: [master, main]
   workflow_dispatch:
+    # Manual dispatch lets you override the default universal macOS build with
+    # an arch-specific one. Push builds always produce a universal binary.
+    inputs:
+      macos_target:
+        description: "macOS target arch"
+        required: false
+        default: universal
+        type: choice
+        options:
+          - universal
+          - aarch64
+          - x86_64
 
 permissions:
   contents: write
@@ -92,33 +104,81 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      # Resolve the chosen architecture. Push events have no input → fall back
+      # to "universal".  `target` is the full rustc/Tauri triple; `slug` is the
+      # short tag we use to namespace artifacts.
+      - name: Resolve macOS target
+        id: target
+        shell: bash
+        run: |
+          INPUT="${{ github.event.inputs.macos_target }}"
+          case "${INPUT:-universal}" in
+            aarch64)
+              echo "triple=aarch64-apple-darwin" >> "$GITHUB_OUTPUT"
+              echo "slug=aarch64"                >> "$GITHUB_OUTPUT"
+              ;;
+            x86_64)
+              echo "triple=x86_64-apple-darwin"  >> "$GITHUB_OUTPUT"
+              echo "slug=x86_64"                 >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "triple=universal-apple-darwin" >> "$GITHUB_OUTPUT"
+              echo "slug=universal"                >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Add Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # For universal, build the standalone dylib twice and lipo-merge. For
+      # an arch-specific build, one cargo invocation does the job.
       - name: Build core (libanydrop.dylib)
-        run: cargo build -p anydrop --release
+        shell: bash
+        run: |
+          TRIPLE="${{ steps.target.outputs.triple }}"
+          if [ "$TRIPLE" = "universal-apple-darwin" ]; then
+            cargo build -p anydrop --release --target aarch64-apple-darwin
+            cargo build -p anydrop --release --target x86_64-apple-darwin
+            mkdir -p target/universal-apple-darwin/release
+            lipo -create -output target/universal-apple-darwin/release/libanydrop.dylib \
+              target/aarch64-apple-darwin/release/libanydrop.dylib \
+              target/x86_64-apple-darwin/release/libanydrop.dylib
+          else
+            cargo build -p anydrop --release --target "$TRIPLE"
+          fi
 
       - name: Build Tauri macOS app
-        run: yarn workspace @anydrop/desktop-tauri tauri build --bundles app,dmg
+        run: yarn workspace @anydrop/desktop-tauri tauri build --target ${{ steps.target.outputs.triple }} --bundles app,dmg
 
       - uses: actions/upload-artifact@v4
         with:
-          name: libanydrop-dylib
-          path: target/release/libanydrop.dylib
+          name: libanydrop-dylib-${{ steps.target.outputs.slug }}
+          path: target/${{ steps.target.outputs.triple }}/release/libanydrop.dylib
 
       - name: Zip .app bundle
         run: |
-          cd target/release/bundle/macos
-          zip -r AnyDrop.app.zip AnyDrop.app
+          cd target/${{ steps.target.outputs.triple }}/release/bundle/macos
+          zip -r AnyDrop-${{ steps.target.outputs.slug }}.app.zip AnyDrop.app
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-app
+          name: macos-app-${{ steps.target.outputs.slug }}
           path: |
-            target/release/bundle/macos/AnyDrop.app.zip
-            target/release/bundle/dmg/*.dmg
+            target/${{ steps.target.outputs.triple }}/release/bundle/macos/AnyDrop-${{ steps.target.outputs.slug }}.app.zip
+            target/${{ steps.target.outputs.triple }}/release/bundle/dmg/*.dmg
 
   # ── Release candidate ──────────────────────────────────────────────────────
+  # Only push events (which always produce a universal macOS build) and manual
+  # dispatches that explicitly chose `universal` create a public RC.  Manual
+  # arch-specific builds remain as workflow artifacts only — no release.
   release:
     needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.macos_target == 'universal' ||
+        github.event.inputs.macos_target == ''))
 
     steps:
       - uses: actions/download-artifact@v4
@@ -134,7 +194,7 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             artifacts/anydrop-dll/anydrop.dll
-            artifacts/libanydrop-dylib/libanydrop.dylib
+            artifacts/libanydrop-dylib-universal/libanydrop.dylib
             artifacts/windows-installer/*.exe
-            artifacts/macos-app/**/AnyDrop.app.zip
-            artifacts/macos-app/**/*.dmg
+            artifacts/macos-app-universal/**/AnyDrop-universal.app.zip
+            artifacts/macos-app-universal/**/*.dmg
