@@ -1,19 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import {
-  Check,
-  Clipboard,
-  FolderOpen,
-  Minus,
-  Pause,
-  Play,
-  RefreshCw,
-  Share2,
-  Square,
-  Upload,
-  X,
-} from 'lucide-react'
+import { Check, Clipboard, FolderOpen, Minus, Pause, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -159,7 +147,9 @@ function App() {
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
-    try { localStorage.setItem('darkMode', String(darkMode)) } catch {}
+    try {
+      localStorage.setItem('darkMode', String(darkMode))
+    } catch {}
   }, [darkMode])
 
   // Auto-scroll the log panel to the newest entry whenever logs change.
@@ -629,7 +619,9 @@ function App() {
                     <p className="empty">暂无日志。</p>
                   ) : (
                     snapshot.logs.map((entry, i) => (
-                      <div className="log-entry" key={i}>{entry}</div>
+                      <div className="log-entry" key={i}>
+                        {entry}
+                      </div>
                     ))
                   )}
                 </div>
@@ -643,30 +635,22 @@ function App() {
                 <span>设置</span>
               </div>
               <label className="toggle-row">
-                <input
-                  checked={darkMode}
-                  type="checkbox"
-                  onChange={(event) => setDarkMode(event.target.checked)}
-                />
+                <input checked={darkMode} type="checkbox" onChange={(event) => setDarkMode(event.target.checked)} />
                 <span>深色模式</span>
               </label>
               <label className="toggle-row">
                 <input
                   checked={snapshot.settings.sendClipboardEnabled}
                   type="checkbox"
-                  onChange={(event) =>
-                    void setBoolSetting('sendClipboardEnabled', event.target.checked)
-                  }
+                  onChange={(event) => void setBoolSetting('sendClipboardEnabled', event.target.checked)}
                 />
-                <span>同步本机剪贴板</span>
+                <span>发送本机剪贴板</span>
               </label>
               <label className="toggle-row">
                 <input
                   checked={snapshot.settings.receiveClipboardEnabled}
                   type="checkbox"
-                  onChange={(event) =>
-                    void setBoolSetting('receiveClipboardEnabled', event.target.checked)
-                  }
+                  onChange={(event) => void setBoolSetting('receiveClipboardEnabled', event.target.checked)}
                 />
                 <span>接收远端剪贴板</span>
               </label>
@@ -674,9 +658,7 @@ function App() {
                 <input
                   checked={snapshot.settings.sendOnlyOnDoubleCopy}
                   type="checkbox"
-                  onChange={(event) =>
-                    void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)
-                  }
+                  onChange={(event) => void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)}
                 />
                 <span>仅双击复制时发送</span>
               </label>
@@ -686,9 +668,7 @@ function App() {
                   type="text"
                   placeholder={snapshot.settings.displayName || '（系统主机名）'}
                   value={settingsDraft.displayName}
-                  onChange={(event) =>
-                    setSettingsDraft({ ...settingsDraft, displayName: event.target.value })
-                  }
+                  onChange={(event) => setSettingsDraft({ ...settingsDraft, displayName: event.target.value })}
                 />
               </label>
               <label className="field">
