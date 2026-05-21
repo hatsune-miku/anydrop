@@ -294,6 +294,7 @@ async fn handle_connection(
             status: TransferStatus::Error,
             error: Some(reason),
         });
+        graceful_close(&conn).await;
         return Ok(());
     }
 
@@ -320,14 +321,32 @@ async fn handle_connection(
             "transfer: complete transfer_id={} ({} files, {} bytes)",
             transfer_id, file_count, total_done
         );
+        graceful_close(&conn).await;
     } else {
         info!(
             "transfer: connection closed mid-flight for transfer_id={} — keeping state for resume",
             transfer_id
         );
         let _ = ctrl_send.finish();
+        // Note: NOT calling graceful_close here on purpose — we want the
+        // client to perceive the abrupt connection drop as a transient
+        // failure and retry, which the resume map will then service.
     }
     Ok(())
+}
+
+/// Gracefully wind a connection down, flushing any pending stream writes.
+///
+/// `Connection::drop` sends an immediate stateless reset that pre-empts any
+/// data still queued in the send buffer.  When we've just written something
+/// the peer needs (AllDone, Abort), we must initiate a *graceful* close and
+/// then await `closed()` so quinn has time to actually transmit those bytes
+/// + the connection-close frame.  Without this, clients see "connection
+/// lost" right when they expect AllDone — the exact symptom diagnosed in
+/// the field.
+async fn graceful_close(conn: &quinn::Connection) {
+    conn.close(0u32.into(), b"done");
+    let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
 }
 
 /// First-time negotiation: surface the offer, wait for user decision, ACK,
