@@ -16,7 +16,7 @@ use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs;
-use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -409,18 +409,27 @@ fn port_available(discovery_port: u16, data_port: u16) -> Result<(), String> {
     Ok(())
 }
 
-fn first_reachable_host(hosts: &[String], data_port: u16) -> Option<String> {
-    // Use a generous timeout matching CONNECTION_TIMEOUT_MILLIS — a tight
-    // probe (250ms) caused legitimate peers to be considered unreachable on
-    // Windows when the TCP handshake had any latency, while the actual send
-    // would have succeeded with the 3s send timeout.
-    let probe_timeout = Duration::from_millis(CONNECTION_TIMEOUT_MILLIS);
-    hosts.iter().find_map(|host| {
-        let socket = format!("{host}:{data_port}").parse::<SocketAddr>().ok()?;
-        TcpStream::connect_timeout(&socket, probe_timeout)
-            .ok()
-            .map(|_| host.clone())
-    })
+/// Parse a host string list into IPv4 candidates, silently dropping anything
+/// non-IPv4. Used as a feeder for `anydrop::util::network::pick_best_peer`.
+fn parse_ipv4_list(hosts: &[String]) -> Vec<std::net::Ipv4Addr> {
+    hosts
+        .iter()
+        .filter_map(|h| h.parse::<std::net::Ipv4Addr>().ok())
+        .collect()
+}
+
+/// Pick the most reachable peer host string from a candidate list.
+///
+/// Same-subnet match first, TCP probe fallback to `data_port` second,
+/// best-ranked candidate as a last-resort hand-off third.
+fn best_reachable_host(hosts: &[String], data_port: u16) -> Option<String> {
+    let candidates = parse_ipv4_list(hosts);
+    anydrop::util::network::pick_best_peer(
+        &candidates,
+        data_port,
+        Duration::from_millis(500),
+    )
+    .map(|sa| sa.ip().to_string())
 }
 
 fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
@@ -585,6 +594,29 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             discovery_config.group_identifier,
             discovery_display_name,
         );
+    }));
+
+    // mDNS / DNS-SD discovery runs alongside the UDP broadcast above and
+    // feeds the same peers set + last_seen map (so the existing TTL sweep
+    // applies uniformly).  HashSet<Peer> dedups by (host, port), so peers
+    // seen on both channels collapse to one entry automatically.
+    let mdns_stop = stop.clone();
+    let mdns_peers = discovery_peers.clone();
+    let mdns_last_seen = peer_last_seen.clone();
+    let mdns_data_port = config.data_service_listen_port;
+    let mdns_group = config.group_identifier;
+    let mdns_display_name = settings.display_name.clone();
+    threads.push(thread::spawn(move || {
+        if let Err(e) = anydrop::service::mdns_discovery::run(
+            mdns_peers,
+            Some(mdns_last_seen),
+            mdns_data_port,
+            mdns_group,
+            mdns_display_name,
+            Box::new(move || mdns_stop.load(Ordering::SeqCst)),
+        ) {
+            eprintln!("mdns discovery error: {e}");
+        }
     }));
 
     // Periodic discovery rebroadcast so new/restarted peers are seen and so
@@ -975,7 +1007,7 @@ fn send_text_to_peer(
     let Some(config) = backend.config() else {
         return Err("Service is offline".to_string());
     };
-    let Some(host) = first_reachable_host(&hosts, config.data_service_listen_port) else {
+    let Some(host) = best_reachable_host(&hosts, config.data_service_listen_port) else {
         return Err("No reachable address for peer".to_string());
     };
     let packet = TextPacket::new(text).map_err(|err| format!("{err}"))?;
@@ -1012,29 +1044,18 @@ fn send_paths(
     if hosts.is_empty() {
         return Err("no host".to_string());
     }
-    // Resolve to the first IPv4 socket addr we can produce. QUIC doesn't have
-    // a cheap probe; we just hand it to send_paths and let connect fail loud
-    // if the host is unreachable.
-    let mut target: Option<SocketAddr> = None;
-    for host in &hosts {
-        let candidate = format!("{}:{}", host, port);
-        if let Ok(addrs) = candidate.to_socket_addrs() {
-            for a in addrs {
-                if a.is_ipv4() {
-                    target = Some(a);
-                    break;
-                }
-            }
-        }
-        if target.is_some() {
-            break;
-        }
-    }
-    let target = target.ok_or_else(|| "no resolvable host".to_string())?;
+    let candidates = parse_ipv4_list(&hosts);
+    let target = anydrop::util::network::pick_best_peer(
+        &candidates,
+        port,
+        Duration::from_millis(500),
+    )
+    .ok_or_else(|| "no resolvable host".to_string())?;
     let path_bufs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
     backend.log(format!(
-        "send: target={} paths={}",
+        "send: target={} (from {} candidate(s)) paths={}",
         target,
+        candidates.len(),
         path_bufs.len()
     ));
     handle.send_paths(target, path_bufs);
