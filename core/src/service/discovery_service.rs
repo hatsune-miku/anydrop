@@ -209,6 +209,51 @@ impl DiscoveryService {
         Ok(())
     }
 
+    /// Unicast a single discovery request straight at a known peer.
+    ///
+    /// Used to symmetrize discovery in topologies where broadcast/multicast
+    /// only propagates one way — typically Wi-Fi ↔ Ethernet across mesh
+    /// nodes, where the Wi-Fi side often drops link-local broadcasts and
+    /// mDNS multicast bound for the wired backbone. Unicast doesn't have
+    /// this problem: it follows the regular IP routing table, which works
+    /// in both directions.
+    ///
+    /// The packet sets `need_response = true`, so the recipient adds us to
+    /// their peer set *and* sends an immediate unicast response back —
+    /// closing the discovery loop even when neither side's broadcast can
+    /// reach the other.
+    pub fn unicast_discovery_to(
+        target_ip: Ipv4Addr,
+        target_port: u16,
+        our_server_port: u16,
+        group_identifier: u32,
+        hostname: &str,
+    ) -> Result<(), io::Error> {
+        // Ephemeral source port — outgoing-only socket, the response comes
+        // back to our server_port (which the recipient reads from the
+        // packet) not to this socket.
+        let client_socket = match UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => s,
+            Err(e) => return Err(e),
+        };
+
+        let mut packet = DiscoveryPacket::new();
+        packet.set_address(0);
+        packet.set_server_port(our_server_port as u32);
+        packet.set_group_identifier(group_identifier);
+        packet.set_need_response(true);
+        packet.set_host_name(hostname.to_string());
+
+        if let Err(e) = Self::send_discovery_packet(
+            &client_socket,
+            &packet,
+            SocketAddrV4::new(target_ip, target_port),
+        ) {
+            return Err(io::Error::new(io::ErrorKind::Other, format!("{}", e)));
+        }
+        Ok(())
+    }
+
     pub fn broadcast_discovery_request(
         client_port: u16,
         server_port: u16,

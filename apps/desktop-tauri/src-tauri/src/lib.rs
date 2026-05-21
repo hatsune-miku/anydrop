@@ -619,22 +619,54 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         }
     }));
 
-    // Periodic discovery rebroadcast so new/restarted peers are seen and so
-    // existing peers' last_seen stays fresh (otherwise the expiry filter would
-    // hide them).
+    // Periodic discovery refresh.  Two pulses per cycle:
+    //   1. Broadcast — finds brand-new peers via the standard LAN scan.
+    //   2. Unicast to every peer we already know — symmetrizes discovery in
+    //      mesh / Wi-Fi-to-Ethernet topologies where broadcast / multicast
+    //      only propagates one way.  Without this, a peer reachable from us
+    //      by unicast (file send works fine) might never learn we exist
+    //      because their broadcast/multicast reaches us but ours doesn't
+    //      reach them.
     let rebroadcast_stop = stop.clone();
     let rebroadcast_config = config.clone();
     let rebroadcast_display_name = settings.display_name.clone();
+    let rebroadcast_peers = discovery_peers.clone();
     threads.push(thread::spawn(move || {
-        // 3s heartbeat with 250ms granularity for responsive stop.
         let mut tick: u32 = 0;
         while !rebroadcast_stop.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(250));
             tick = tick.wrapping_add(1);
-            if tick % 12 == 0 {
-                let _ = DiscoveryService::broadcast_discovery_request(
-                    rebroadcast_config.discovery_service_client_port,
-                    rebroadcast_config.discovery_service_server_port,
+            if tick % 12 != 0 {
+                continue;
+            }
+
+            let _ = DiscoveryService::broadcast_discovery_request(
+                rebroadcast_config.discovery_service_client_port,
+                rebroadcast_config.discovery_service_server_port,
+                rebroadcast_config.group_identifier,
+                &rebroadcast_display_name,
+            );
+
+            // Snapshot the peer set so we don't hold the lock across unicasts.
+            let targets: Vec<Ipv4Addr> = rebroadcast_peers
+                .lock()
+                .ok()
+                .map(|set| {
+                    set.iter()
+                        .filter_map(|p| p.host().parse::<Ipv4Addr>().ok())
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Assume peer uses the same discovery port as us — true for
+            // every default-config deployment.  If users start customizing
+            // ports per-device, we'd need to advertise it (e.g. mDNS TXT)
+            // and read it back, but that's beyond what's worth doing now.
+            let discovery_port = rebroadcast_config.discovery_service_server_port;
+            for ip in targets {
+                let _ = DiscoveryService::unicast_discovery_to(
+                    ip,
+                    discovery_port,
+                    discovery_port,
                     rebroadcast_config.group_identifier,
                     &rebroadcast_display_name,
                 );
