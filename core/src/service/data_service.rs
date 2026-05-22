@@ -6,7 +6,7 @@ use crate::packet::data_transmission::DataTransmit;
 use crate::packet::protocol::serialize::Serialize;
 use crate::service::context::data_service_context::DataServiceContext;
 use crate::service::handler::context::{ConnectionControl, HandlerContext};
-use crate::service::handler::text_packet_handler;
+use crate::service::handler::{image_packet_handler, text_packet_handler};
 use crate::service::ShouldInterruptFunctionType;
 use log::{info, trace, warn};
 use std::io;
@@ -96,6 +96,7 @@ impl DataService {
         let context = HandlerContext::new(tt, packet, socket_addr, data_service_context);
         match MagicNumbers::from(packet.magic_number()) {
             Some(MagicNumbers::Text) => text_packet_handler::handle(context),
+            Some(MagicNumbers::Image) => image_packet_handler::handle(context),
             None => {
                 warn!("Unknown magic number.");
                 ConnectionControl::CloseConnection

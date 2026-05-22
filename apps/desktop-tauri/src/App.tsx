@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Check, Clipboard, FolderOpen, Minus, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
+import { Check, Clipboard, FolderOpen, Minus, Pause, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -16,6 +16,7 @@ type SettingsModel = {
   discoveryPort: number
   dataPort: number
   displayName: string
+  syncImageEnabled: boolean
 }
 
 type PeerGroup = {
@@ -38,6 +39,8 @@ type Transfer = {
   status: number
   /** Latest error reported for the transfer, if any. Sticky once set. */
   error?: string
+  /** Smoothed transfer rate in bytes/sec; 0 at start/terminal. */
+  speedBps: number
 }
 
 type Snapshot = {
@@ -65,6 +68,7 @@ const fallbackSettings: SettingsModel = {
   discoveryPort: 9818,
   dataPort: 9819,
   displayName: '',
+  syncImageEnabled: false,
 }
 
 const emptySnapshot: Snapshot = {
@@ -93,13 +97,15 @@ function transferStatus(status: number) {
     case 4:
       return '传输中'
     case 5:
-      return '发送方取消'
+      return '已取消'
     case 6:
-      return '接收方取消'
+      return '错误'
     case 7:
       return '完成'
     case 8:
       return '错误'
+    case 9:
+      return '已暂停'
     default:
       return '未知'
   }
@@ -117,6 +123,13 @@ function formatBytes(value: number) {
     index += 1
   }
   return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+function formatSpeed(bps: number) {
+  if (!Number.isFinite(bps) || bps <= 0) {
+    return ''
+  }
+  return `${formatBytes(bps)}/s`
 }
 
 function percent(transfer: Transfer) {
@@ -195,7 +208,16 @@ function App() {
           let nextTransfers: Transfer[]
           if (idx >= 0) {
             nextTransfers = prev.transfers.slice()
-            nextTransfers[idx] = updated
+            // Defensive merge: protect "set once" fields (localPath,
+            // fileName) from being clobbered if the backend ever sends an
+            // empty value mid-transfer. Observed on large transfers where
+            // the "open folder" affordance would disappear after completion.
+            const prevRow = nextTransfers[idx]
+            nextTransfers[idx] = {
+              ...updated,
+              localPath: updated.localPath || prevRow.localPath,
+              fileName: updated.fileName || prevRow.fileName,
+            }
           } else {
             nextTransfers = [...prev.transfers, updated].sort((a, b) =>
               a.key.localeCompare(b.key)
@@ -289,7 +311,11 @@ function App() {
    * persisted alongside.
    */
   async function setBoolSetting(
-    key: 'sendClipboardEnabled' | 'receiveClipboardEnabled' | 'sendOnlyOnDoubleCopy',
+    key:
+      | 'sendClipboardEnabled'
+      | 'receiveClipboardEnabled'
+      | 'sendOnlyOnDoubleCopy'
+      | 'syncImageEnabled',
     value: boolean
   ) {
     const next = { ...snapshot.settings, [key]: value }
@@ -582,6 +608,9 @@ function App() {
                           <span>
                             {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)} ·{' '}
                             {formatBytes(transfer.progress)} / {formatBytes(transfer.total)}
+                            {transfer.status === 4 && transfer.speedBps > 0
+                              ? ` · ${formatSpeed(transfer.speedBps)}`
+                              : ''}
                           </span>
                           {transfer.error ? (
                             <span className="transfer-error" title={transfer.error}>
@@ -593,30 +622,99 @@ function App() {
                           <span style={{ width: `${percent(transfer)}%` }} />
                         </div>
                         <div className="row-actions">
-                          {transfer.localPath ? (
-                            <button
-                              className="icon-button"
-                              type="button"
-                              onClick={() =>
-                                void runCommand<void>('open_transfer_folder', {
-                                  transferKey: transfer.key,
-                                })
-                              }
-                            >
-                              <FolderOpen size={15} />
-                            </button>
-                          ) : null}
-                          <button
-                            className="icon-button"
-                            type="button"
-                            onClick={() =>
-                              void runCommand<Snapshot>('dismiss_transfer', {
-                                transferKey: transfer.key,
-                              })
-                            }
-                          >
-                            <X size={15} />
-                          </button>
+                          {/* In-flight (status=4): Pause + Cancel.
+                              Paused (status=9): Resume + Cancel.
+                              Terminal (5/6/7/2): Open folder + Dismiss. */}
+                          {transfer.status === 4 ? (
+                            <>
+                              <button
+                                className="icon-button icon-button--ghost"
+                                type="button"
+                                aria-label="暂停"
+                                title="暂停"
+                                onClick={() =>
+                                  void runCommand<Snapshot>('pause_transfer', {
+                                    transferKey: transfer.key,
+                                  })
+                                }
+                              >
+                                <Pause size={15} />
+                              </button>
+                              <button
+                                className="icon-button icon-button--ghost"
+                                type="button"
+                                aria-label="取消"
+                                title="取消传输"
+                                onClick={() =>
+                                  void runCommand<Snapshot>('cancel_transfer', {
+                                    transferKey: transfer.key,
+                                  })
+                                }
+                              >
+                                <X size={15} />
+                              </button>
+                            </>
+                          ) : transfer.status === 9 ? (
+                            <>
+                              <button
+                                className="icon-button icon-button--ghost"
+                                type="button"
+                                aria-label="继续"
+                                title="继续传输"
+                                onClick={() =>
+                                  void runCommand<Snapshot>('resume_transfer', {
+                                    transferKey: transfer.key,
+                                  })
+                                }
+                              >
+                                <Play size={15} />
+                              </button>
+                              <button
+                                className="icon-button icon-button--ghost"
+                                type="button"
+                                aria-label="取消"
+                                title="取消传输"
+                                onClick={() =>
+                                  void runCommand<Snapshot>('cancel_transfer', {
+                                    transferKey: transfer.key,
+                                  })
+                                }
+                              >
+                                <X size={15} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {transfer.localPath ? (
+                                <button
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="打开所在目录"
+                                  title="打开所在目录"
+                                  onClick={() =>
+                                    void runCommand<void>('open_transfer_folder', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <FolderOpen size={15} />
+                                </button>
+                              ) : null}
+                              <button
+                                className="icon-button"
+                                type="button"
+                                aria-label="从列表移除"
+                                title="从列表移除"
+                                onClick={() =>
+                                  void runCommand<Snapshot>('dismiss_transfer', {
+                                    transferKey: transfer.key,
+                                  })
+                                }
+                              >
+                                <X size={15} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </article>
                     ))}
@@ -690,6 +788,14 @@ function App() {
                   onChange={(event) => void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)}
                 />
                 <span>仅双击复制时发送</span>
+              </label>
+              <label className="toggle-row">
+                <input
+                  checked={snapshot.settings.syncImageEnabled}
+                  type="checkbox"
+                  onChange={(event) => void setBoolSetting('syncImageEnabled', event.target.checked)}
+                />
+                <span>同步剪贴板图片（最大 64MB）</span>
               </label>
               <label className="field">
                 <span>本机外显名</span>

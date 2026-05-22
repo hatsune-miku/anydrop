@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use log::{info, warn};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio_util::sync::CancellationToken;
 
 use super::cert::client_config;
 use super::protocol::{Hello, HelloAck, Item, Status, DATA_HEADER_LEN};
@@ -29,10 +30,12 @@ const BACKOFF_INITIAL_MS: u64 = 1_000;
 const BACKOFF_CAP_MS: u64 = 16_000;
 
 pub(crate) async fn send_paths_impl(
+    transfer_id: u64,
     target: SocketAddr,
     paths: Vec<PathBuf>,
     display_name: String,
     on_progress: OnProgress,
+    cancel: CancellationToken,
 ) -> Result<(), String> {
     if paths.is_empty() {
         return Err("no paths".into());
@@ -44,7 +47,6 @@ pub(crate) async fn send_paths_impl(
     let items: Vec<Item> = walked.iter().map(|(i, _)| i.clone()).collect();
     let src_paths: Vec<Option<PathBuf>> = walked.iter().map(|(_, p)| p.clone()).collect();
     let total_size: u64 = items.iter().filter(|i| !i.is_dir).map(|i| i.size).sum();
-    let transfer_id: u64 = rand::random();
 
     // Per-item bytes successfully streamed; survives across retries.
     let bytes_sent: Arc<Vec<AtomicU64>> =
@@ -78,6 +80,21 @@ pub(crate) async fn send_paths_impl(
     let mut attempt: u32 = 0;
     let mut last_error: Option<String>;
     loop {
+        // Cancel check before each attempt. `cancel_transfer` (terminal) and
+        // `pause_transfer` (resumable) both fire this token; we tell them
+        // apart by checking whether send_args was retained — but here we
+        // only know we should stop. The caller (mod.rs) emits the correct
+        // terminal status (Cancelled vs Paused) based on its own bookkeeping.
+        if cancel.is_cancelled() {
+            return emit_cancelled(
+                transfer_id,
+                &target,
+                &display_name,
+                total_size,
+                &bytes_sent,
+                &on_progress,
+            );
+        }
         attempt += 1;
         match attempt_send(
             target,
@@ -88,10 +105,21 @@ pub(crate) async fn send_paths_impl(
             total_size,
             display_name.clone(),
             on_progress.clone(),
+            cancel.clone(),
         )
         .await
         {
             Ok(AttemptOutcome::Done) => return Ok(()),
+            Ok(AttemptOutcome::Cancelled) => {
+                return emit_cancelled(
+                    transfer_id,
+                    &target,
+                    &display_name,
+                    total_size,
+                    &bytes_sent,
+                    &on_progress,
+                );
+            }
             Ok(AttemptOutcome::Rejected(reason)) => {
                 on_progress(ProgressUpdate {
                     transfer_id,
@@ -160,7 +188,20 @@ pub(crate) async fn send_paths_impl(
                     break;
                 }
                 let backoff_ms = (BACKOFF_INITIAL_MS << (attempt - 1)).min(BACKOFF_CAP_MS);
-                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                // Cancel during backoff exits without retrying.
+                tokio::select! {
+                    _ = cancel.cancelled() => {
+                        return emit_cancelled(
+                            transfer_id,
+                            &target,
+                            &display_name,
+                            total_size,
+                            &bytes_sent,
+                            &on_progress,
+                        );
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(backoff_ms)) => {}
+                }
             }
         }
     }
@@ -190,6 +231,38 @@ enum AttemptOutcome {
     /// can't write a file because the name is illegal on its filesystem). No
     /// retry — the same error would happen again.
     Aborted(String),
+    /// User cancelled via the host's `cancel_transfer` API mid-attempt. We
+    /// stop everything and let the outer loop surface `Cancelled`.
+    Cancelled,
+}
+
+/// Emit a TransferStatus::Cancelled progress update from the send-side and
+/// return Ok(()). The bytes_sent snapshot becomes total_done so the UI can
+/// show "stopped at X / Y bytes".
+fn emit_cancelled(
+    transfer_id: u64,
+    target: &SocketAddr,
+    display_name: &str,
+    total_size: u64,
+    bytes_sent: &[AtomicU64],
+    on_progress: &OnProgress,
+) -> Result<(), String> {
+    let total_done: u64 = bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+    on_progress(ProgressUpdate {
+        transfer_id,
+        direction: Direction::Send,
+        remote_addr: *target,
+        display_name: display_name.to_string(),
+        item_idx: 0,
+        rel_path: String::new(),
+        item_size: 0,
+        bytes_done: total_done,
+        total_size,
+        total_done,
+        status: TransferStatus::Cancelled,
+        error: None,
+    });
+    Ok(())
 }
 
 /// Human-friendly label for the whole transfer, used by the host UI as the
@@ -233,6 +306,7 @@ async fn attempt_send(
     total_size: u64,
     display_name: String,
     on_progress: OnProgress,
+    cancel: CancellationToken,
 ) -> Result<AttemptOutcome, String> {
     let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
     let mut endpoint =
@@ -321,6 +395,15 @@ async fn attempt_send(
         let mut last_bytes: u64 = 0;
 
         loop {
+            // Cancel-aware chunk loop. Check the token at the top of each
+            // iteration; this gives ~64KB granularity for cancellation,
+            // which at LAN speed is microseconds — plenty fast for "X" UX.
+            if cancel.is_cancelled() {
+                let _ = uni.finish();
+                conn.close(0u32.into(), b"cancelled");
+                let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
+                return Ok(AttemptOutcome::Cancelled);
+            }
             let n = file
                 .read(&mut buf)
                 .await

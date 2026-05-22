@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 pub use protocol::Item;
 
@@ -46,6 +47,10 @@ pub enum TransferStatus {
     Error,
     /// Peer rejected the offer (sender side).
     Rejected,
+    /// User cancelled — terminal, no resume.
+    Cancelled,
+    /// User paused — sender stopped; receiver state preserved for `Resume`.
+    Paused,
 }
 
 /// Offer received by the server, surfaced to the host application via the
@@ -99,6 +104,13 @@ pub(crate) struct PendingOffers {
     pub map: Mutex<HashMap<u64, oneshot::Sender<Decision>>>,
 }
 
+/// Stored args for a send so it can be resumed verbatim after pause.
+#[derive(Clone)]
+pub(crate) struct SendArgs {
+    pub target: SocketAddr,
+    pub paths: Vec<PathBuf>,
+}
+
 /// Handle returned by [`start_server`]. Owns the tokio runtime and the QUIC
 /// endpoint; drop / [`ServerHandle::close`] tears everything down.
 pub struct ServerHandle {
@@ -108,6 +120,14 @@ pub struct ServerHandle {
     on_progress: OnProgress,
     local_addr: SocketAddr,
     display_name: String,
+    /// CancellationToken per in-flight transfer, keyed by `transfer_id`.
+    /// Holds tokens for **both** sender-side and receiver-side active
+    /// transfers — they don't collide because transfer_id is globally unique
+    /// per send and a single host is rarely both sides of the same id.
+    pub(crate) cancels: Arc<Mutex<HashMap<u64, CancellationToken>>>,
+    /// Send args parked for potential resume. Populated by `send_paths` and
+    /// drained on cancel/AllDone. `resume_transfer` re-fires send with these.
+    pub(crate) send_args: Arc<Mutex<HashMap<u64, SendArgs>>>,
 }
 
 impl ServerHandle {
@@ -124,17 +144,53 @@ impl ServerHandle {
         }
     }
 
-    /// Send one or more files/folders to `target`. Runs the transfer on this
-    /// handle's runtime; returns immediately.
-    pub fn send_paths(&self, target: SocketAddr, paths: Vec<PathBuf>) {
+    /// Send one or more files/folders to `target`.
+    pub fn send_paths(&self, target: SocketAddr, paths: Vec<PathBuf>) -> u64 {
+        let transfer_id: u64 = rand::random();
+        self.send_with_id(transfer_id, target, paths);
+        transfer_id
+    }
+
+    /// Internal: spawn a send using a caller-chosen `transfer_id`. Used by
+    /// `send_paths` (fresh id) and `resume_transfer` (existing id, server
+    /// recognizes and resumes from saved offsets).
+    fn send_with_id(&self, transfer_id: u64, target: SocketAddr, paths: Vec<PathBuf>) {
+        let token = CancellationToken::new();
+        self.cancels
+            .lock()
+            .unwrap()
+            .insert(transfer_id, token.clone());
+        self.send_args.lock().unwrap().insert(
+            transfer_id,
+            SendArgs {
+                target,
+                paths: paths.clone(),
+            },
+        );
+
         let on_progress = self.on_progress.clone();
         let display_name = self.display_name.clone();
+        let cancels = self.cancels.clone();
+        let send_args = self.send_args.clone();
         self.runtime.spawn(async move {
-            if let Err(e) =
-                client::send_paths_impl(target, paths, display_name, on_progress.clone()).await
-            {
+            let result = client::send_paths_impl(
+                transfer_id,
+                target,
+                paths,
+                display_name,
+                on_progress.clone(),
+                token,
+            )
+            .await;
+            // On natural completion or hard error, clean up registrations.
+            // Pause is handled inside send_paths_impl: it emits Paused and
+            // returns Ok(()), but pause_transfer() removes the cancel entry
+            // explicitly first, so the entry is gone here either way.
+            cancels.lock().unwrap().remove(&transfer_id);
+            if let Err(e) = result {
+                send_args.lock().unwrap().remove(&transfer_id);
                 on_progress(ProgressUpdate {
-                    transfer_id: 0,
+                    transfer_id,
                     direction: Direction::Send,
                     remote_addr: target,
                     display_name: String::new(),
@@ -149,6 +205,52 @@ impl ServerHandle {
                 });
             }
         });
+    }
+
+    /// Cancel an in-flight transfer (sender or receiver, whichever side this
+    /// handle is). Fires the cancellation token; the affected task surfaces
+    /// `TransferStatus::Cancelled`. Send-side also notifies the peer via
+    /// `Status::Abort` so the other UI doesn't dangle.
+    ///
+    /// Returns `true` if a transfer with that id was found and signalled.
+    pub fn cancel_transfer(&self, transfer_id: u64) -> bool {
+        let token = self.cancels.lock().unwrap().remove(&transfer_id);
+        self.send_args.lock().unwrap().remove(&transfer_id);
+        if let Some(t) = token {
+            t.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Pause an in-flight transfer.  Semantically the same as cancel locally
+    /// (tasks abort), but keeps `send_args` around so `resume_transfer` can
+    /// re-fire with the original target / paths and the same transfer_id,
+    /// which the receiver recognises via its active-transfer map (the
+    /// already-received offsets get reported back in HelloAck).
+    pub fn pause_transfer(&self, transfer_id: u64) -> bool {
+        let token = self.cancels.lock().unwrap().remove(&transfer_id);
+        // Note: do NOT remove send_args — that's what resume needs.
+        if let Some(t) = token {
+            t.cancel();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Resume a previously paused transfer.  Looks up the original send args
+    /// and fires another `send_paths_impl` with the SAME transfer_id, which
+    /// the receiver's resume path picks up automatically.
+    pub fn resume_transfer(&self, transfer_id: u64) -> bool {
+        let args = self.send_args.lock().unwrap().get(&transfer_id).cloned();
+        if let Some(SendArgs { target, paths }) = args {
+            self.send_with_id(transfer_id, target, paths);
+            true
+        } else {
+            false
+        }
     }
 
     /// Gracefully close the endpoint and wait for outstanding tasks.
@@ -197,14 +299,18 @@ where
     let pending = Arc::new(PendingOffers::default());
     let on_offer: OnOffer = Arc::new(on_offer);
     let on_progress: OnProgress = Arc::new(on_progress);
+    let cancels: Arc<Mutex<HashMap<u64, CancellationToken>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    let send_args: Arc<Mutex<HashMap<u64, SendArgs>>> = Arc::new(Mutex::new(HashMap::new()));
 
     {
         let endpoint = endpoint.clone();
         let pending = pending.clone();
         let on_offer = on_offer.clone();
         let on_progress = on_progress.clone();
+        let cancels = cancels.clone();
         runtime.spawn(async move {
-            server::run(endpoint, pending, on_offer, on_progress).await;
+            server::run(endpoint, pending, on_offer, on_progress, cancels).await;
         });
     }
 
@@ -215,5 +321,7 @@ where
         on_progress,
         local_addr,
         display_name,
+        cancels,
+        send_args,
     })
 }

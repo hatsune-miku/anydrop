@@ -10,6 +10,7 @@ use log::{info, warn};
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
 use super::protocol::{Hello, HelloAck, Item, Status, DATA_HEADER_LEN};
 use super::walk::sanitize_rel;
@@ -36,12 +37,18 @@ pub(crate) struct ActiveTransfer {
 
 pub(crate) type ActiveTransfersMap = Arc<Mutex<HashMap<u64, Arc<ActiveTransfer>>>>;
 
+/// Type alias for the shared cancel-token registry that lives on
+/// `ServerHandle`. Receiver-side transfers register their token here on
+/// accept so the host's `cancel_transfer` API works symmetrically.
+pub(crate) type CancelMap = Arc<Mutex<HashMap<u64, CancellationToken>>>;
+
 /// Main accept loop.
 pub(crate) async fn run(
     endpoint: quinn::Endpoint,
     pending: Arc<PendingOffers>,
     on_offer: OnOffer,
     on_progress: OnProgress,
+    cancels: CancelMap,
 ) {
     let active: ActiveTransfersMap = Arc::new(Mutex::new(HashMap::new()));
 
@@ -79,6 +86,7 @@ pub(crate) async fn run(
         let on_offer = on_offer.clone();
         let on_progress = on_progress.clone();
         let active = active.clone();
+        let cancels = cancels.clone();
         tokio::spawn(async move {
             let conn = match incoming.await {
                 Ok(c) => c,
@@ -87,7 +95,9 @@ pub(crate) async fn run(
                     return;
                 }
             };
-            if let Err(e) = handle_connection(conn, pending, on_offer, on_progress, active).await {
+            if let Err(e) =
+                handle_connection(conn, pending, on_offer, on_progress, active, cancels).await
+            {
                 warn!("transfer: connection error: {}", e);
             }
         });
@@ -100,6 +110,7 @@ async fn handle_connection(
     on_offer: OnOffer,
     on_progress: OnProgress,
     active: ActiveTransfersMap,
+    cancels: CancelMap,
 ) -> Result<(), String> {
     let remote_addr = conn.remote_address();
     let (mut ctrl_send, mut ctrl_recv) = conn
@@ -170,6 +181,17 @@ async fn handle_connection(
         new_entry
     };
 
+    // Register (or reuse) a cancel token for this transfer so the host's
+    // `cancel_transfer` API can stop the receive tasks. We get-or-insert so
+    // resume reuses the same token entry, while a fresh transfer creates one.
+    let cancel_token = {
+        let mut guard = cancels.lock().unwrap();
+        guard
+            .entry(transfer_id)
+            .or_insert_with(CancellationToken::new)
+            .clone()
+    };
+
     // Receive data streams. Only items not already complete will arrive.
     let mut tasks = Vec::new();
     let file_count = entry.items.iter().filter(|i| !i.is_dir).count();
@@ -200,6 +222,7 @@ async fn handle_connection(
         let entry_c = entry.clone();
         let on_progress_c = on_progress.clone();
         let display_name_c = hello.display_name.clone();
+        let cancel_c = cancel_token.clone();
         tasks.push(tokio::spawn(async move {
             receive_one_file(
                 uni,
@@ -208,6 +231,7 @@ async fn handle_connection(
                 remote_addr,
                 display_name_c,
                 on_progress_c,
+                cancel_c,
             )
             .await
         }));
@@ -276,6 +300,7 @@ async fn handle_connection(
             task_errors[0]
         );
         active.lock().unwrap().remove(&transfer_id);
+        cancels.lock().unwrap().remove(&transfer_id);
         let _ = write_msg(
             &mut ctrl_send,
             &Status::Abort {
@@ -309,6 +334,7 @@ async fn handle_connection(
 
     if all_done {
         active.lock().unwrap().remove(&transfer_id);
+        cancels.lock().unwrap().remove(&transfer_id);
         let _ = write_msg(&mut ctrl_send, &Status::AllDone).await;
         let _ = ctrl_send.finish();
         let total_done = entry.total_size;
@@ -535,6 +561,7 @@ async fn receive_one_file(
     remote_addr: std::net::SocketAddr,
     display_name: String,
     on_progress: OnProgress,
+    cancel: CancellationToken,
 ) -> Result<(), String> {
     // 20-byte header: transfer_id u64 BE + item_idx u32 BE + start_offset u64 BE.
     let mut hdr = [0u8; DATA_HEADER_LEN];
@@ -606,10 +633,16 @@ async fn receive_one_file(
     let mut last_bytes: u64 = 0;
 
     loop {
-        let n = uni
-            .read(&mut buf)
-            .await
-            .map_err(|e| format!("read: {}", e))?;
+        // Race the stream read against the cancellation token. If cancel
+        // fires, return a sentinel error which handle_connection will fold
+        // into task_errors → Abort path → Status::Abort to sender.
+        let n = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                return Err("cancelled by user".into());
+            }
+            res = uni.read(&mut buf) => res.map_err(|e| format!("read: {}", e))?,
+        };
         let n = match n {
             Some(n) if n > 0 => n,
             _ => break,

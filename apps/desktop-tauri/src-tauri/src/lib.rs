@@ -80,6 +80,10 @@ struct AppSettings {
     /// Display name advertised to peers. Defaults to the system hostname.
     #[serde(default)]
     display_name: String,
+    /// Whether to broadcast / receive clipboard *images* alongside text.
+    /// Default off — images are larger and more privacy-sensitive than text.
+    #[serde(default)]
+    sync_image_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -92,6 +96,7 @@ impl Default for AppSettings {
             discovery_port: DEFAULT_DISCOVERY_PORT,
             data_port: DEFAULT_DATA_PORT,
             display_name: String::new(), // normalize_settings fills from OSUtil
+            sync_image_enabled: false,
         }
     }
 }
@@ -124,6 +129,15 @@ struct Transfer {
     /// once we've shown an error, we keep showing it.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Smoothed instantaneous transfer rate in bytes per second. EWMA-blended
+    /// across progress events so the UI shows a stable number instead of
+    /// jittery per-chunk samples. Reset to 0 at terminal states.
+    speed_bps: f64,
+    /// Bookkeeping for the EWMA computation — not serialized.
+    #[serde(skip)]
+    speed_last_at: Option<std::time::Instant>,
+    #[serde(skip)]
+    speed_last_bytes: u64,
 }
 
 #[derive(Clone, SerdeSerialize)]
@@ -143,6 +157,14 @@ struct ClipboardState {
     last_text: String,
     last_received_text: String,
     suppressed_text: Option<String>,
+    /// 8-byte FNV-1a digest of the most recently set raw RGBA image we
+    /// pushed to the local clipboard. Used to detect the OS clipboard
+    /// change event that comes back from our own set_image — without this
+    /// we'd ping-pong the same image around the network.
+    suppressed_image_digest: Option<u64>,
+    /// Digest of the last broadcast image; used to skip "same image
+    /// re-copied" events (mirror of `last_text` for images).
+    last_image_digest: Option<u64>,
 }
 
 impl Default for ClipboardState {
@@ -151,8 +173,22 @@ impl Default for ClipboardState {
             last_text: String::new(),
             last_received_text: String::new(),
             suppressed_text: None,
+            suppressed_image_digest: None,
+            last_image_digest: None,
         }
     }
+}
+
+/// Cheap, non-cryptographic 64-bit FNV-1a digest. We only need
+/// "same/different" semantics for clipboard loopback suppression — not
+/// security — so we trade hash quality for zero deps.
+fn sha256_short(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
 }
 
 struct ServiceRuntime {
@@ -199,6 +235,8 @@ fn transfer_status_to_u8(status: TransferStatus) -> u8 {
         TransferStatus::AllDone => 7,
         TransferStatus::Error => 6,
         TransferStatus::Rejected => 2,
+        TransferStatus::Cancelled => 5,
+        TransferStatus::Paused => 9,
     }
 }
 
@@ -251,12 +289,49 @@ fn apply_progress(
         total: p.total_size,
         status: transfer_status_to_u8(p.status),
         error: None,
+        speed_bps: 0.0,
+        speed_last_at: None,
+        speed_last_bytes: 0,
     });
+    // Compute smoothed instantaneous speed before we overwrite progress. EWMA
+    // with α=0.3 — enough new-sample weight to react to real changes, enough
+    // history to dampen per-chunk jitter at our 200 ms throttle.
+    let now = std::time::Instant::now();
+    if let Some(last_at) = entry.speed_last_at {
+        let dt = now.duration_since(last_at).as_secs_f64();
+        if dt > 0.0 {
+            let dbytes = p.total_done.saturating_sub(entry.speed_last_bytes);
+            let sample = dbytes as f64 / dt;
+            entry.speed_bps = if entry.speed_bps == 0.0 {
+                sample
+            } else {
+                entry.speed_bps * 0.7 + sample * 0.3
+            };
+        }
+    }
+    entry.speed_last_at = Some(now);
+    entry.speed_last_bytes = p.total_done;
+
+    // First non-empty rel_path on a row we pre-inserted (sender path) becomes
+    // the display label — typically the client's synthetic "summary" event
+    // carrying something like "MyFolder (3 个文件)". Per-item events that
+    // follow have rel_path like "MyFolder/foo.txt" which we don't want to
+    // overwrite the summary with, hence the empty-check.
+    if entry.file_name.is_empty() && !p.rel_path.is_empty() {
+        entry.file_name = file_name(&p.rel_path);
+    }
+
     entry.progress = p.total_done;
     if p.total_size > 0 {
         entry.total = p.total_size;
     }
     entry.status = transfer_status_to_u8(p.status);
+    // Zero the speed at terminal states so the UI doesn't keep showing the
+    // last instant rate after completion.
+    if matches!(p.status, TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected)
+    {
+        entry.speed_bps = 0.0;
+    }
     // Sticky: once we've recorded an error, surface it for the rest of the
     // transfer's lifetime so the user can see what went wrong. New errors
     // overwrite old ones (most recent diagnosis wins).
@@ -488,19 +563,22 @@ impl ClipboardHandler for ClipboardListener {
         let is_double_tap = elapsed_ms <= DOUBLE_COPY_WINDOW_MS;
         self.last_event_at = Some(now);
 
-        // Read the current clipboard text. arboard returns Err on non-text
-        // payloads (images, files) — silently ignore those.
         let clipboard = match self.clipboard.as_mut() {
             Some(c) => c,
             None => return CallbackResult::Next,
         };
-        let text = match clipboard.get_text() {
-            Ok(t) => t,
-            Err(_) => return CallbackResult::Next,
-        };
-        if text.is_empty() {
-            return CallbackResult::Next;
+
+        // Probe text first (more common), fall through to image when text is
+        // empty or unavailable. arboard returns Err on the wrong payload
+        // type; both branches are normal paths, not real errors.
+        let text = clipboard.get_text().ok().filter(|t| !t.is_empty());
+
+        if text.is_none() {
+            // No text → try image. If both fail, just bail; user copied
+            // something we can't sync (e.g., file URI list).
+            return self.try_broadcast_image(is_double_tap);
         }
+        let text = text.unwrap();
 
         let backend = match self.app.try_state::<Backend>() {
             Some(b) => b,
@@ -553,6 +631,87 @@ impl ClipboardHandler for ClipboardListener {
 
     fn on_clipboard_error(&mut self, error: std::io::Error) -> CallbackResult {
         eprintln!("clipboard listener error: {error}");
+        CallbackResult::Next
+    }
+}
+
+impl ClipboardListener {
+    /// Pull the clipboard image (if any), PNG-encode, broadcast.  Same gates
+    /// as text — send_clipboard_enabled, sync_image_enabled, double-copy
+    /// option, loopback suppression — just on the image path.
+    fn try_broadcast_image(&mut self, is_double_tap: bool) -> CallbackResult {
+        let clipboard = match self.clipboard.as_mut() {
+            Some(c) => c,
+            None => return CallbackResult::Next,
+        };
+        let img = match clipboard.get_image() {
+            Ok(i) => i,
+            Err(_) => return CallbackResult::Next,
+        };
+        let raw_rgba: Vec<u8> = img.bytes.into_owned();
+        let width = img.width as u32;
+        let height = img.height as u32;
+        if width == 0 || height == 0 || raw_rgba.is_empty() {
+            return CallbackResult::Next;
+        }
+        let digest = sha256_short(&raw_rgba);
+
+        // Settings + suppression gates.
+        let backend = match self.app.try_state::<Backend>() {
+            Some(b) => b,
+            None => return CallbackResult::Next,
+        };
+        let settings = backend.settings.lock().unwrap().clone();
+
+        let mut state = self.state.lock().unwrap();
+        if state.suppressed_image_digest == Some(digest) {
+            // We just pushed this image to the local clipboard from a peer
+            // — don't bounce it back.
+            state.suppressed_image_digest = None;
+            state.last_image_digest = Some(digest);
+            return CallbackResult::Next;
+        }
+        if !settings.send_clipboard_enabled || !settings.sync_image_enabled {
+            state.last_image_digest = Some(digest);
+            return CallbackResult::Next;
+        }
+
+        let should_send = if settings.send_only_on_double_copy {
+            is_double_tap
+        } else {
+            state.last_image_digest != Some(digest)
+        };
+        state.last_image_digest = Some(digest);
+        if !should_send {
+            return CallbackResult::Next;
+        }
+        // Pre-arm suppression so the post-encode broadcast doesn't loop back.
+        state.suppressed_image_digest = Some(digest);
+        drop(state);
+
+        if settings.send_only_on_double_copy {
+            self.last_event_at = None;
+        }
+
+        // Encode RGBA → PNG. PNG buffer comes back ready to wire.
+        let mut png_bytes: Vec<u8> = Vec::new();
+        let encode_result = {
+            use image::codecs::png::PngEncoder;
+            use image::ImageEncoder;
+            let encoder = PngEncoder::new(&mut png_bytes);
+            encoder.write_image(&raw_rgba, width, height, image::ExtendedColorType::Rgba8)
+        };
+        if let Err(e) = encode_result {
+            eprintln!("clipboard image encode failed: {e}");
+            return CallbackResult::Next;
+        }
+
+        anydrop::lib_util::shared_anydrop_broadcast_image(
+            png_bytes,
+            self.service.clone(),
+            &self.config,
+        );
+        emit_snapshot(&self.app);
         CallbackResult::Next
     }
 }
@@ -764,12 +923,72 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             emit_snapshot(&text_app);
         };
 
+        let image_app = data_app.clone();
+        let image_clipboard = clipboard_state.clone();
+        let image_callback = move |packet: &anydrop::packet::data::image_packet::ImagePacket,
+                                   peer: Option<&Peer>| {
+            // Honour the user's image-sync toggle. We deliberately reuse the
+            // existing receive_clipboard_enabled gate AND add a finer-grained
+            // sync_image_enabled flag so users can have text sync on but
+            // images off.
+            if let Some(backend) = image_app.try_state::<Backend>() {
+                let settings = backend.settings.lock().unwrap().clone();
+                if !settings.receive_clipboard_enabled || !settings.sync_image_enabled {
+                    return;
+                }
+            }
+
+            // Decode PNG into raw RGBA for arboard.set_image. We're holding
+            // the bytes already; decode is just for format conversion.
+            let png = packet.png_bytes();
+            let img = match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
+                Ok(i) => i.to_rgba8(),
+                Err(e) => {
+                    eprintln!("image_callback: decode failed: {e}");
+                    return;
+                }
+            };
+            let (w, h) = img.dimensions();
+            let raw = img.into_raw();
+
+            // Compute a hash of the decoded RGBA so the suppression check in
+            // the clipboard listener (next event after set_image) can
+            // recognize and skip our own write.
+            let digest = sha256_short(&raw);
+            if let Ok(mut guard) = image_clipboard.lock() {
+                guard.suppressed_image_digest = Some(digest);
+            }
+
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                let data = arboard::ImageData {
+                    width: w as usize,
+                    height: h as usize,
+                    bytes: std::borrow::Cow::Owned(raw),
+                };
+                if let Err(e) = cb.set_image(data) {
+                    eprintln!("image_callback: set_image failed: {e}");
+                }
+            }
+            let _ = image_app.emit(
+                "image-received",
+                serde_json::json!({
+                    "width": w,
+                    "height": h,
+                    "bytes": packet.png_bytes().len(),
+                    "peer": peer_text(peer),
+                }),
+            );
+            emit_snapshot(&image_app);
+        };
+
         // File transfer is owned by the QUIC `transfer` server (see below);
-        // the legacy TCP DataService now only carries clipboard text.
+        // the legacy TCP DataService now only carries clipboard payloads
+        // (text + images).
         let context = DataServiceContext::new(
             data_service.config().text_service_listen_addr,
             data_service.config().data_service_listen_port,
             Arc::new(Box::new(text_callback)),
+            Arc::new(Box::new(image_callback)),
             data_service.discovery_service(),
         );
         let _ = DataService::run(context, Box::new(move || data_stop.load(Ordering::SeqCst)));
@@ -857,6 +1076,9 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             total: offer.total_size,
             status: 1,
             error: None,
+            speed_bps: 0.0,
+            speed_last_at: None,
+            speed_last_bytes: 0,
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         let _ = offer_app.emit("incoming-file", t);
@@ -1100,7 +1322,53 @@ fn send_paths(
         candidates.len(),
         path_bufs.len()
     ));
-    handle.send_paths(target, path_bufs);
+    // Kick off the send and grab the assigned transfer_id so we can
+    // pre-populate the Transfer row with a source-folder path. Without this,
+    // the sender's transfer never has localPath set and the "open folder"
+    // button (which keys off localPath being non-empty) never appears.
+    let transfer_id = handle.send_paths(target, path_bufs.clone());
+
+    // local_path = the directory housing the first source path. For folder
+    // sends that's the chosen folder itself; for file sends that's the
+    // parent of the file. "Open folder" should land the user where their
+    // selection started.
+    let source_dir = path_bufs
+        .first()
+        .map(|p| {
+            if p.is_dir() {
+                p.clone()
+            } else {
+                p.parent().map(|x| x.to_path_buf()).unwrap_or_else(|| p.clone())
+            }
+        })
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    {
+        let key = make_transfer_key(transfer_id);
+        let mut map = backend.transfers.lock().unwrap();
+        // Insert a placeholder so the row's `local_path` is set well before
+        // the first apply_progress fires (which preserves it via the
+        // or_insert_with → existing branch).
+        map.entry(key.clone()).or_insert_with(|| Transfer {
+            key,
+            file_id: 0,
+            file_name: String::new(), // overwritten by the client's summary event
+            remote_path: format!("transfer_id:{}", transfer_id),
+            local_path: source_dir,
+            peer: target.to_string(),
+            host: target.ip().to_string(),
+            direction: "outgoing".to_string(),
+            progress: 0,
+            total: 0,
+            status: 4,
+            error: None,
+            speed_bps: 0.0,
+            speed_last_at: None,
+            speed_last_bytes: 0,
+        });
+    }
+
     backend.set_status(format!("Sending {} item(s) via QUIC", paths.len()));
     emit_snapshot(&app);
     Ok(backend.snapshot())
@@ -1162,6 +1430,87 @@ fn reject_transfer(
         },
     );
     backend.transfers.lock().unwrap().remove(&transfer_key);
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+/// Cancel an in-flight transfer. Terminal — no resume. Both sender- and
+/// receiver-side cancellations route through the same `cancel_transfer` API
+/// on `ServerHandle`; whichever role the local node plays for the given
+/// transfer_id is the one that gets stopped.
+#[tauri::command]
+fn cancel_transfer(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<Snapshot, String> {
+    let transfer_id = parse_transfer_key(&transfer_key)?;
+    let handle = backend
+        .transfer_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer server not running".to_string())?;
+    let signalled = handle.cancel_transfer(transfer_id);
+    backend.log(format!(
+        "cancel: id={transfer_id} signalled={signalled}"
+    ));
+    // Optimistically mark the row Cancelled in case the backend hasn't yet
+    // emitted its terminal Cancelled progress event — UI feedback is instant.
+    if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+        t.status = 5;
+        t.speed_bps = 0.0;
+    }
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
+fn pause_transfer(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<Snapshot, String> {
+    let transfer_id = parse_transfer_key(&transfer_key)?;
+    let handle = backend
+        .transfer_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer server not running".to_string())?;
+    let signalled = handle.pause_transfer(transfer_id);
+    backend.log(format!("pause: id={transfer_id} signalled={signalled}"));
+    if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+        t.status = 9;
+        t.speed_bps = 0.0;
+    }
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
+fn resume_transfer(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<Snapshot, String> {
+    let transfer_id = parse_transfer_key(&transfer_key)?;
+    let handle = backend
+        .transfer_handle
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "transfer server not running".to_string())?;
+    let restarted = handle.resume_transfer(transfer_id);
+    backend.log(format!(
+        "resume: id={transfer_id} restarted={restarted}"
+    ));
+    if restarted {
+        if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+            t.status = 4;
+            t.error = None;
+        }
+    }
     emit_snapshot(&app);
     Ok(backend.snapshot())
 }
@@ -1291,7 +1640,10 @@ pub fn run() {
             dismiss_transfer,
             open_transfer_folder,
             clear_logs,
-            send_paths
+            send_paths,
+            cancel_transfer,
+            pause_transfer,
+            resume_transfer
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

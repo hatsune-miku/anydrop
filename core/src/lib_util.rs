@@ -2,6 +2,7 @@
 //! removed when file transfer migrated to the QUIC `transfer` module — only
 //! text broadcast, the data-service runner, and init/utility code remain.
 
+use crate::packet::data::image_packet::ImagePacket;
 use crate::packet::data::magic_numbers::MagicNumbers;
 use crate::packet::data::text_packet::TextPacket;
 use crate::packet::protocol::serialize::Serialize;
@@ -60,6 +61,51 @@ pub fn shared_anydrop_broadcast_text(
                 ) {
                     error!(
                         "lib: Failed to send text to (addr={}:{}): {}",
+                        thread_peer.host(),
+                        thread_config.data_service_listen_port,
+                        e
+                    );
+                }
+            });
+        }
+    }
+}
+
+pub fn shared_anydrop_broadcast_image(
+    png_bytes: Vec<u8>,
+    service_disc: Arc<DiscoveryService>,
+    config: &AnyDropServiceConfig,
+) {
+    let packet = match ImagePacket::new(png_bytes) {
+        Ok(p) => p,
+        Err(err) => {
+            error!("lib: Failed to create image packet: {:?}", err);
+            return;
+        }
+    };
+    let serialized = Arc::new(packet.serialize());
+
+    if let Ok(peers_ptr) = service_disc.peers().lock() {
+        for peer in peers_ptr.iter() {
+            let thread_peer = peer.clone();
+            let thread_config = config.clone();
+            let thread_serialized = serialized.clone();
+            std::thread::spawn(move || {
+                info!(
+                    "lib: Sending image to (addr={}:{}, {} bytes)",
+                    thread_peer.host(),
+                    thread_config.data_service_listen_port,
+                    thread_serialized.len()
+                );
+                if let Err(e) = DataService::send_once_with_retry(
+                    &thread_peer,
+                    thread_config.data_service_listen_port,
+                    MagicNumbers::Image,
+                    &thread_serialized,
+                    Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
+                ) {
+                    error!(
+                        "lib: Failed to send image to (addr={}:{}): {}",
                         thread_peer.host(),
                         thread_config.data_service_listen_port,
                         e

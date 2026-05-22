@@ -19,6 +19,8 @@ arboard = "3.4.1"
 # we need this to detect when the user re-copies the same content, which a
 # content-diff poll fundamentally can't see.
 clipboard-master = "4"
+# PNG encode for outgoing clipboard images; decode on incoming.
+image = { version = "0.25", default-features = false, features = ["png"] }
 dirs = "5.0.1"
 open = "5.3.2"
 serde = { version = "1", features = ["derive"] }

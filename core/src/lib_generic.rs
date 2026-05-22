@@ -13,6 +13,7 @@ use crate::lib_util::{
     ANYDROP_VERSION,
 };
 use crate::network::peer::Peer;
+use crate::packet::data::image_packet::ImagePacket;
 use crate::packet::data::text_packet::TextPacket;
 use crate::service;
 use crate::service::anydrop_service::AnyDropService;
@@ -146,10 +147,15 @@ pub extern "C" fn anydrop_data_service(
         );
     };
 
+    // Mobile clients don't have a clipboard image story yet — provide a
+    // no-op image callback so the wire format works but received images are
+    // silently dropped.
+    let image_callback = move |_pkt: &ImagePacket, _peer: Option<&Peer>| {};
     let context = DataServiceContext::new(
         config.text_service_listen_addr.to_string(),
         config.data_service_listen_port,
         Arc::new(Box::new(text_callback)),
+        Arc::new(Box::new(image_callback)),
         anydrop.discovery_service().clone(),
     );
 
