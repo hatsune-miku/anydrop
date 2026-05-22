@@ -524,6 +524,21 @@ textarea:focus,
   padding-bottom: 12px;
 }
 
+/* "正在应用…" state: dims the whole pane and disables interaction.
+   Activates while save_settings is in flight (service restart pending). */
+.settings-pane--busy {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.55;
+  filter: saturate(0.6);
+  transition: opacity 120ms ease;
+}
+
+.settings-pane--busy .section-heading small {
+  color: var(--accent-blue);
+  font-style: italic;
+}
+
 .toggle-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -632,6 +647,21 @@ textarea:focus,
   width: 30px;
   min-height: 30px;
   padding: 0;
+}
+
+/* Borderless icon button — used for inline actions inside section headings
+   where a bordered chip would feel heavy.  Keeps the hover affordance via a
+   soft background tint instead of a border highlight. */
+.icon-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-subtle);
+}
+
+.icon-button--ghost:hover {
+  border-color: transparent;
+  background: rgba(81, 131, 178, 0.1);
+  color: var(--text);
 }
 
 .full-width {

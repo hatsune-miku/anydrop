@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Check, Clipboard, FolderOpen, Minus, Pause, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
+import { Check, Clipboard, FolderOpen, Minus, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -452,13 +452,9 @@ function App() {
             </div>
           </div>
           <div className="content-actions">
-            <button className="button quiet" type="button" onClick={() => void refresh()}>
-              <RefreshCw size={15} />
-              刷新
-            </button>
             <button className="button primary" type="button" disabled={busy} onClick={toggleService}>
-              {snapshot.running ? <Pause size={15} /> : <Play size={15} />}
-              {snapshot.running ? '暂停' : '开启'}
+              {snapshot.running ? <Square size={15} /> : <Play size={15} />}
+              {snapshot.running ? '停止服务' : '启动服务'}
             </button>
           </div>
         </header>
@@ -468,6 +464,15 @@ function App() {
             <section className="card full-height">
               <div className="section-heading">
                 <span>Peers</span>
+                <button
+                  className="icon-button icon-button--ghost"
+                  type="button"
+                  aria-label="刷新"
+                  title="刷新设备列表"
+                  onClick={() => void refresh()}
+                >
+                  <RefreshCw size={14} />
+                </button>
               </div>
               <div className="device-list">
                 {snapshot.peers.length === 0 ? (
@@ -629,10 +634,16 @@ function App() {
             </Surface>
           </div>
 
-          <Surface className="settings-pane">
+          {/* settings-pane--busy: dims and disables interaction during any
+              in-flight backend call.  Saving a setting that requires a
+              service restart (most of the toggles do) takes a couple of
+              seconds — disable everything until it's done so the user
+              doesn't queue up a second change while the first is mid-flight. */}
+          <Surface className={`settings-pane${busy ? ' settings-pane--busy' : ''}`}>
             <section className="card full-height">
               <div className="section-heading">
                 <span>设置</span>
+                {busy ? <small>正在应用…</small> : null}
               </div>
               <label className="toggle-row">
                 <input checked={darkMode} type="checkbox" onChange={(event) => setDarkMode(event.target.checked)} />
@@ -685,36 +696,17 @@ function App() {
                   }
                 />
               </label>
+              {/* 端口写死成默认值并跨设备保持一致;暴露成可改字段会让用户
+                  误以为可以一端改一端不改,实际上协议要求双方端口对齐才能
+                  互相发现与传输。这里只读展示,保留可见性方便排障。 */}
               <div className="field-grid">
                 <label className="field">
                   <span>发现端口</span>
-                  <input
-                    min={1}
-                    max={65535}
-                    type="number"
-                    value={settingsDraft.discoveryPort}
-                    onChange={(event) =>
-                      setSettingsDraft({
-                        ...settingsDraft,
-                        discoveryPort: Number(event.target.value),
-                      })
-                    }
-                  />
+                  <input type="number" value={snapshot.settings.discoveryPort} readOnly disabled />
                 </label>
                 <label className="field">
                   <span>传输端口</span>
-                  <input
-                    min={1}
-                    max={65535}
-                    type="number"
-                    value={settingsDraft.dataPort}
-                    onChange={(event) =>
-                      setSettingsDraft({
-                        ...settingsDraft,
-                        dataPort: Number(event.target.value),
-                      })
-                    }
-                  />
+                  <input type="number" value={snapshot.settings.dataPort} readOnly disabled />
                 </label>
               </div>
               <button className="button primary full-width" type="button" disabled={busy} onClick={saveSettings}>
