@@ -185,8 +185,26 @@ function App() {
         setNotice('收到新的剪贴板文本')
       }),
       listen<Transfer>('transfer-updated', (event) => {
-        if (event.payload.status === 7) {
-          setNotice(`${event.payload.fileName} 传输完成`)
+        // Backend stopped emitting a full snapshot on every chunk-progress
+        // event (too much IPC bandwidth in concurrent folder transfers), so
+        // we have to fold the per-row update into snapshot.transfers
+        // ourselves to keep progress bars live.
+        const updated = event.payload
+        setSnapshot((prev) => {
+          const idx = prev.transfers.findIndex((t) => t.key === updated.key)
+          let nextTransfers: Transfer[]
+          if (idx >= 0) {
+            nextTransfers = prev.transfers.slice()
+            nextTransfers[idx] = updated
+          } else {
+            nextTransfers = [...prev.transfers, updated].sort((a, b) =>
+              a.key.localeCompare(b.key)
+            )
+          }
+          return { ...prev, transfers: nextTransfers }
+        })
+        if (updated.status === 7) {
+          setNotice(`${updated.fileName} 传输完成`)
         }
       }),
     ]

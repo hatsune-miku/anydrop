@@ -893,7 +893,17 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         }
         let t = apply_progress(&prog_transfers, &p, None);
         let _ = prog_app.emit("transfer-updated", t);
-        emit_snapshot(&prog_app);
+        // Only re-emit the full snapshot on terminal states (or when a log
+        // line was added). The high-frequency progress updates already flow
+        // to the UI via `transfer-updated`; pumping a full Snapshot
+        // serialization through the Tauri IPC on every chunk-progress event
+        // dominated CPU + IPC bandwidth in folder transfers with many
+        // concurrent files. The transfer-list React component reconciles
+        // from `transfer-updated` directly, so the UI stays current
+        // regardless.
+        if should_log {
+            emit_snapshot(&prog_app);
+        }
     };
 
     let display_name = settings.display_name.clone();

@@ -151,7 +151,16 @@ async fn handle_connection(
         .await?
         {
             Some(e) => e,
-            None => return Ok(()),
+            None => {
+                // User rejected. The HelloAck { accepted: false } is queued
+                // in ctrl_send but not yet on the wire — wait for the client
+                // to read it (= FIN on its half of the bi stream) before
+                // closing, otherwise quinn's conn drop preempts the bytes
+                // and the client sees "connection lost" → retry loop.
+                let _ = ctrl_send.finish();
+                await_client_finish_then_close(&conn, &mut ctrl_recv).await;
+                return Ok(());
+            }
         };
         create_dirs(&new_entry.save_root, &new_entry.items).await;
         active
@@ -420,7 +429,9 @@ async fn negotiate_new_offer(
                 resume_offsets: Vec::new(),
             };
             let _ = write_msg(ctrl_send, &ack).await;
-            let _ = ctrl_send.finish();
+            // NB: don't finish ctrl_send here; the caller (handle_connection)
+            // does it inside await_client_finish_then_close so the HelloAck
+            // actually makes it out before quinn tears the connection down.
             on_progress(ProgressUpdate {
                 transfer_id: hello.transfer_id,
                 direction: Direction::Recv,
