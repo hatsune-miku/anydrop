@@ -14,7 +14,7 @@ use anydrop::transfer::{
 use anydrop::util::os::OSUtil;
 use clipboard_master::{CallbackResult, ClipboardHandler, Master};
 use serde::{Deserialize, Serialize as SerdeSerialize};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fs;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
@@ -99,19 +99,25 @@ fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.default_save_dir.trim().is_empty() {
         settings.default_save_dir = default_save_root().to_string_lossy().to_string();
     }
+    if settings.device_id.trim().is_empty() {
+        // 128-bit random hex; stable for the life of the install once persisted.
+        settings.device_id = format!("{:032x}", rand::random::<u128>());
+    }
     settings
 }
 
 fn load_settings() -> AppSettings {
-    let Ok(path) = settings_path() else {
-        return normalize_settings(AppSettings::default());
-    };
-    let Ok(raw) = fs::read_to_string(path) else {
-        return normalize_settings(AppSettings::default());
-    };
-    serde_json::from_str::<AppSettings>(&raw)
-        .map(normalize_settings)
-        .unwrap_or_else(|_| normalize_settings(AppSettings::default()))
+    let settings = (|| {
+        let path = settings_path().ok()?;
+        let raw = fs::read_to_string(path).ok()?;
+        serde_json::from_str::<AppSettings>(&raw).ok()
+    })()
+    .map(normalize_settings)
+    .unwrap_or_else(|| normalize_settings(AppSettings::default()));
+    // Persist back so freshly-generated fields (notably device_id) survive the
+    // next launch. Best-effort: a write failure just means we regenerate later.
+    let _ = save_settings_file(&settings);
+    settings
 }
 
 fn save_settings_file(settings: &AppSettings) -> Result<(), String> {
@@ -150,6 +156,20 @@ struct AppSettings {
     /// behaviour unless the user opts in.
     #[serde(default)]
     clipboard_popup_enabled: bool,
+    /// Stable per-install device id. Advertised in discovery so a device's
+    /// multiple addresses / hostnames collapse into one peer, and used as the
+    /// local-remark key (survives IP and hostname changes). Generated once by
+    /// normalize_settings when empty. Not surfaced in the UI.
+    #[serde(default)]
+    device_id: String,
+    /// Suppress popups / notifications while a fullscreen game (exclusive or
+    /// borderless) is in the foreground. Default on.
+    #[serde(default = "default_true")]
+    suppress_popup_in_game: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -166,6 +186,8 @@ impl Default for AppSettings {
             dark_mode: None,
             default_save_dir: String::new(), // normalize_settings fills default
             clipboard_popup_enabled: false,
+            device_id: String::new(), // normalize_settings generates one
+            suppress_popup_in_game: true,
         }
     }
 }
@@ -176,9 +198,9 @@ struct PeerGroup {
     label: String,
     name: String,
     hosts: Vec<String>,
-    /// Local-only nickname for this peer, keyed by hostname (`name`). Overlaid
-    /// at snapshot time from `Backend::peer_remarks`; never advertised, so the
-    /// remote device cannot see how it has been labelled here.
+    /// Local-only nickname for this peer, keyed by the group key / device id
+    /// (`name`). Overlaid at snapshot time from `Backend::peer_remarks`; never
+    /// advertised, so the remote device cannot see how it has been labelled.
     #[serde(skip_serializing_if = "Option::is_none")]
     remark: Option<String>,
 }
@@ -250,6 +272,10 @@ struct ClipboardState {
     /// Digest of the last broadcast image; used to skip "same image
     /// re-copied" events (mirror of `last_text` for images).
     last_image_digest: Option<u64>,
+    /// When `last_received_text` was last accepted. Used to drop rapid network
+    /// duplicates: a sender broadcasts the same text to every address of each
+    /// peer, so a device known under two addresses receives it twice.
+    last_received_at: Option<std::time::Instant>,
 }
 
 impl Default for ClipboardState {
@@ -260,6 +286,7 @@ impl Default for ClipboardState {
             suppressed_text: None,
             suppressed_image_digest: None,
             last_image_digest: None,
+            last_received_at: None,
         }
     }
 }
@@ -301,8 +328,8 @@ struct Backend {
     clipboard: Arc<Mutex<ClipboardState>>,
     status_text: Mutex<String>,
     log_entries: Arc<Mutex<VecDeque<String>>>,
-    /// Local-only peer nicknames keyed by hostname. Loaded from
-    /// `peer_remarks.json`, overlaid onto peer groups at snapshot time.
+    /// Local-only peer nicknames keyed by device id (the peer group key).
+    /// Loaded from `peer_remarks.json`, overlaid onto peer groups at snapshot.
     peer_remarks: Arc<Mutex<HashMap<String, String>>>,
     /// QUIC transfer server. Started alongside the legacy text data service
     /// when the runtime spins up.
@@ -617,26 +644,60 @@ fn best_reachable_host(hosts: &[String], data_port: u16) -> Option<String> {
 }
 
 fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
-    let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Group by stable device id: a device's multiple addresses and/or
+    // advertised hostnames collapse into one peer. Peers that predate the
+    // device_id field (empty) fall back to grouping by IP so they still show
+    // up. The group key (`name`) doubles as the remark key — keyed by device
+    // id, so a remark survives the device's IP and hostname changing.
+    #[derive(Default)]
+    struct Agg {
+        addrs: BTreeSet<String>,
+        hostnames: BTreeSet<String>,
+    }
+    let mut groups: BTreeMap<String, Agg> = BTreeMap::new();
     for peer in peers {
-        let host = peer.host().clone();
-        let mut name = peer.host_name().clone();
-        if name.is_empty() || name == "<empty>" {
-            name = host.clone();
-        }
-        let hosts = by_name.entry(name).or_default();
-        if !hosts.contains(&host) {
-            hosts.push(host);
+        let dev = peer.device_id().clone();
+        let key = if dev.is_empty() {
+            format!("ip:{}", peer.host())
+        } else {
+            format!("dev:{dev}")
+        };
+        let agg = groups.entry(key).or_default();
+        agg.addrs.insert(peer.host().clone());
+        let name = peer.host_name().clone();
+        if !name.is_empty() && name != "<empty>" {
+            agg.hostnames.insert(name);
         }
     }
 
-    by_name
+    groups
         .into_iter()
-        .map(|(name, mut hosts)| {
-            hosts.sort();
+        .map(|(key, agg)| {
+            let hosts: Vec<String> = agg.addrs.into_iter().collect();
+            let hostnames: Vec<String> = agg.hostnames.into_iter().collect();
+            // Representative name: a hostname if known, else the first address.
+            let base = hostnames
+                .first()
+                .cloned()
+                .or_else(|| hosts.first().cloned())
+                .unwrap_or_default();
+            // Append count hints, each only when > 1: e.g.
+            // "foo", "foo (2个地址)", "foo (2个主机)", "foo (2个地址, 2个主机)".
+            let mut parts: Vec<String> = Vec::new();
+            if hosts.len() > 1 {
+                parts.push(format!("{}个地址", hosts.len()));
+            }
+            if hostnames.len() > 1 {
+                parts.push(format!("{}个主机", hostnames.len()));
+            }
+            let label = if parts.is_empty() {
+                base
+            } else {
+                format!("{} ({})", base, parts.join(", "))
+            };
             PeerGroup {
-                label: format!("{name} ({}个地址)", hosts.len()),
-                name,
+                label,
+                name: key, // group key = device id (remark key); never shown
                 hosts,
                 remark: None, // filled at snapshot time from peer_remarks
             }
@@ -863,6 +924,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let peer_app = app.clone();
     let discovery_config = config.clone();
     let discovery_display_name = settings.display_name.clone();
+    let discovery_device_id = settings.device_id.clone();
     threads.push(thread::spawn(move || {
         let _ = DiscoveryService::run(
             discovery_config.discovery_service_client_port,
@@ -872,6 +934,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             Box::new(move || discovery_stop.load(Ordering::SeqCst)),
             discovery_config.group_identifier,
             discovery_display_name,
+            discovery_device_id,
         );
     }));
 
@@ -885,6 +948,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let mdns_data_port = config.data_service_listen_port;
     let mdns_group = config.group_identifier;
     let mdns_display_name = settings.display_name.clone();
+    let mdns_device_id = settings.device_id.clone();
     threads.push(thread::spawn(move || {
         if let Err(e) = anydrop::service::mdns_discovery::run(
             mdns_peers,
@@ -892,6 +956,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             mdns_data_port,
             mdns_group,
             mdns_display_name,
+            mdns_device_id,
             Box::new(move || mdns_stop.load(Ordering::SeqCst)),
         ) {
             eprintln!("mdns discovery error: {e}");
@@ -909,6 +974,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let rebroadcast_stop = stop.clone();
     let rebroadcast_config = config.clone();
     let rebroadcast_display_name = settings.display_name.clone();
+    let rebroadcast_device_id = settings.device_id.clone();
     let rebroadcast_peers = discovery_peers.clone();
     threads.push(thread::spawn(move || {
         let mut tick: u32 = 0;
@@ -924,6 +990,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 rebroadcast_config.discovery_service_server_port,
                 rebroadcast_config.group_identifier,
                 &rebroadcast_display_name,
+                &rebroadcast_device_id,
             );
 
             // Snapshot the peer set so we don't hold the lock across unicasts.
@@ -948,6 +1015,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     discovery_port,
                     rebroadcast_config.group_identifier,
                     &rebroadcast_display_name,
+                    &rebroadcast_device_id,
                 );
             }
         }
@@ -1032,6 +1100,19 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             }
 
             if let Ok(mut guard) = text_clipboard.lock() {
+                // Drop rapid exact-duplicate deliveries (same text reaching us via
+                // two of our own addresses). A genuine re-send of the same text
+                // after the window still gets through.
+                let now = std::time::Instant::now();
+                let is_dup = guard.last_received_text == text
+                    && guard
+                        .last_received_at
+                        .map(|t| now.duration_since(t) < Duration::from_millis(1500))
+                        .unwrap_or(false);
+                guard.last_received_at = Some(now);
+                if is_dup {
+                    return;
+                }
                 guard.last_received_text = text.clone();
                 guard.last_text = text.clone();
                 guard.suppressed_text = Some(text.clone());
@@ -1044,7 +1125,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 serde_json::json!({ "text": text, "peer": peer_text(peer) }),
             );
             // Optional bottom-right popup mirroring the file-receive one.
-            if popup_enabled {
+            if popup_enabled && !popup_suppressed_by_game(&text_app) {
                 ensure_receive_window(&text_app);
                 let preview: String = text.chars().take(200).collect();
                 let _ = text_app.emit(
@@ -1052,6 +1133,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     serde_json::json!({
                         "kind": "text",
                         "preview": preview,
+                        "text": text,
                         "peer": peer_text(peer),
                     }),
                 );
@@ -1116,7 +1198,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     "peer": peer_text(peer),
                 }),
             );
-            if popup_enabled {
+            if popup_enabled && !popup_suppressed_by_game(&image_app) {
                 ensure_receive_window(&image_app);
                 let _ = image_app.emit(
                     "clipboard-popup",
@@ -1239,15 +1321,18 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         offer_transfers.lock().unwrap().insert(key, t.clone());
         let _ = offer_app.emit("incoming-file", t);
         // Surface the offer natively: bottom-right popup + dock bounce / taskbar
-        // flash + a system notification banner.
-        ensure_receive_window(&offer_app);
-        request_attention(&offer_app);
-        let _ = offer_app
-            .notification()
-            .builder()
-            .title("AnyDrop 收到文件请求")
-            .body(offer_label(&offer))
-            .show();
+        // flash + a system notification banner. Skipped while a fullscreen game
+        // is in front (if the user kept that option on).
+        if !popup_suppressed_by_game(&offer_app) {
+            ensure_receive_window(&offer_app);
+            request_attention(&offer_app);
+            let _ = offer_app
+                .notification()
+                .builder()
+                .title("AnyDrop 收到文件请求")
+                .body(offer_label(&offer))
+                .show();
+        }
         emit_snapshot(&offer_app);
     };
 
@@ -1295,7 +1380,23 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     };
 
     let display_name = settings.display_name.clone();
-    match transfer::start_server(transfer_bind, display_name, on_offer, on_progress) {
+    // When a peer asks us to resume a transfer it's receiving from us, we are
+    // the sender — reconnect via our parked send_args. Look the handle up at
+    // call time (it's stored just below, after start_server returns).
+    let resume_app = app.clone();
+    let on_resume_request = move |transfer_id: u64| {
+        if let Some(backend) = resume_app.try_state::<Backend>() {
+            let handle = backend.transfer_handle.lock().unwrap().clone();
+            if let Some(handle) = handle {
+                let restarted = handle.resume_transfer(transfer_id);
+                backend.log(format!(
+                    "resume-request from peer: id={transfer_id} restarted={restarted}"
+                ));
+            }
+        }
+    };
+    match transfer::start_server(transfer_bind, display_name, on_offer, on_progress, on_resume_request)
+    {
         Ok(handle) => {
             *backend.transfer_handle.lock().unwrap() = Some(Arc::new(handle));
             backend.log(format!("transfer server listening on udp/{}", settings.data_port));
@@ -1361,7 +1462,10 @@ fn refresh_peers(backend: State<'_, Backend>) -> Result<Snapshot, String> {
     // Fire-and-forget: 3 broadcasts with small spacing to reliably reach peers
     // even with UDP packet loss.
     let cfg = config.clone();
-    let display_name = backend.settings.lock().unwrap().display_name.clone();
+    let (display_name, device_id) = {
+        let s = backend.settings.lock().unwrap();
+        (s.display_name.clone(), s.device_id.clone())
+    };
     thread::spawn(move || {
         for _ in 0..3 {
             let _ = DiscoveryService::broadcast_discovery_request(
@@ -1369,6 +1473,7 @@ fn refresh_peers(backend: State<'_, Backend>) -> Result<Snapshot, String> {
                 cfg.discovery_service_server_port,
                 cfg.group_identifier,
                 &display_name,
+                &device_id,
             );
             thread::sleep(Duration::from_millis(120));
         }
@@ -1707,14 +1812,42 @@ fn resume_transfer(
         .unwrap()
         .clone()
         .ok_or_else(|| "transfer server not running".to_string())?;
-    let restarted = handle.resume_transfer(transfer_id);
-    backend.log(format!(
-        "resume: id={transfer_id} restarted={restarted}"
-    ));
-    if restarted {
-        if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
-            t.status = 4;
-            t.error = None;
+    let transfer = backend.transfers.lock().unwrap().get(&transfer_key).cloned();
+    let is_incoming = transfer
+        .as_ref()
+        .map(|t| t.direction == "incoming")
+        .unwrap_or(false);
+
+    if is_incoming {
+        // Receiver side: we can't reconnect (the sender is the QUIC client).
+        // Signal the sender to resume; it reconnects and continues from the
+        // offsets we still hold.
+        let port = backend
+            .config()
+            .map(|c| c.data_service_listen_port)
+            .unwrap_or(DEFAULT_DATA_PORT);
+        let host = transfer.as_ref().map(|t| t.host.clone()).unwrap_or_default();
+        match host.parse::<Ipv4Addr>() {
+            Ok(ip) => {
+                handle.request_remote_resume(SocketAddr::new(ip.into(), port), transfer_id);
+                backend.log(format!("resume: id={transfer_id} (incoming → signalled {host})"));
+                if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+                    t.status = 4;
+                    t.error = None;
+                }
+            }
+            Err(_) => {
+                backend.log(format!("resume: id={transfer_id} no sender address ({host})"));
+            }
+        }
+    } else {
+        let restarted = handle.resume_transfer(transfer_id);
+        backend.log(format!("resume: id={transfer_id} restarted={restarted}"));
+        if restarted {
+            if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+                t.status = 4;
+                t.error = None;
+            }
         }
     }
     emit_snapshot(&app);
@@ -1728,6 +1861,22 @@ fn clear_logs(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
     }
     emit_snapshot(&app);
     backend.snapshot()
+}
+
+/// Copy a received clipboard text back onto the local clipboard (used by the
+/// "复制" button on older clipboard receipts). Pre-arms loopback suppression so
+/// the clipboard listener doesn't rebroadcast it to peers.
+#[tauri::command]
+fn copy_text(backend: State<'_, Backend>, text: String) -> Result<(), String> {
+    if let Ok(mut guard) = backend.clipboard.lock() {
+        guard.suppressed_text = Some(text.clone());
+        guard.last_text = text.clone();
+        guard.last_received_text = text.clone();
+        guard.last_received_at = Some(std::time::Instant::now());
+    }
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.set_text(text))
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -1765,20 +1914,32 @@ fn open_transfer_folder(
         .map_err(|err| err.to_string())
 }
 
+/// Open a directory (e.g. the default save folder) in the OS file manager.
+#[tauri::command]
+fn open_directory(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("目录为空".to_string());
+    }
+    // Create it if it doesn't exist yet (nothing received there so far) so the
+    // open doesn't just fail.
+    let _ = fs::create_dir_all(&path);
+    open::that(&path).map_err(|err| err.to_string())
+}
+
 #[tauri::command]
 fn set_peer_remark(
     app: AppHandle,
     backend: State<'_, Backend>,
-    hostname: String,
+    peer_key: String,
     remark: String,
 ) -> Result<Snapshot, String> {
     {
         let mut remarks = backend.peer_remarks.lock().unwrap();
         let trimmed = remark.trim();
         if trimmed.is_empty() {
-            remarks.remove(&hostname);
+            remarks.remove(&peer_key);
         } else {
-            remarks.insert(hostname.clone(), trimmed.to_string());
+            remarks.insert(peer_key.clone(), trimmed.to_string());
         }
         save_peer_remarks_file(&remarks)?;
     }
@@ -1818,6 +1979,75 @@ fn preview_file(
 #[tauri::command]
 fn get_preview_payload(backend: State<'_, Backend>) -> Option<serde_json::Value> {
     backend.preview_payload.lock().unwrap().clone()
+}
+
+/// True if a fullscreen app (exclusive D3D, presentation mode, or a borderless
+/// window covering the whole monitor) is in the foreground. Used to suppress
+/// popups/notifications while gaming. Windows-only; a no-op elsewhere.
+#[cfg(windows)]
+fn is_fullscreen_app_active() -> bool {
+    use windows_sys::Win32::UI::Shell::{
+        SHQueryUserNotificationState, QUNS_PRESENTATION_MODE, QUNS_RUNNING_D3D_FULL_SCREEN,
+    };
+    // 1) The OS's own "don't disturb" signal: D3D exclusive fullscreen or a
+    //    presentation app. This is what Windows uses to gate toast popups.
+    let mut state = 0i32;
+    if unsafe { SHQueryUserNotificationState(&mut state) } == 0
+        && (state == QUNS_RUNNING_D3D_FULL_SCREEN || state == QUNS_PRESENTATION_MODE)
+    {
+        return true;
+    }
+    // 2) Borderless fullscreen: the foreground window covers the ENTIRE monitor
+    //    (rcMonitor — not the work area, so a merely maximized window, which
+    //    stops above the taskbar, does not count).
+    unsafe {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowRect,
+        };
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() || hwnd == GetDesktopWindow() || hwnd == GetShellWindow() {
+            return false;
+        }
+        let mut wr = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        if GetWindowRect(hwnd, &mut wr) == 0 {
+            return false;
+        }
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon.is_null() {
+            return false;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut mi) == 0 {
+            return false;
+        }
+        let m = mi.rcMonitor;
+        wr.left <= m.left && wr.top <= m.top && wr.right >= m.right && wr.bottom >= m.bottom
+    }
+}
+
+#[cfg(not(windows))]
+fn is_fullscreen_app_active() -> bool {
+    false
+}
+
+/// Whether to suppress popups/notifications right now because the user is in a
+/// fullscreen game and kept the "don't disturb while gaming" option on.
+fn popup_suppressed_by_game(app: &AppHandle) -> bool {
+    let enabled = app
+        .try_state::<Backend>()
+        .map(|b| b.settings.lock().unwrap().suppress_popup_in_game)
+        .unwrap_or(true);
+    enabled && is_fullscreen_app_active()
 }
 
 /// Flash the taskbar (Windows) / bounce the dock (macOS) so the user notices an
@@ -2085,7 +2315,9 @@ pub fn run() {
             resume_transfer,
             set_peer_remark,
             preview_file,
-            get_preview_payload
+            get_preview_payload,
+            copy_text,
+            open_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

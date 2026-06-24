@@ -76,6 +76,7 @@ dependencies = [
  "dirs 5.0.1",
  "image",
  "open",
+ "rand 0.8.6",
  "serde",
  "serde_json",
  "tauri",
@@ -84,6 +85,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

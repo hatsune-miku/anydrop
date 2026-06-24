@@ -70,10 +70,28 @@ fn spawn_server(save_root: Option<std::path::PathBuf>) -> (Arc<ServerHandle>, Lo
         log_for_progress.lock().unwrap().push(u);
     };
 
-    let handle = start_server(bind, "test".to_string(), on_offer, on_progress).unwrap();
+    // on_resume_request: a peer (the receiver) is asking THIS node — the
+    // sender of `transfer_id` — to reconnect and resume. Wire it straight to
+    // our own resume_transfer (which finds send_args and re-fires the send).
+    // Mirrors how the app wires it on every node.
+    let resume_slot = handle_slot.clone();
+    let on_resume_request = move |transfer_id: u64| {
+        if let Some(h) = resume_slot.lock().unwrap().as_ref() {
+            h.resume_transfer(transfer_id);
+        }
+    };
+
+    let handle = start_server(
+        bind,
+        "test".to_string(),
+        on_offer,
+        on_progress,
+        on_resume_request,
+    )
+    .unwrap();
     let handle = Arc::new(handle);
     *handle_slot.lock().unwrap() = Some(handle.clone());
-    // Keep the slot alive for the whole process so on_offer keeps working.
+    // Keep the slot alive for the whole process so the callbacks keep working.
     Box::leak(Box::new(handle_slot));
     (handle, log)
 }
@@ -166,6 +184,7 @@ fn pause_resume_case(side: PauseSide) {
     let (receiver, recv_log) = spawn_server(Some(dst_dir.clone()));
 
     let recv_addr = receiver.local_addr();
+    let sender_addr = sender.local_addr();
 
     let transfer_id = sender.send_paths(recv_addr, vec![src_file.clone()]);
 
@@ -236,12 +255,28 @@ fn pause_resume_case(side: PauseSide) {
     // Give the connections a moment to fully tear down before resuming.
     std::thread::sleep(Duration::from_millis(300));
 
-    // Resume — re-fires the send with the same id; receiver resumes from
-    // already-received offsets.
-    assert!(
-        sender.resume_transfer(transfer_id),
-        "resume_transfer returned false — resume state was destroyed"
-    );
+    // Resume. Sender-pause: the sender resumes directly (it holds send_args).
+    // Receiver-pause: the receiver has no send_args, so it asks the SENDER to
+    // reconnect via request_remote_resume(sender_addr, id). That fires the
+    // sender node's on_resume_request callback, which (in spawn_server) calls
+    // the sender's own resume_transfer.
+    match side {
+        PauseSide::Sender => {
+            assert!(
+                sender.resume_transfer(transfer_id),
+                "resume_transfer returned false — resume state was destroyed"
+            );
+        }
+        PauseSide::Receiver => {
+            // The receiver itself has no send_args, so a direct resume is a
+            // no-op — verify that, then drive resume via the remote signal.
+            assert!(
+                !receiver.resume_transfer(transfer_id),
+                "receiver unexpectedly had send_args (should resume via remote signal)"
+            );
+            receiver.request_remote_resume(sender_addr, transfer_id);
+        }
+    }
 
     // Both sides should now complete.
     assert!(

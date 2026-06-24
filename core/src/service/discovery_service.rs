@@ -137,6 +137,7 @@ impl DiscoveryService {
         packet: DiscoveryPacket,
         group_identifier: u32,
         hostname: &str,
+        device_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let sender_address = packet.address();
         let sender_address_ipv4 = Ipv4Addr::from(sender_address);
@@ -174,6 +175,7 @@ impl DiscoveryService {
             response_packet.set_group_identifier(group_identifier);
             response_packet.set_need_response(false);
             response_packet.set_host_name(hostname.to_string());
+            response_packet.set_device_id(device_id.to_string());
 
             match Self::send_discovery_packet(
                 server_socket,
@@ -192,11 +194,14 @@ impl DiscoveryService {
 
         info!("Adding peer {} to peer set.", sender_address);
         if let Ok(mut locked) = peers.lock() {
-            locked.insert(Peer::from(
-                &sender_address_ipv4,
-                packet.server_port() as u16,
-                Some(&packet.host_name().to_string()),
-            ));
+            locked.insert(
+                Peer::from(
+                    &sender_address_ipv4,
+                    packet.server_port() as u16,
+                    Some(&packet.host_name().to_string()),
+                )
+                .with_device_id(packet.device_id()),
+            );
             info!("Added peer {} to peer set.", sender_address);
         }
 
@@ -228,6 +233,7 @@ impl DiscoveryService {
         our_server_port: u16,
         group_identifier: u32,
         hostname: &str,
+        device_id: &str,
     ) -> Result<(), io::Error> {
         // Ephemeral source port — outgoing-only socket, the response comes
         // back to our server_port (which the recipient reads from the
@@ -243,6 +249,7 @@ impl DiscoveryService {
         packet.set_group_identifier(group_identifier);
         packet.set_need_response(true);
         packet.set_host_name(hostname.to_string());
+        packet.set_device_id(device_id.to_string());
 
         if let Err(e) = Self::send_discovery_packet(
             &client_socket,
@@ -259,6 +266,7 @@ impl DiscoveryService {
         server_port: u16,
         group_identifier: u32,
         hostname: &str,
+        device_id: &str,
     ) -> Result<(), io::Error> {
         let client_socket = Self::create_broadcast_socket(client_port)?;
         let broadcast_addresses = match scan_broadcast_addresses() {
@@ -284,6 +292,7 @@ impl DiscoveryService {
         broadcast_packet.set_group_identifier(group_identifier);
         broadcast_packet.set_need_response(true);
         broadcast_packet.set_host_name(hostname.to_string());
+        broadcast_packet.set_device_id(device_id.to_string());
 
         for broadcast_addr_ipv4 in &broadcast_addresses {
             let result = Self::send_discovery_packet(
@@ -308,13 +317,20 @@ impl DiscoveryService {
         should_interrupt: ShouldInterruptFunctionType,
         group_identifier: u32,
         hostname: String,
+        device_id: String,
     ) -> Result<(), io::Error> {
         let server_socket = Self::create_broadcast_socket(server_port)?;
         let mut buf = [0u8; MAX_DISCOVERY_PACKET_BYTES];
 
         // Broadcast discovery request twice to ensure that we are discovered.
         for _ in 0..2 {
-            let _ = Self::broadcast_discovery_request(client_port, server_port, group_identifier, &hostname);
+            let _ = Self::broadcast_discovery_request(
+                client_port,
+                server_port,
+                group_identifier,
+                &hostname,
+                &device_id,
+            );
         }
 
         info!("Discovery service online and ready for connections.");
@@ -338,6 +354,7 @@ impl DiscoveryService {
                         server_port,
                         group_identifier,
                         &hostname,
+                        &device_id,
                     );
                     continue;
                 }
@@ -372,6 +389,7 @@ impl DiscoveryService {
                     packet,
                     group_identifier,
                     &hostname,
+                    &device_id,
                 );
             } else {
                 error!("Failed to scan local addresses.");

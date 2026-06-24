@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Check, FolderInput, FolderOpen, X } from 'lucide-react'
+import { Check, Copy, FolderInput, FolderOpen, X } from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -20,6 +20,8 @@ type ClipboardCard = {
   id: number
   kind: 'text' | 'image'
   preview: string
+  /** Full text (text cards only), used by the copy button. */
+  text: string
   peer: string
 }
 
@@ -38,6 +40,9 @@ export default function ReceivePopup() {
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [cards, setCards] = useState<ClipboardCard[]>([])
   const cardSeq = useRef(0)
+  // Last card signature + timestamp, to drop duplicate emits (network dup or a
+  // dev StrictMode double-subscribe) that arrive back-to-back.
+  const lastCard = useRef<{ sig: string; ts: number }>({ sig: '', ts: 0 })
 
   const track = (key: string) =>
     setTracked((prev) => {
@@ -90,16 +95,29 @@ export default function ReceivePopup() {
         for (const t of event.payload.transfers) map[t.key] = t
         setTransfers(map)
       }),
-      listen<{ kind: 'text' | 'image'; preview: string; peer: string }>('clipboard-popup', (event) => {
-        const { kind, preview, peer } = event.payload ?? { kind: 'text', preview: '', peer: '' }
-        // Skip empty text receipts — nothing useful to show, and an empty card
-        // reads as a glitch.
-        if (kind === 'text' && !preview.trim() && !peer.trim()) return
-        const id = (cardSeq.current += 1)
-        setCards((prev) => [{ id, kind, preview, peer }, ...prev].slice(0, 4))
-        // Auto-dismiss clipboard cards after a few seconds.
-        setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
-      }),
+      listen<{ kind: 'text' | 'image'; preview: string; text?: string; peer: string }>(
+        'clipboard-popup',
+        (event) => {
+          const {
+            kind,
+            preview,
+            text = '',
+            peer,
+          } = event.payload ?? { kind: 'text', preview: '', text: '', peer: '' }
+          // Skip empty text receipts — nothing useful to show, and an empty card
+          // reads as a glitch.
+          if (kind === 'text' && !preview.trim() && !peer.trim()) return
+          // Drop a back-to-back duplicate of the same content.
+          const sig = `${kind}:${preview}:${peer}`
+          const now = Date.now()
+          if (lastCard.current.sig === sig && now - lastCard.current.ts < 1500) return
+          lastCard.current = { sig, ts: now }
+          const id = (cardSeq.current += 1)
+          setCards((prev) => [{ id, kind, preview, text, peer }, ...prev].slice(0, 4))
+          // Auto-dismiss clipboard cards after a few seconds.
+          setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
+        }
+      ),
     ]
     return () => {
       void Promise.all(unlisteners).then((items) => items.forEach((u) => u()))
@@ -159,12 +177,26 @@ export default function ReceivePopup() {
       </header>
 
       <div className="popup-body">
-        {cards.map((card) => (
+        {cards.map((card, idx) => (
           <article className="popup-card popup-card--clip" key={`card-${card.id}`}>
             <div className="row-main">
               <strong>{card.kind === 'image' ? '收到剪贴板图片' : '收到剪贴板文本'}</strong>
               <span>{card.preview || card.peer}</span>
             </div>
+            {card.kind === 'text' ? (
+              <div className="popup-card-actions">
+                {idx === 0 ? <small className="copied-tag">已复制</small> : null}
+                <button
+                  className="icon-button icon-button--ghost"
+                  type="button"
+                  aria-label="复制"
+                  title="复制到剪贴板"
+                  onClick={() => void invoke('copy_text', { text: card.text })}
+                >
+                  <Copy size={15} />
+                </button>
+              </div>
+            ) : null}
           </article>
         ))}
 
@@ -230,8 +262,8 @@ export default function ReceivePopup() {
                   </button>
                 ) : null}
                 <button className="button" type="button" onClick={() => dismiss(t.key)}>
-                  <X size={15} />
-                  移除
+                  <Check size={15} />
+                  已读
                 </button>
               </div>
             ) : null}

@@ -23,6 +23,7 @@ fn packet(
     packet.set_group_identifier(group_identifier);
     packet.set_need_response(need_response);
     packet.set_host_name(String::from("peer"));
+    packet.set_device_id(String::from("dev-xyz"));
     packet
 }
 
@@ -68,6 +69,7 @@ fn handle_new_peer_sends_response_as_single_datagram() {
         packet,
         7,
         "test-host",
+        "test-device",
     )
     .unwrap();
 
@@ -101,6 +103,7 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
         first,
         7,
         "test-host",
+        "test-device",
     )
     .unwrap();
     DiscoveryService::handle_new_peer(
@@ -111,6 +114,7 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
         second,
         7,
         "test-host",
+        "test-device",
     )
     .unwrap();
 
@@ -137,6 +141,7 @@ fn discovery_run_accepts_single_datagram_packets() {
             Box::new(move || run_should_stop.load(Ordering::SeqCst)),
             99,
             "test-host".to_string(),
+            "test-device".to_string(),
         )
         .unwrap();
     });
@@ -152,12 +157,14 @@ fn discovery_run_accepts_single_datagram_packets() {
 
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
-        if peers
+        if let Some(peer) = peers
             .lock()
             .unwrap()
             .iter()
-            .any(|peer| peer.host() == "127.0.0.1")
+            .find(|peer| peer.host() == "127.0.0.1")
         {
+            // device_id from the packet round-trips onto the discovered peer.
+            assert_eq!(peer.device_id(), "dev-xyz");
             should_stop.store(true, Ordering::SeqCst);
             handle.join().unwrap();
             return;

@@ -52,6 +52,18 @@ pub struct Hello {
     pub items: Vec<Item>,
 }
 
+/// The very first control-stream message from a connecting client. It is
+/// either a fresh/resumed send offer (`Hello`) or a request asking the peer
+/// (which is the *sender* of `transfer_id`) to reconnect and resume — used
+/// when the RECEIVER initiated the pause and now wants to resume, since only
+/// the sender holds the `send_args` needed to reconnect.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ClientIntro {
+    Hello(Hello),
+    Resume { transfer_id: u64 },
+}
+
 /// Server's response.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HelloAck {

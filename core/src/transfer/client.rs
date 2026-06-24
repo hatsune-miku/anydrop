@@ -18,7 +18,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::cert::client_config;
 use super::protocol::{
-    Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_PAUSE, DATA_HEADER_LEN,
+    ClientIntro, Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_DONE, CLOSE_PAUSE,
+    DATA_HEADER_LEN,
 };
 use super::server::{read_msg, write_msg};
 use super::walk::walk_paths;
@@ -62,6 +63,49 @@ const PROGRESS_BYTES: u64 = 1 << 20;
 const MAX_ATTEMPTS: u32 = 5;
 const BACKOFF_INITIAL_MS: u64 = 1_000;
 const BACKOFF_CAP_MS: u64 = 16_000;
+
+/// Open a QUIC client connection to `target` (the peer's transfer server) and
+/// send a `ClientIntro::Resume { transfer_id }` on a fresh control stream,
+/// then close cleanly. Used by the RECEIVER to ask the SENDER to reconnect and
+/// resume a transfer the receiver paused — the sender holds the `send_args`
+/// needed to actually re-fire the send.
+///
+/// Fire-and-forget: errors are logged, not surfaced, since this is only a
+/// nudge. If it fails, the user can retry resume.
+pub(crate) async fn request_resume_impl(target: SocketAddr, transfer_id: u64) {
+    if let Err(e) = request_resume_inner(target, transfer_id).await {
+        warn!(
+            "transfer: resume request to {} for transfer_id={} failed: {}",
+            target, transfer_id, e
+        );
+    }
+}
+
+async fn request_resume_inner(target: SocketAddr, transfer_id: u64) -> Result<(), String> {
+    let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+    let mut endpoint =
+        quinn::Endpoint::client(bind_addr).map_err(|e| format!("client endpoint: {}", e))?;
+    endpoint.set_default_client_config(client_config()?);
+
+    let conn = endpoint
+        .connect(target, "anydrop")
+        .map_err(|e| format!("connect: {}", e))?
+        .await
+        .map_err(|e| format!("handshake: {}", e))?;
+
+    let (mut ctrl_send, _ctrl_recv) = conn
+        .open_bi()
+        .await
+        .map_err(|e| format!("open ctrl: {}", e))?;
+    write_msg(&mut ctrl_send, &ClientIntro::Resume { transfer_id }).await?;
+    let _ = ctrl_send.finish();
+    // Give the bytes a moment to flush before tearing down, then close
+    // gracefully so the peer's read completes rather than seeing a reset.
+    let _ = tokio::time::timeout(Duration::from_secs(5), conn.closed()).await;
+    conn.close(CLOSE_DONE.into(), b"resume-request");
+    let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
+    Ok(())
+}
 
 pub(crate) async fn send_paths_impl(
     transfer_id: u64,
@@ -473,7 +517,7 @@ async fn attempt_send_inner(
         display_name: display_name.clone(),
         items: items.to_vec(),
     };
-    write_msg(&mut ctrl_send, &hello).await?;
+    write_msg(&mut ctrl_send, &ClientIntro::Hello(hello)).await?;
 
     let ack: HelloAck = read_msg(&mut ctrl_recv).await?;
     if !ack.accepted {

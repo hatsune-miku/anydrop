@@ -8,4 +8,8 @@ message DiscoveryPacket {
   required uint32 group_identifier = 3;
   required bool need_response = 4;
   required string host_name = 5;
+  // Stable per-install device identity. Optional for backward compatibility
+  // with peers that predate this field. Used to group a device's multiple
+  // addresses / hostnames as one peer, and as the local-remark key.
+  optional string device_id = 6;
 }

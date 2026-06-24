@@ -17,6 +17,8 @@ export type SettingsModel = {
   defaultSaveDir: string
   /** Show a bottom-right popup when clipboard content arrives from a peer. */
   clipboardPopupEnabled: boolean
+  /** Suppress popups/notifications while a fullscreen game is in front. */
+  suppressPopupInGame: boolean
 }
 
 export type PeerGroup = {
@@ -68,6 +70,7 @@ export const fallbackSettings: SettingsModel = {
   darkMode: null,
   defaultSaveDir: '',
   clipboardPopupEnabled: false,
+  suppressPopupInGame: true,
 }
 
 export const emptySnapshot: Snapshot = {

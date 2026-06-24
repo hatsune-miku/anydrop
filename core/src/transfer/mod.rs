@@ -95,6 +95,10 @@ pub struct ProgressUpdate {
 
 pub type OnOffer = Arc<dyn Fn(TransferOffer) + Send + Sync + 'static>;
 pub type OnProgress = Arc<dyn Fn(ProgressUpdate) + Send + Sync + 'static>;
+/// Fired when a peer asks this node (the *sender* of `transfer_id`) to
+/// reconnect and resume a transfer the peer had paused. The host typically
+/// wires this to `ServerHandle::resume_transfer(transfer_id)`.
+pub type OnResumeRequest = Arc<dyn Fn(u64) + Send + Sync + 'static>;
 
 /// Shared state used by the server to bridge async-await onto the host's
 /// synchronous accept/reject API.
@@ -277,6 +281,21 @@ impl ServerHandle {
         }
     }
 
+    /// Ask the *remote sender* of `transfer_id` to reconnect and resume.
+    ///
+    /// Used by the RECEIVER side: when the receiver paused a transfer it has
+    /// no `send_args` of its own (only the sender does), so it cannot reconnect
+    /// directly. Instead it opens a brief QUIC connection to `target` (the
+    /// sender's transfer server) and sends a `ClientIntro::Resume` request,
+    /// which fires the sender's `on_resume_request` callback (typically wired
+    /// to the sender's own `resume_transfer`). Fire-and-forget on the runtime,
+    /// like `send_paths`.
+    pub fn request_remote_resume(&self, target: SocketAddr, transfer_id: u64) {
+        self.runtime.spawn(async move {
+            client::request_resume_impl(target, transfer_id).await;
+        });
+    }
+
     /// Gracefully close the endpoint and wait for outstanding tasks.
     pub fn close(&self) {
         self.endpoint.close(0u32.into(), b"shutdown");
@@ -294,15 +313,20 @@ impl Drop for ServerHandle {
 /// `on_offer` is invoked when a peer sends a `Hello`; the host application
 /// must eventually call [`ServerHandle::respond`] with the same `transfer_id`.
 /// `on_progress` is fired for both send- and receive-side updates.
-pub fn start_server<O, P>(
+/// `on_resume_request` is fired when a peer asks this node (the *sender* of a
+/// transfer) to reconnect and resume; wire it to
+/// [`ServerHandle::resume_transfer`].
+pub fn start_server<O, P, R>(
     bind_addr: SocketAddr,
     display_name: String,
     on_offer: O,
     on_progress: P,
+    on_resume_request: R,
 ) -> Result<ServerHandle, String>
 where
     O: Fn(TransferOffer) + Send + Sync + 'static,
     P: Fn(ProgressUpdate) + Send + Sync + 'static,
+    R: Fn(u64) + Send + Sync + 'static,
 {
     let runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
@@ -323,6 +347,7 @@ where
     let pending = Arc::new(PendingOffers::default());
     let on_offer: OnOffer = Arc::new(on_offer);
     let on_progress: OnProgress = Arc::new(on_progress);
+    let on_resume_request: OnResumeRequest = Arc::new(on_resume_request);
     let cancels: Arc<Mutex<HashMap<u64, CancellationToken>>> =
         Arc::new(Mutex::new(HashMap::new()));
     let pauses: Arc<Mutex<HashMap<u64, CancellationToken>>> =
@@ -334,10 +359,20 @@ where
         let pending = pending.clone();
         let on_offer = on_offer.clone();
         let on_progress = on_progress.clone();
+        let on_resume_request = on_resume_request.clone();
         let cancels = cancels.clone();
         let pauses = pauses.clone();
         runtime.spawn(async move {
-            server::run(endpoint, pending, on_offer, on_progress, cancels, pauses).await;
+            server::run(
+                endpoint,
+                pending,
+                on_offer,
+                on_progress,
+                on_resume_request,
+                cancels,
+                pauses,
+            )
+            .await;
         });
     }
 

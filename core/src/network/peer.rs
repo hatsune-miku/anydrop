@@ -9,6 +9,11 @@ pub struct Peer {
     host: String,
     port: u16,
     host_name: String,
+    /// Stable per-install device id advertised by the peer. Empty when unknown
+    /// (peer predates the field). NOT part of equality/hash — peers are still
+    /// deduplicated by network endpoint `(host, port)`; this is carried for the
+    /// host app to group a device's multiple endpoints as one.
+    device_id: String,
 }
 
 impl Default for Peer {
@@ -17,6 +22,7 @@ impl Default for Peer {
             host: String::from("0.0.0.0"),
             port: 0,
             host_name: DEFAULT_HOSTNAME.to_string(),
+            device_id: String::new(),
         }
     }
 }
@@ -53,6 +59,7 @@ impl Peer {
                 Some(name) => name.clone(),
                 None => DEFAULT_HOSTNAME.to_string(),
             },
+            device_id: String::new(),
         }
     }
 
@@ -64,6 +71,7 @@ impl Peer {
                 Some(name) => name.clone(),
                 None => DEFAULT_HOSTNAME.to_string(),
             },
+            device_id: String::new(),
         }
     }
 
@@ -77,5 +85,16 @@ impl Peer {
 
     pub fn host_name(&self) -> &String {
         &self.host_name
+    }
+
+    pub fn device_id(&self) -> &String {
+        &self.device_id
+    }
+
+    /// Builder-style setter so existing `from`/`new` call sites stay unchanged;
+    /// discovery sets the id after constructing the peer from a packet/record.
+    pub fn with_device_id(mut self, device_id: impl Into<String>) -> Self {
+        self.device_id = device_id.into();
+        self
     }
 }

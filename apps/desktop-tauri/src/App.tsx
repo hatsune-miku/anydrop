@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
   Clipboard,
@@ -43,6 +44,42 @@ const isMac =
 
 function Surface({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`surface-shell ${className}`}>{children}</div>
+}
+
+/**
+ * A "?" badge with a custom hover/focus tooltip. The tooltip is portaled to
+ * document.body and positioned `fixed` over the badge so it can't be clipped by
+ * the scrolling settings pane (and escapes inherited text colors).
+ */
+function Hint({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const show = () => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (rect) setPos({ x: rect.left + rect.width / 2, y: rect.top })
+  }
+  const hide = () => setPos(null)
+  return (
+    <span
+      ref={ref}
+      className="field-hint"
+      tabIndex={0}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      ?
+      {pos
+        ? createPortal(
+            <span className="field-tooltip" role="tooltip" style={{ left: pos.x, top: pos.y }}>
+              {text}
+            </span>,
+            document.body
+          )
+        : null}
+    </span>
+  )
 }
 
 /** Cross-platform basename for display (handles both `/` and `\` separators). */
@@ -253,6 +290,7 @@ function App() {
       | 'sendOnlyOnDoubleCopy'
       | 'syncImageEnabled'
       | 'clipboardPopupEnabled'
+      | 'suppressPopupInGame'
       | 'darkMode',
     value: boolean
   ) {
@@ -304,7 +342,8 @@ function App() {
 
   async function commitRemark(peerName: string) {
     setEditingRemark(null)
-    await runCommand<Snapshot>('set_peer_remark', { hostname: peerName, remark: remarkDraft.trim() })
+    // `peerName` is the group key — now the peer's IP address.
+    await runCommand<Snapshot>('set_peer_remark', { peerKey: peerName, remark: remarkDraft.trim() })
   }
 
   async function runWindowAction(event: React.MouseEvent, action: 'close' | 'minimize' | 'toggleMaximize') {
@@ -471,7 +510,7 @@ function App() {
                             className="remark-input"
                             autoFocus
                             value={remarkDraft}
-                            placeholder={peer.name}
+                            placeholder={peer.label}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) => setRemarkDraft(e.target.value)}
                             onKeyDown={(e) => {
@@ -507,9 +546,6 @@ function App() {
           <div className="main-stack main-stack--with-log">
             <Surface>
               <section className="card send-card">
-                <div className="section-heading">
-                  <span>发送</span>
-                </div>
                 <div className="target-row">
                   <div className="target-icon">
                     <Share2 size={18} />
@@ -735,106 +771,140 @@ function App() {
               doesn't queue up a second change while the first is mid-flight. */}
           <Surface className={`settings-pane${busy ? ' settings-pane--busy' : ''}`}>
             <section className="card full-height">
-              <div className="section-heading">
-                <span>设置</span>
-                {busy ? <small>正在应用…</small> : null}
-              </div>
-              <label className="toggle-row">
-                <input
-                  checked={darkMode}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('darkMode', event.target.checked)}
-                />
-                <span>深色模式</span>
-              </label>
-              <label className="toggle-row">
-                <input
-                  checked={snapshot.settings.sendClipboardEnabled}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('sendClipboardEnabled', event.target.checked)}
-                />
-                <span>发送本机剪贴板</span>
-              </label>
-              <label className="toggle-row">
-                <input
-                  checked={snapshot.settings.receiveClipboardEnabled}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('receiveClipboardEnabled', event.target.checked)}
-                />
-                <span>接收远端剪贴板</span>
-              </label>
-              <label className="toggle-row">
-                <input
-                  checked={snapshot.settings.sendOnlyOnDoubleCopy}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)}
-                />
-                <span>仅双击复制时发送</span>
-              </label>
-              <label className="toggle-row">
-                <input
-                  checked={snapshot.settings.syncImageEnabled}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('syncImageEnabled', event.target.checked)}
-                />
-                <span>同步剪贴板图片（最大 64MB）</span>
-              </label>
-              <label className="toggle-row">
-                <input
-                  checked={snapshot.settings.clipboardPopupEnabled}
-                  type="checkbox"
-                  onChange={(event) => void setBoolSetting('clipboardPopupEnabled', event.target.checked)}
-                />
-                <span>收到剪贴板时弹窗提示</span>
-              </label>
-              <label className="field">
-                <span>默认保存目录</span>
-                <div className="field-row">
-                  <input type="text" readOnly value={snapshot.settings.defaultSaveDir} title={snapshot.settings.defaultSaveDir} />
-                  <button className="button" type="button" disabled={busy} onClick={() => void setDefaultSaveDir()}>
-                    更改
-                  </button>
+              <div className="settings-scroll">
+                <label className="toggle-row">
+                  <input
+                    checked={darkMode}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('darkMode', event.target.checked)}
+                  />
+                  <span>深色模式</span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.sendClipboardEnabled}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('sendClipboardEnabled', event.target.checked)}
+                  />
+                  <span>发送本机剪贴板</span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.receiveClipboardEnabled}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('receiveClipboardEnabled', event.target.checked)}
+                  />
+                  <span>接收远端剪贴板</span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.sendOnlyOnDoubleCopy}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)}
+                  />
+                  <span>仅双击复制时发送</span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.syncImageEnabled}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('syncImageEnabled', event.target.checked)}
+                  />
+                  <span>
+                    同步剪贴板图片
+                    <Hint text="最大 64MB" />
+                  </span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.clipboardPopupEnabled}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('clipboardPopupEnabled', event.target.checked)}
+                  />
+                  <span>收到剪贴板时弹窗提示</span>
+                </label>
+                <label className="toggle-row">
+                  <input
+                    checked={snapshot.settings.suppressPopupInGame}
+                    type="checkbox"
+                    onChange={(event) => void setBoolSetting('suppressPopupInGame', event.target.checked)}
+                  />
+                  <span>
+                    全屏游戏时不弹窗
+                    <Hint text="包含无边框全屏和独占全屏" />
+                  </span>
+                </label>
+                <label className="field">
+                  <span>默认保存目录</span>
+                  <div className="field-row">
+                    <input
+                      type="text"
+                      readOnly
+                      value={snapshot.settings.defaultSaveDir}
+                      title={snapshot.settings.defaultSaveDir}
+                    />
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label="打开目录"
+                      title="打开所在目录"
+                      onClick={() =>
+                        void runCommand<void>('open_directory', { path: snapshot.settings.defaultSaveDir })
+                      }
+                    >
+                      <FolderOpen size={15} />
+                    </button>
+                    <button className="button" type="button" disabled={busy} onClick={() => void setDefaultSaveDir()}>
+                      更改
+                    </button>
+                  </div>
+                </label>
+                <label className="field">
+                  <span>本机外显名</span>
+                  <input
+                    type="text"
+                    placeholder={snapshot.settings.displayName || '（系统主机名）'}
+                    value={settingsDraft.displayName}
+                    onChange={(event) => setSettingsDraft({ ...settingsDraft, displayName: event.target.value })}
+                  />
+                </label>
+                {/* 频段（旧称组 ID，0-255）+ 只读端口（双端必须对齐，写死不可改），
+                    各占一格。 */}
+                <div className="port-grid">
+                  <label className="field">
+                    <span>
+                      频段
+                      <Hint text="只有频段相同才能互相发现" />
+                    </span>
+                    <input
+                      className="band-input"
+                      type="text"
+                      inputMode="numeric"
+                      // Always show three digits, zero-padded (e.g. 007).
+                      value={String(settingsDraft.groupIdentity).padStart(3, '0')}
+                      onChange={(event) => {
+                        // Keep the last three digits typed; clamp to 0-255.
+                        const digits = event.target.value.replace(/\D/g, '').slice(-3)
+                        const value = Math.min(255, Number(digits || 0))
+                        setSettingsDraft({ ...settingsDraft, groupIdentity: value })
+                      }}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>发现端口</span>
+                    <div className="static-value">{snapshot.settings.discoveryPort}</div>
+                  </label>
+                  <label className="field">
+                    <span>数据端口</span>
+                    <div className="static-value">{snapshot.settings.dataPort}</div>
+                  </label>
                 </div>
-              </label>
-              <label className="field">
-                <span>本机外显名</span>
-                <input
-                  type="text"
-                  placeholder={snapshot.settings.displayName || '（系统主机名）'}
-                  value={settingsDraft.displayName}
-                  onChange={(event) => setSettingsDraft({ ...settingsDraft, displayName: event.target.value })}
-                />
-              </label>
-              <label className="field">
-                <span>组 ID</span>
-                <input
-                  min={0}
-                  type="number"
-                  value={settingsDraft.groupIdentity}
-                  onChange={(event) =>
-                    setSettingsDraft({
-                      ...settingsDraft,
-                      groupIdentity: Number(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              {/* 端口写死成默认值并跨设备保持一致;暴露成可改字段会让用户
-                  误以为可以一端改一端不改,实际上协议要求双方端口对齐才能
-                  互相发现与传输。这里只读展示,保留可见性方便排障。 */}
-              <div className="field-grid">
-                <label className="field">
-                  <span>发现端口</span>
-                  <input type="number" value={snapshot.settings.discoveryPort} readOnly disabled />
-                </label>
-                <label className="field">
-                  <span>传输端口</span>
-                  <input type="number" value={snapshot.settings.dataPort} readOnly disabled />
-                </label>
               </div>
-              <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
-                保存设置
-              </button>
+              <div className="settings-footer">
+                <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
+                  保存设置
+                </button>
+              </div>
             </section>
           </Surface>
         </div>

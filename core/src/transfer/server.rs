@@ -13,12 +13,13 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::protocol::{
-    Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_PAUSE, DATA_HEADER_LEN,
+    ClientIntro, Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_DONE, CLOSE_PAUSE,
+    DATA_HEADER_LEN,
 };
 use super::walk::sanitize_rel;
 use super::{
-    Decision, Direction, OnOffer, OnProgress, PendingOffers, ProgressUpdate, TransferOffer,
-    TransferStatus,
+    Decision, Direction, OnOffer, OnProgress, OnResumeRequest, PendingOffers, ProgressUpdate,
+    TransferOffer, TransferStatus,
 };
 
 const PROGRESS_INTERVAL_MS: u128 = 200;
@@ -107,6 +108,7 @@ pub(crate) async fn run(
     pending: Arc<PendingOffers>,
     on_offer: OnOffer,
     on_progress: OnProgress,
+    on_resume_request: OnResumeRequest,
     cancels: CancelMap,
     pauses: PauseMap,
 ) {
@@ -145,6 +147,7 @@ pub(crate) async fn run(
         let pending = pending.clone();
         let on_offer = on_offer.clone();
         let on_progress = on_progress.clone();
+        let on_resume_request = on_resume_request.clone();
         let active = active.clone();
         let cancels = cancels.clone();
         let pauses = pauses.clone();
@@ -157,7 +160,14 @@ pub(crate) async fn run(
                 }
             };
             if let Err(e) = handle_connection(
-                conn, pending, on_offer, on_progress, active, cancels, pauses,
+                conn,
+                pending,
+                on_offer,
+                on_progress,
+                on_resume_request,
+                active,
+                cancels,
+                pauses,
             )
             .await
             {
@@ -167,11 +177,13 @@ pub(crate) async fn run(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     conn: quinn::Connection,
     pending: Arc<PendingOffers>,
     on_offer: OnOffer,
     on_progress: OnProgress,
+    on_resume_request: OnResumeRequest,
     active: ActiveTransfersMap,
     cancels: CancelMap,
     pauses: PauseMap,
@@ -182,7 +194,26 @@ async fn handle_connection(
         .await
         .map_err(|e| format!("accept ctrl: {}", e))?;
 
-    let hello: Hello = read_msg(&mut ctrl_recv).await?;
+    // First control message is either a send offer (Hello) or a resume request
+    // (Resume). A resume request is a RECEIVER asking US (the sender of that
+    // transfer) to reconnect and resume; we forward it to the host and close.
+    let intro: ClientIntro = read_msg(&mut ctrl_recv).await?;
+    let hello = match intro {
+        ClientIntro::Hello(h) => h,
+        ClientIntro::Resume { transfer_id } => {
+            info!(
+                "transfer: resume request for transfer_id={} from {}",
+                transfer_id, remote_addr
+            );
+            on_resume_request(transfer_id);
+            // Acknowledge by finishing our half and closing cleanly so the
+            // requester's connection completes without a reset.
+            let _ = ctrl_send.finish();
+            conn.close(CLOSE_DONE.into(), b"resume-ack");
+            let _ = tokio::time::timeout(Duration::from_secs(2), conn.closed()).await;
+            return Ok(());
+        }
+    };
     let transfer_id = hello.transfer_id;
 
     // Resume path: if we already have state for this transfer_id and the

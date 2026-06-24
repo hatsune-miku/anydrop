@@ -41,6 +41,7 @@ pub fn run(
     data_port: u16,
     group_id: u32,
     display_name: String,
+    device_id: String,
     should_interrupt: Box<dyn Fn() -> bool + Send>,
 ) -> Result<(), String> {
     let daemon = ServiceDaemon::new().map_err(|e| format!("mdns daemon: {}", e))?;
@@ -57,6 +58,7 @@ pub fn run(
     props.insert("v".into(), env!("CARGO_PKG_VERSION").into());
     props.insert("g".into(), group_id.to_string());
     props.insert("dn".into(), display_name.clone());
+    props.insert("did".into(), device_id.clone());
 
     let instance = sanitize_instance(&display_name);
 
@@ -134,6 +136,10 @@ fn handle_resolved(
         .get_property_val_str("dn")
         .map(str::to_string)
         .unwrap_or_else(|| svc.get_fullname().to_string());
+    let device_id = svc
+        .get_property_val_str("did")
+        .map(str::to_string)
+        .unwrap_or_default();
     let port = svc.get_port();
     let addrs = svc.get_addresses().clone();
 
@@ -153,7 +159,7 @@ fn handle_resolved(
         let IpAddr::V4(v4) = addr else {
             continue; // IPv6 elided for now — the rest of the stack is v4
         };
-        let peer = Peer::from(&v4, port, Some(&display));
+        let peer = Peer::from(&v4, port, Some(&display)).with_device_id(device_id.clone());
         let host_key = peer.host().clone();
         peer_set.replace(peer);
         if let Some(ls) = last_seen {

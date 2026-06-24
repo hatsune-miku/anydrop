@@ -111,6 +111,7 @@ pub extern "C" fn anydrop_lan_discovery_service(
         Box::new(move || should_interrupt()),
         config.group_identifier,
         crate::util::os::OSUtil::hostname(),
+        String::new(), // generic entrypoint advertises no device id
     );
 
     info!("lib: Discovery service stopped.");
