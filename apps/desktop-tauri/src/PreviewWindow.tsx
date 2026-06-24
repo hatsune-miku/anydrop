@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { FileText } from 'lucide-react'
+import { FileText, X } from 'lucide-react'
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -17,35 +17,66 @@ function extOf(name: string): string {
   return dot >= 0 ? name.slice(dot + 1).toUpperCase() : ''
 }
 
+function close() {
+  void getCurrentWindow().close()
+}
+
 export default function PreviewWindow() {
   const [payload, setPayload] = useState<PreviewPayload | null>(null)
 
   useEffect(() => {
-    void invoke<PreviewPayload | null>('get_preview_payload')
-      .then((p) => p && setPayload(p))
-      .catch(() => {})
-    const unlisten = listen<PreviewPayload>('preview-load', (event) => setPayload(event.payload))
+    // Follow the OS theme for the chrome (the stage itself is always dark).
+    document.documentElement.classList.toggle(
+      'dark',
+      window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+    )
 
+    let cancelled = false
+    // The payload is set in the backend before this window is built, so the
+    // first read normally succeeds. Retry a few times anyway to absorb any
+    // mount/build race rather than getting stuck on a blank stage.
+    let tries = 0
+    const poll = () => {
+      if (cancelled) return
+      void invoke<PreviewPayload | null>('get_preview_payload')
+        .then((p) => {
+          if (cancelled) return
+          if (p) setPayload(p)
+          else if (tries++ < 20) setTimeout(poll, 100)
+        })
+        .catch(() => {
+          if (!cancelled && tries++ < 20) setTimeout(poll, 100)
+        })
+    }
+    poll()
+
+    const unlisten = listen<PreviewPayload>('preview-load', (event) => setPayload(event.payload))
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') void getCurrentWindow().close()
+      if (e.key === 'Escape') close()
     }
     window.addEventListener('keydown', onKey)
     return () => {
+      cancelled = true
       window.removeEventListener('keydown', onKey)
       void unlisten.then((u) => u())
     }
   }, [])
 
-  if (!payload) {
-    return <div className="preview-shell preview-shell--empty">加载中…</div>
-  }
-
-  const src = convertFileSrc(payload.path)
+  const src = payload ? convertFileSrc(payload.path) : ''
 
   return (
     <div className="preview-shell">
+      <header className="preview-titlebar" data-tauri-drag-region>
+        <span data-tauri-drag-region>{payload?.name ?? '速览'}</span>
+        <button className="popup-close" type="button" aria-label="关闭" onClick={close}>
+          <X size={14} />
+        </button>
+      </header>
+
       <div className="preview-stage">
-        {payload.kind === 'image' ? (
+        {!payload ? (
+          <div className="preview-generic">加载中…</div>
+        ) : payload.kind === 'image' ? (
           <img className="preview-media" src={src} alt={payload.name} />
         ) : payload.kind === 'video' ? (
           // eslint-disable-next-line jsx-a11y/media-has-caption
@@ -61,13 +92,13 @@ export default function PreviewWindow() {
             <FileText size={56} strokeWidth={1.1} />
             <strong>{payload.name}</strong>
             <span>{extOf(payload.name) || '文件'} · 此类型不支持预览</span>
-            <code title={payload.path}>{payload.path}</code>
           </div>
         )}
       </div>
+
       <footer className="preview-footer">
-        <span title={payload.path}>{payload.name}</span>
-        <small>按 Esc 关闭</small>
+        <span title={payload?.path}>{payload?.path ?? ''}</span>
+        <small>Esc 关闭</small>
       </footer>
     </div>
   )

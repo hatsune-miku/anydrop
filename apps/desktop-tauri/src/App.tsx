@@ -28,6 +28,7 @@ import {
   formatSpeed,
   isTauriRuntime,
   percent,
+  previewKind,
   transferStatus,
   type SettingsModel,
   type Snapshot,
@@ -639,7 +640,7 @@ function App() {
                             </>
                           ) : (
                             <>
-                              {transfer.status === 7 && transfer.direction === 'incoming' ? (
+                              {transfer.status === 7 && previewKind(transfer.fileName) !== 'other' ? (
                                 <button
                                   className="icon-button"
                                   type="button"

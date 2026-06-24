@@ -1807,6 +1807,11 @@ fn preview_file(
         return Err("仅支持预览单个文件".to_string());
     }
     let kind = preview_kind(&path);
+    // Only image / audio / video are previewable. Everything else (archives,
+    // docs, …) gets no preview window at all.
+    if kind == "other" {
+        return Err("此格式不支持预览".to_string());
+    }
     open_preview_window(&app, &path, kind, &transfer.file_name)
 }
 
@@ -1823,41 +1828,61 @@ fn request_attention(app: &AppHandle) {
     }
 }
 
-/// Create (if needed), position bottom-right, and show the native receive
-/// popup. Reused for file offers and clipboard receipts. The popup hides itself
-/// from the webview side once there is nothing left to show.
+/// Build the receive popup hidden + positioned. Must run on the main thread.
+fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    match WebviewWindowBuilder::new(
+        app,
+        RECEIVE_WINDOW_LABEL,
+        WebviewUrl::App("index.html?window=receive".into()),
+    )
+    .title("AnyDrop")
+    .inner_size(RECEIVE_WINDOW_WIDTH, RECEIVE_WINDOW_HEIGHT)
+    .resizable(false)
+    .decorations(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    {
+        Ok(window) => {
+            position_bottom_right(&window);
+            Some(window)
+        }
+        Err(err) => {
+            eprintln!("receive window build failed: {err}");
+            None
+        }
+    }
+}
+
+/// Build the receive popup hidden ahead of time (at startup, on the main
+/// thread) so the first offer / clipboard receipt appears instantly and never
+/// misses the event — the webview's listeners are already registered, and we
+/// only ever hide/show it rather than create/destroy.
+fn preinit_receive_window(app: &AppHandle) {
+    if app.get_webview_window(RECEIVE_WINDOW_LABEL).is_none() {
+        let _ = make_receive_window(app);
+    }
+}
+
+/// Show the (pre-created, persistent) receive popup. Reused for file offers and
+/// clipboard receipts; the webview hides it again once it has nothing to show.
 fn ensure_receive_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
-    // on_offer / clipboard callbacks fire on background network threads; window
-    // creation must happen on the main (event-loop) thread.
+    // Fallback only — pre-init normally creates it. Window creation must happen
+    // on the main thread (these callbacks fire on background network threads).
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
-        if app.get_webview_window(RECEIVE_WINDOW_LABEL).is_some() {
-            return; // lost a create race — fine
+        if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
+            let _ = window.show();
+            return;
         }
-        let built = WebviewWindowBuilder::new(
-            &app,
-            RECEIVE_WINDOW_LABEL,
-            WebviewUrl::App("index.html?window=receive".into()),
-        )
-        .title("AnyDrop")
-        .inner_size(RECEIVE_WINDOW_WIDTH, RECEIVE_WINDOW_HEIGHT)
-        .resizable(false)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        .build();
-        match built {
-            Ok(window) => {
-                position_bottom_right(&window);
-                let _ = window.show();
-            }
-            Err(err) => eprintln!("receive window build failed: {err}"),
+        if let Some(window) = make_receive_window(&app) {
+            let _ = window.show();
         }
     });
 }
@@ -1931,6 +1956,8 @@ fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> R
         .title(&title)
         .inner_size(760.0, 580.0)
         .min_inner_size(360.0, 280.0)
+        .decorations(false)
+        .center()
         .build()
         {
             eprintln!("preview window build failed: {err}");
@@ -2013,7 +2040,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Backend::new(load_settings()))
         .on_window_event(|window, event| {
-            if window.label() == "main" {
+            // Keep the main window and the persistent receive popup alive across
+            // "close" — hide instead of destroy so they reopen instantly.
+            if matches!(window.label(), "main" | RECEIVE_WINDOW_LABEL) {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     let _ = window.hide();
                     api.prevent_close();
@@ -2029,6 +2058,9 @@ pub fn run() {
             if let Err(err) = build_tray(&handle) {
                 eprintln!("tray setup failed: {err}");
             }
+            // Pre-create the receive popup (hidden) so the first offer / clipboard
+            // receipt shows instantly without an open-then-vanish flash.
+            preinit_receive_window(&handle);
             auto_start_service(handle);
             Ok(())
         })

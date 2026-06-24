@@ -918,14 +918,43 @@ textarea:focus,
   font-size: 12px;
 }
 
-/* #5 — Quick-Look style preview window. */
+/* #5 — Quick-Look style preview window (frameless: titlebar + stage + footer). */
 .preview-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100vh;
   overflow: hidden;
   background: #15161c;
   color: #e8edf2;
+}
+
+.preview-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1b1d24;
+  font-size: 13px;
+  font-weight: 600;
+
+  span {
+    overflow: hidden;
+    flex: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .popup-close {
+    color: #9fb3c8;
+  }
+
+  .popup-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e8edf2;
+  }
 }
 
 .preview-shell--empty {
@@ -1026,6 +1055,15 @@ html.dark {
   }
 
   .request-row {
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  /* Light hover/fill values look glaringly bright on dark — tone them down. */
+  .device-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .confirm-path {
     background: rgba(255, 255, 255, 0.04);
   }
 

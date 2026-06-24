@@ -138,6 +138,20 @@ export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+/**
+ * Classify a file name for preview. Mirrors the backend `preview_kind`. Only
+ * image / audio / video are previewable; everything else (archives, docs, …)
+ * is `other` and gets no preview affordance.
+ */
+export function previewKind(name: string): 'image' | 'audio' | 'video' | 'other' {
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'].includes(ext)) return 'image'
+  if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'oga', 'm4a', 'opus'].includes(ext)) return 'audio'
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) return 'video'
+  return 'other'
+}
+
 /** Resolve which window surface to render from the `?window=` query param. */
 export function windowKind(): 'main' | 'receive' | 'preview' {
   if (typeof window === 'undefined') return 'main'
