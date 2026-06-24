@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
@@ -123,6 +124,7 @@ function App() {
   const [remarkDraft, setRemarkDraft] = useState('')
   const [logsCollapsed, setLogsCollapsed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [version, setVersion] = useState('')
   const logListRef = useRef<HTMLDivElement>(null)
   // Latest selected peer, read inside the drag-drop handler without re-subscribing.
   const selectedPeerRef = useRef<PeerGroup | undefined>(undefined)
@@ -132,6 +134,10 @@ function App() {
   // Theme preference is stored natively in settings now (settings.darkMode):
   // null = follow the OS theme, an explicit boolean = user override.
   const darkMode = snapshot.settings.darkMode ?? systemDark
+
+  useEffect(() => {
+    getVersion().then((v) => setVersion(v))
+  }, [])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -449,7 +455,7 @@ function App() {
           }}
         >
           <div className="window-title" data-tauri-drag-region>
-            AnyDrop
+            AnyDrop {version}
           </div>
           <div className="window-controls">
             <button
@@ -642,9 +648,6 @@ function App() {
                   >
                     <Clipboard size={16} />
                     发送剪贴板
-                    <HotkeyBadge
-                      label={`${isMac ? '⌘' : 'Ctrl'}+C${snapshot.settings.sendOnlyOnDoubleCopy ? '+C' : ''}`}
-                    />
                   </button>
                 </div>
               </section>

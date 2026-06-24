@@ -111,9 +111,6 @@ textarea {
 .window-controls {
   display: flex;
   align-self: stretch;
-  /* Pull the row in from the absolute window edge so the close-button hover
-     state has a tiny gutter; matches the Fluent style on Windows 11. */
-  padding-right: 4px;
 }
 
 .window-control {
