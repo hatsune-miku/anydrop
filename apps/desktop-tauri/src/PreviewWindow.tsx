@@ -17,7 +17,12 @@ function extOf(name: string): string {
   return dot >= 0 ? name.slice(dot + 1).toUpperCase() : ''
 }
 
-function close() {
+async function close() {
+  // Hand focus back to the main window before closing, so the user isn't left
+  // on the desktop / another app.
+  try {
+    await invoke('focus_main_window')
+  } catch {}
   void getCurrentWindow().close()
 }
 

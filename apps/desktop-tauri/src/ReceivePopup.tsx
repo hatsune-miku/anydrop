@@ -162,13 +162,14 @@ export default function ReceivePopup() {
     await invoke('accept_transfer', { transferKey: key, saveDir: overrides[key] ?? null })
   }
 
+  // "已读" only closes the item in the popup — the transfer record stays in the
+  // main "最近传输" list. (It does NOT delete the record.)
   function dismiss(key: string) {
     setTracked((prev) => {
       const next = new Set(prev)
       next.delete(key)
       return next
     })
-    void invoke('dismiss_transfer', { transferKey: key }).catch(() => {})
   }
 
   return (

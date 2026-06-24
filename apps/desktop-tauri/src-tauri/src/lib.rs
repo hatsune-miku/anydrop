@@ -2007,6 +2007,13 @@ fn clear_transfers(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
     backend.snapshot()
 }
 
+/// Bring the main window to the foreground. Used by the preview window to hand
+/// focus back when it closes.
+#[tauri::command]
+fn focus_main_window(app: AppHandle) {
+    show_main_window(&app);
+}
+
 #[tauri::command]
 fn open_transfer_folder(
     app: AppHandle,
@@ -2140,13 +2147,30 @@ fn preview_file(
     if !Path::new(&path).is_file() {
         return Err("仅支持预览单个文件".to_string());
     }
-    let kind = preview_kind(&path);
-    // Only image / audio / video are previewable. Everything else (archives,
-    // docs, …) gets no preview window at all.
-    if kind == "other" {
-        return Err("此格式不支持预览".to_string());
+
+    // macOS: use the system's own Quick Look panel (the Finder spacebar
+    // preview) via `qlmanage -p`. It handles far more types than our webview
+    // window and is the native experience the user expects.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = &app;
+        std::process::Command::new("qlmanage")
+            .arg("-p")
+            .arg(&path)
+            .spawn()
+            .map_err(|err| format!("qlmanage: {err}"))?;
+        return Ok(());
     }
-    open_preview_window(&app, &path, kind, &transfer.file_name)
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let kind = preview_kind(&path);
+        // Only image / audio / video render in our webview preview window.
+        if kind == "other" {
+            return Err("此格式不支持预览".to_string());
+        }
+        open_preview_window(&app, &path, kind, &transfer.file_name)
+    }
 }
 
 #[tauri::command]
@@ -2516,7 +2540,8 @@ pub fn run() {
             copy_text,
             open_directory,
             clear_transfers,
-            show_window_menu
+            show_window_menu,
+            focus_main_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

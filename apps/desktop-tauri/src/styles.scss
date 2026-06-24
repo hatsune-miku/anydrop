@@ -613,6 +613,22 @@ textarea:focus,
   box-shadow: 0 6px 20px rgba(31, 41, 51, 0.18);
 }
 
+/* Inline media preview inside the hover tooltip: a square, transparent box
+   with the media contained (letterboxed). */
+.row-tooltip-media {
+  width: 200px;
+  height: 200px;
+  margin-bottom: 4px;
+  background: transparent;
+
+  img,
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
 .row-tooltip-line {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -51,6 +51,8 @@ export type Transfer = {
   startedAt?: number
   /** When it reached a terminal state, epoch ms (absent while in flight). */
   completedAt?: number
+  /** Absolute path of the landed file/folder (for reveal + inline preview). */
+  revealPath?: string
 }
 
 export type Snapshot = {

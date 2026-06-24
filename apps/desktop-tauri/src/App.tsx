@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 
 import { getVersion } from '@tauri-apps/api/app'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -117,8 +117,28 @@ function TransferDetail({ transfer, x, y }: { transfer: Transfer; x: number; y: 
     </div>
   )
   const incoming = transfer.direction === 'incoming'
+  // Inline preview for a small (<10MB) completed image/video. Square box,
+  // transparent background, contain; video/gif autoplay (muted, looped).
+  const kind = previewKind(transfer.fileName)
+  const showMedia =
+    transfer.status === 7 &&
+    (kind === 'image' || kind === 'video') &&
+    transfer.total > 0 &&
+    transfer.total < 10 * 1024 * 1024 &&
+    !!transfer.revealPath
+  const mediaSrc = showMedia ? convertFileSrc(transfer.revealPath!) : ''
   return createPortal(
     <div className="row-tooltip" style={{ left: x, top: y }} role="tooltip">
+      {showMedia ? (
+        <div className="row-tooltip-media">
+          {kind === 'video' ? (
+            // eslint-disable-next-line jsx-a11y/media-has-caption
+            <video src={mediaSrc} autoPlay loop muted />
+          ) : (
+            <img src={mediaSrc} alt={transfer.fileName} />
+          )}
+        </div>
+      ) : null}
       <Line k="文件名" v={transfer.fileName || '—'} />
       <Line k="大小" v={transfer.total > 0 ? formatBytes(transfer.total) : '—'} />
       <Line k="状态" v={transferStatus(transfer.status)} />
@@ -187,6 +207,14 @@ function App() {
     const timer = setTimeout(() => setNotice(''), 5000)
     return () => clearTimeout(timer)
   }, [notice])
+
+  // If the hovered transfer's row is removed (cleared / dismissed) while its
+  // detail tooltip is open, mouseleave never fires — drop the tooltip here.
+  useEffect(() => {
+    if (detail && !snapshot.transfers.some((t) => t.key === detail.transfer.key)) {
+      setDetail(null)
+    }
+  }, [snapshot.transfers, detail])
 
   // Auto-scroll the log panel to the newest entry whenever logs change.
   useEffect(() => {
