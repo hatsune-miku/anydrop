@@ -91,8 +91,12 @@ export default function ReceivePopup() {
         setTransfers(map)
       }),
       listen<{ kind: 'text' | 'image'; preview: string; peer: string }>('clipboard-popup', (event) => {
+        const { kind, preview, peer } = event.payload ?? { kind: 'text', preview: '', peer: '' }
+        // Skip empty text receipts — nothing useful to show, and an empty card
+        // reads as a glitch.
+        if (kind === 'text' && !preview.trim() && !peer.trim()) return
         const id = (cardSeq.current += 1)
-        setCards((prev) => [{ id, ...event.payload }, ...prev].slice(0, 4))
+        setCards((prev) => [{ id, kind, preview, peer }, ...prev].slice(0, 4))
         // Auto-dismiss clipboard cards after a few seconds.
         setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
       }),

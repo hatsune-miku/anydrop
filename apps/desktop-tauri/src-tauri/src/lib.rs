@@ -1821,11 +1821,16 @@ fn get_preview_payload(backend: State<'_, Backend>) -> Option<serde_json::Value>
 }
 
 /// Flash the taskbar (Windows) / bounce the dock (macOS) so the user notices an
-/// incoming transfer even when AnyDrop isn't focused.
+/// incoming transfer even when AnyDrop isn't focused. Marshalled to the main
+/// thread — called from background network threads, and the underlying Win32
+/// call (FlashWindowEx) is unsafe off the UI thread.
 fn request_attention(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.request_user_attention(Some(UserAttentionType::Critical));
-    }
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.request_user_attention(Some(UserAttentionType::Critical));
+        }
+    });
 }
 
 /// Build the receive popup hidden + positioned. Must run on the main thread.
@@ -1867,14 +1872,13 @@ fn preinit_receive_window(app: &AppHandle) {
 
 /// Show the (pre-created, persistent) receive popup. Reused for file offers and
 /// clipboard receipts; the webview hides it again once it has nothing to show.
+///
+/// ALL window ops are marshalled to the main thread: this is invoked from
+/// background network threads (clipboard / offer callbacks), and showing /
+/// focusing a window off the UI thread on Windows can hard-crash the process.
+/// We intentionally do NOT steal focus — `always_on_top` makes it visible
+/// without yanking focus away from whatever the user is doing.
 fn ensure_receive_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return;
-    }
-    // Fallback only — pre-init normally creates it. Window creation must happen
-    // on the main thread (these callbacks fire on background network threads).
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
@@ -1928,24 +1932,22 @@ fn preview_kind(path: &str) -> &'static str {
 }
 
 /// Create or reuse the Quick-Look style preview window and point it at `path`.
+/// All window ops run on the main thread (this is called from a command worker
+/// thread; off-UI-thread window calls can crash on Windows).
 fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> Result<(), String> {
     let payload = serde_json::json!({ "path": path, "kind": kind, "name": name });
     if let Some(backend) = app.try_state::<Backend>() {
         *backend.preview_payload.lock().unwrap() = Some(payload.clone());
     }
-    if let Some(window) = app.get_webview_window(PREVIEW_WINDOW_LABEL) {
-        let _ = window.emit("preview-load", &payload);
-        let _ = window.set_title(name);
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-    // Build off the (possibly background) caller thread onto the main thread.
     let app_main = app.clone();
     let title = name.to_string();
     app.run_on_main_thread(move || {
-        if app_main.get_webview_window(PREVIEW_WINDOW_LABEL).is_some() {
+        if let Some(window) = app_main.get_webview_window(PREVIEW_WINDOW_LABEL) {
+            let _ = window.emit("preview-load", &payload);
+            let _ = window.set_title(&title);
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
             return;
         }
         if let Err(err) = WebviewWindowBuilder::new(
