@@ -84,6 +84,14 @@ function App() {
     document.documentElement.classList.toggle('dark', darkMode)
   }, [darkMode])
 
+  // Auto-dismiss the toast notice after 5s so transient messages (e.g.
+  // "收到新的剪贴板文本") don't linger.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(''), 5000)
+    return () => clearTimeout(timer)
+  }, [notice])
+
   // Auto-scroll the log panel to the newest entry whenever logs change.
   useEffect(() => {
     if (logListRef.current) {
@@ -424,7 +432,7 @@ function App() {
             </div>
           </div>
           <div className="content-actions">
-            <button className="button primary" type="button" disabled={busy} onClick={toggleService}>
+            <button className="button" type="button" disabled={busy} onClick={toggleService}>
               {snapshot.running ? <Square size={15} /> : <Play size={15} />}
               {snapshot.running ? '停止服务' : '启动服务'}
             </button>
@@ -824,7 +832,7 @@ function App() {
                   <input type="number" value={snapshot.settings.dataPort} readOnly disabled />
                 </label>
               </div>
-              <button className="button primary full-width" type="button" disabled={busy} onClick={saveSettings}>
+              <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
                 保存设置
               </button>
             </section>
