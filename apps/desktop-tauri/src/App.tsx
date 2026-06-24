@@ -34,6 +34,8 @@ import {
   emptySnapshot,
   fallbackSettings,
   formatBytes,
+  formatDateTime,
+  formatDuration,
   formatSpeed,
   isTauriRuntime,
   percent,
@@ -100,6 +102,39 @@ function HotkeyBadge({ label }: { label: string }) {
   )
 }
 
+/** Hover detail for a transfer row, portaled above the row (fixed position). */
+function TransferDetail({ transfer, x, y }: { transfer: Transfer; x: number; y: number }) {
+  const done = typeof transfer.completedAt === 'number'
+  // Duration counts only the actual transfer (started → completed), excluding
+  // the time spent waiting for the peer to accept.
+  const timed = done && typeof transfer.startedAt === 'number'
+  const durMs = timed ? transfer.completedAt! - transfer.startedAt! : 0
+  const avg = timed && transfer.total > 0 && durMs > 0 ? formatSpeed(transfer.total / (durMs / 1000)) : '—'
+  const Line = ({ k, v }: { k: string; v: string }) => (
+    <div className="row-tooltip-line">
+      <span>{k}</span>
+      <b>{v}</b>
+    </div>
+  )
+  const incoming = transfer.direction === 'incoming'
+  return createPortal(
+    <div className="row-tooltip" style={{ left: x, top: y }} role="tooltip">
+      <Line k="文件名" v={transfer.fileName || '—'} />
+      <Line k="大小" v={transfer.total > 0 ? formatBytes(transfer.total) : '—'} />
+      <Line k="状态" v={transferStatus(transfer.status)} />
+      <Line k="类型" v={incoming ? '接收' : '发送'} />
+      <Line k={incoming ? '来自' : '发往'} v={transfer.peer || transfer.host || '—'} />
+      <Line k="发起时间" v={formatDateTime(transfer.createdAt) || '—'} />
+      <Line k="开始时间" v={transfer.startedAt ? formatDateTime(transfer.startedAt) : '—'} />
+      <Line k="完成时间" v={done ? formatDateTime(transfer.completedAt) : '—'} />
+      <Line k="传输用时" v={timed ? formatDuration(durMs) : '—'} />
+      <Line k="平均速度" v={avg} />
+      <Line k={incoming ? '保存位置' : '来源位置'} v={transfer.localPath || '—'} />
+    </div>,
+    document.body
+  )
+}
+
 /** Cross-platform basename for display (handles both `/` and `\` separators). */
 function baseName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -124,6 +159,8 @@ function App() {
   const [remarkDraft, setRemarkDraft] = useState('')
   const [logsCollapsed, setLogsCollapsed] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  // Hovered transfer row → its detail tooltip (portaled, positioned over the row).
+  const [detail, setDetail] = useState<{ transfer: Transfer; x: number; y: number } | null>(null)
   const [version, setVersion] = useState('')
   const logListRef = useRef<HTMLDivElement>(null)
   // Latest selected peer, read inside the drag-drop handler without re-subscribing.
@@ -417,11 +454,21 @@ function App() {
 
   // Pending incoming offers are handled by the native receive popup now, so the
   // main window only lists transfers that have moved past the decision stage.
-  const transfers = snapshot.transfers.filter((transfer) => transfer.status !== 1)
+  // Pending offers (status 1) live in the receive popup; here we list the rest,
+  // newest first.
+  const transfers = snapshot.transfers
+    .filter((transfer) => transfer.status !== 1)
+    .sort((a, b) => b.createdAt - a.createdAt)
   const selectedPeerHosts = selectedPeer?.hosts.join(' / ') ?? '等待设备发现'
 
   return (
     <main className="app-shell">
+      {detail
+        ? (() => {
+            const live = transfers.find((t) => t.key === detail.transfer.key) ?? detail.transfer
+            return <TransferDetail transfer={live} x={detail.x} y={detail.y} />
+          })()
+        : null}
       {dragOver ? (
         <div className="drop-overlay" aria-hidden="true">
           <div className="drop-overlay-card">
@@ -656,7 +703,10 @@ function App() {
             <Surface>
               <section className="card transfers-card">
                 <div className="section-heading">
-                  <span>传输</span>
+                  <span>
+                    最近传输
+                    <Hint text="时间降序排列" />
+                  </span>
                   <div className="heading-actions">
                     <small>{transfers.length} 条记录</small>
                     <button
@@ -675,14 +725,27 @@ function App() {
                   <div className="transfer-list">
                     {transfers.map((transfer) => (
                       <article
-                        className={`transfer-row${transfer.error ? ' transfer-row--error' : ''}`}
+                        className={`transfer-row${transfer.error ? ' transfer-row--error' : ''}${
+                          transfer.status === 7 ? ' transfer-row--done' : ''
+                        }`}
                         key={transfer.key}
+                        onMouseEnter={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect()
+                          setDetail({ transfer, x: r.left, y: r.top })
+                        }}
+                        onMouseLeave={() => setDetail(null)}
                       >
                         <div className="row-main">
                           <strong>{transfer.fileName}</strong>
                           <span>
-                            {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)} ·{' '}
-                            {formatBytes(transfer.progress)} / {formatBytes(transfer.total)}
+                            {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)}
+                            {/* Transferred-bytes counter only while active (in-progress /
+                                paused); otherwise just the total size. */}
+                            {transfer.status === 4 || transfer.status === 9
+                              ? ` · ${formatBytes(transfer.progress)} / ${formatBytes(transfer.total)}`
+                              : transfer.total > 0
+                                ? ` · ${formatBytes(transfer.total)}`
+                                : ''}
                             {transfer.status === 4 && transfer.speedBps > 0
                               ? ` · ${formatSpeed(transfer.speedBps)}`
                               : ''}
@@ -693,9 +756,15 @@ function App() {
                             </span>
                           ) : null}
                         </div>
-                        <div className="progress-track">
-                          <span style={{ width: `${percent(transfer)}%` }} />
-                        </div>
+                        {/* Progress bar only while active (in-progress / paused); an
+                            empty spacer otherwise keeps the grid column aligned. */}
+                        {transfer.status === 4 || transfer.status === 9 ? (
+                          <div className="progress-track">
+                            <span style={{ width: `${percent(transfer)}%` }} />
+                          </div>
+                        ) : (
+                          <div className="progress-track progress-track--empty" />
+                        )}
                         <div className="row-actions">
                           {/* Awaiting accept (status=10): Cancel only.
                               In-flight (status=4): Pause + Cancel.

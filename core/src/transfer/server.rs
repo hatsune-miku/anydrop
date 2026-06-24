@@ -36,6 +36,39 @@ pub(crate) struct ActiveTransfer {
     pub item_bytes: Arc<Vec<AtomicU64>>,
     pub total_size: u64,
     pub last_activity: Mutex<Instant>,
+    /// Resolved on-disk path per item (parallel to `items`). Chosen once on
+    /// first write — if the target name already exists we pick a non-colliding
+    /// one rather than overwriting — and reused verbatim across resume.
+    pub resolved_paths: Vec<Mutex<Option<PathBuf>>>,
+}
+
+/// Pick a path that doesn't clobber an existing file. If `base` is free, use it;
+/// otherwise insert `(N)` before the extension — with NO space — until free:
+/// `report.pdf` → `report(1).pdf`, `report(2).pdf`, …; `notes` → `notes(1)`.
+fn non_colliding_path(base: &Path) -> PathBuf {
+    if !base.exists() {
+        return base.to_path_buf();
+    }
+    let parent = base.parent();
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = base.extension().map(|e| e.to_string_lossy().to_string());
+    for n in 1u32.. {
+        let name = match &ext {
+            Some(ext) => format!("{stem}({n}).{ext}"),
+            None => format!("{stem}({n})"),
+        };
+        let candidate = match parent {
+            Some(p) => p.join(&name),
+            None => PathBuf::from(&name),
+        };
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    base.to_path_buf() // unreachable in practice
 }
 
 pub(crate) type ActiveTransfersMap = Arc<Mutex<HashMap<u64, Arc<ActiveTransfer>>>>;
@@ -703,14 +736,17 @@ async fn negotiate_new_offer(
             };
             write_msg(ctrl_send, &ack).await?;
             let items = Arc::new(hello.items.clone());
-            let item_bytes: Vec<AtomicU64> =
-                (0..items.len()).map(|_| AtomicU64::new(0)).collect();
+            let count = items.len();
+            let item_bytes: Vec<AtomicU64> = (0..count).map(|_| AtomicU64::new(0)).collect();
+            let resolved_paths: Vec<Mutex<Option<PathBuf>>> =
+                (0..count).map(|_| Mutex::new(None)).collect();
             Ok(Some(Arc::new(ActiveTransfer {
                 save_root,
                 items,
                 item_bytes: Arc::new(item_bytes),
                 total_size,
                 last_activity: Mutex::new(Instant::now()),
+                resolved_paths,
             })))
         }
     }
@@ -833,7 +869,28 @@ async fn receive_one_file(
         Some(r) => r,
         None => err!(format!("unsafe rel_path: {}", item.rel_path)),
     };
-    let abs = entry.save_root.join(&rel);
+    // Resolve the on-disk path once and reuse it for resume. On a fresh start
+    // (offset 0) we avoid clobbering an existing file by picking a
+    // non-colliding name; a resume keeps whatever we chose before.
+    let abs = {
+        let mut slot = entry.resolved_paths[item_idx as usize].lock().unwrap();
+        match slot.as_ref() {
+            Some(p) => p.clone(),
+            None => {
+                let base = entry.save_root.join(&rel);
+                if let Some(parent) = base.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let chosen = if start_offset > 0 {
+                    base
+                } else {
+                    non_colliding_path(&base)
+                };
+                *slot = Some(chosen.clone());
+                chosen
+            }
+        }
+    };
     if let Some(parent) = abs.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }

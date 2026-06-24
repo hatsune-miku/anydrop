@@ -296,6 +296,27 @@ struct Transfer {
     /// side. Empty until known. Persisted across restarts.
     #[serde(default)]
     reveal_path: String,
+    /// When the transfer first appeared, epoch milliseconds. Used for sorting
+    /// (newest first) and the hover detail. Persisted.
+    #[serde(default)]
+    created_at: u64,
+    /// When bytes actually started flowing (first InProgress), epoch ms. Differs
+    /// from `created_at` by the time spent waiting for the peer to accept — the
+    /// transfer-duration calc uses this so the wait isn't counted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    started_at: Option<u64>,
+    /// When the transfer reached a terminal state, epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    completed_at: Option<u64>,
+}
+
+/// Current wall-clock time in epoch milliseconds (0 if the clock is before the
+/// epoch, which never happens in practice).
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 #[derive(Clone, SerdeSerialize)]
@@ -470,6 +491,9 @@ fn apply_progress(
             top_level_name(&p.rel_path)
         },
         reveal_path: String::new(),
+        created_at: now_ms(),
+        started_at: None,
+        completed_at: None,
     });
     // Compute smoothed instantaneous speed before we overwrite progress. EWMA
     // with α=0.3 — enough new-sample weight to react to real changes, enough
@@ -504,6 +528,15 @@ fn apply_progress(
         entry.total = p.total_size;
     }
     entry.status = transfer_status_to_u8(p.status);
+    // Stamp the start time the first time bytes actually flow (status becomes
+    // in-progress) — this excludes the wait for the peer to accept.
+    if entry.status == 4 && entry.started_at.is_none() {
+        entry.started_at = Some(now_ms());
+    }
+    // Stamp the completion time the first time we hit a terminal state.
+    if is_terminal_status(entry.status) && entry.completed_at.is_none() {
+        entry.completed_at = Some(now_ms());
+    }
     // Zero the speed at terminal states so the UI doesn't keep showing the
     // last instant rate after completion.
     if matches!(p.status, TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected)
@@ -1378,6 +1411,9 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             speed_last_bytes: 0,
             top_level,
             reveal_path: String::new(), // set on accept once save_root is known
+            created_at: now_ms(),
+            started_at: None,
+            completed_at: None,
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         save_transfers(&offer_transfers.lock().unwrap());
@@ -1721,6 +1757,9 @@ fn send_paths(
             speed_last_bytes: 0,
             top_level,
             reveal_path,
+            created_at: now_ms(),
+            started_at: None,
+            completed_at: None,
         });
     }
 
@@ -2217,6 +2256,7 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     {
         Ok(window) => {
             position_bottom_right(&window);
+            make_no_activate(&window);
             Some(window)
         }
         Err(err) => {
@@ -2225,6 +2265,27 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
         }
     }
 }
+
+/// Mark the popup as a no-activate window so clicking its buttons (e.g. "已读")
+/// never steals foreground activation. Without this, hiding the popup after the
+/// last item is dismissed hands activation to the next app window — spuriously
+/// raising the main window. Windows-only; harmless no-op elsewhere.
+#[cfg(windows)]
+fn make_no_activate(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+    if let Ok(handle) = window.hwnd() {
+        let hwnd = handle.0;
+        unsafe {
+            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE as isize));
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn make_no_activate(_window: &tauri::WebviewWindow) {}
 
 /// Build the receive popup hidden ahead of time (at startup, on the main
 /// thread) so the first offer / clipboard receipt appears instantly and never

@@ -45,6 +45,12 @@ export type Transfer = {
   error?: string
   /** Smoothed transfer rate in bytes/sec; 0 at start/terminal. */
   speedBps: number
+  /** When the transfer first appeared, epoch ms (for sorting + hover detail). */
+  createdAt: number
+  /** When bytes actually started flowing, epoch ms (excludes the accept wait). */
+  startedAt?: number
+  /** When it reached a terminal state, epoch ms (absent while in flight). */
+  completedAt?: number
 }
 
 export type Snapshot = {
@@ -99,15 +105,15 @@ export function transferStatus(status: number): string {
     case 6:
       return '错误'
     case 7:
-      return '完成'
+      return '已完成'
     case 8:
       return '错误'
     case 9:
-      return '已暂停'
+      return '暂停中'
     case 10:
       return '等待对方接受'
     default:
-      return '未知'
+      return `未知 (${status})`
   }
 }
 
@@ -141,6 +147,29 @@ export function percent(transfer: Transfer): number {
 
 export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** Epoch ms → `yyyy/MM/dd HH:mm:ss` (local time). Empty for falsy input. */
+export function formatDateTime(ms?: number): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+/** Duration in ms → `1h 2m 3s` (drops leading zero units; always shows secs). */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const total = Math.round(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const parts: string[] = []
+  if (h > 0) parts.push(`${h}h`)
+  if (h > 0 || m > 0) parts.push(`${m}m`)
+  parts.push(`${s}s`)
+  return parts.join(' ')
 }
 
 /**

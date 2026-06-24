@@ -586,6 +586,52 @@ textarea:focus,
   background: var(--accent-blue);
 }
 
+/* Completed rows: keep the grid column but show no bar. */
+.progress-track--empty {
+  background: transparent;
+}
+
+/* Hover detail tooltip for a transfer row (portaled to body, positioned fixed
+   over the row, rendered above it). */
+.row-tooltip {
+  position: fixed;
+  z-index: 9999;
+  transform: translateY(calc(-100% - 8px));
+  display: grid;
+  gap: 3px;
+  width: max-content;
+  max-width: 340px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  /* Themed: opaque surface + theme text colors (light in light mode). */
+  background: var(--bubble-base);
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  box-shadow: 0 6px 20px rgba(31, 41, 51, 0.18);
+}
+
+.row-tooltip-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+}
+
+.row-tooltip-line span {
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.row-tooltip-line b {
+  justify-self: end;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-all;
+  color: var(--text);
+}
+
 .settings-pane .card {
   gap: 0;
 }
@@ -651,6 +697,18 @@ textarea:focus,
   cursor: help;
   vertical-align: middle;
   outline: none;
+}
+
+/* In a section heading the badge sits next to bold 13px text — make it
+   smaller and lighter so it reads as a subtle hint, not a heavy chip. */
+.section-heading .field-hint {
+  width: 14px;
+  height: 14px;
+  background: rgba(97, 112, 131, 0.16);
+  color: var(--text-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: baseline;
 }
 
 .field-hint:hover {
