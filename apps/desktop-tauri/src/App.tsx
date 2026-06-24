@@ -139,17 +139,19 @@ function TransferDetail({ transfer, x, y }: { transfer: Transfer; x: number; y: 
           )}
         </div>
       ) : null}
-      <Line k="文件名" v={transfer.fileName || '—'} />
-      <Line k="大小" v={transfer.total > 0 ? formatBytes(transfer.total) : '—'} />
-      <Line k="状态" v={transferStatus(transfer.status)} />
-      <Line k="类型" v={incoming ? '接收' : '发送'} />
-      <Line k={incoming ? '来自' : '发往'} v={transfer.peer || transfer.host || '—'} />
-      <Line k="发起时间" v={formatDateTime(transfer.createdAt) || '—'} />
-      <Line k="开始时间" v={transfer.startedAt ? formatDateTime(transfer.startedAt) : '—'} />
-      <Line k="完成时间" v={done ? formatDateTime(transfer.completedAt) : '—'} />
-      <Line k="传输用时" v={timed ? formatDuration(durMs) : '—'} />
-      <Line k="平均速度" v={avg} />
-      <Line k={incoming ? '保存位置' : '来源位置'} v={transfer.localPath || '—'} />
+      <div className="row-tooltip-info">
+        <Line k="文件名" v={transfer.fileName || '—'} />
+        <Line k="大小" v={transfer.total > 0 ? formatBytes(transfer.total) : '—'} />
+        <Line k="状态" v={transferStatus(transfer.status)} />
+        <Line k="类型" v={incoming ? '接收' : '发送'} />
+        <Line k={incoming ? '来自' : '发往'} v={transfer.peer || transfer.host || '—'} />
+        <Line k="发起时间" v={formatDateTime(transfer.createdAt) || '—'} />
+        <Line k="开始时间" v={transfer.startedAt ? formatDateTime(transfer.startedAt) : '—'} />
+        <Line k="完成时间" v={done ? formatDateTime(transfer.completedAt) : '—'} />
+        <Line k="传输用时" v={timed ? formatDuration(durMs) : '—'} />
+        <Line k="平均速度" v={avg} />
+        <Line k={incoming ? '保存位置' : '来源位置'} v={transfer.localPath || '—'} />
+      </div>
     </div>,
     document.body
   )

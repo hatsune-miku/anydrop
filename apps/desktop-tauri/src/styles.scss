@@ -597,10 +597,12 @@ textarea:focus,
   position: fixed;
   z-index: 9999;
   transform: translateY(calc(-100% - 8px));
-  display: grid;
-  gap: 3px;
+  /* Media (left) + info (right), side by side. */
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
   width: max-content;
-  max-width: 340px;
+  max-width: 460px;
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -616,9 +618,9 @@ textarea:focus,
 /* Inline media preview inside the hover tooltip: a square, transparent box
    with the media contained (letterboxed). */
 .row-tooltip-media {
-  width: 200px;
-  height: 200px;
-  margin-bottom: 4px;
+  width: 180px;
+  height: 180px;
+  flex: 0 0 auto;
   background: transparent;
 
   img,
@@ -627,6 +629,13 @@ textarea:focus,
     height: 100%;
     object-fit: contain;
   }
+}
+
+/* Right column: the key/value lines. */
+.row-tooltip-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .row-tooltip-line {

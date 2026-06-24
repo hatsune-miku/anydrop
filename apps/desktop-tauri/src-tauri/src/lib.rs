@@ -2128,7 +2128,7 @@ fn set_peer_remark(
 }
 
 #[tauri::command]
-fn preview_file(
+async fn preview_file(
     app: AppHandle,
     backend: State<'_, Backend>,
     transfer_key: String,
@@ -2385,38 +2385,36 @@ fn preview_kind(path: &str) -> &'static str {
 /// Create or reuse the Quick-Look style preview window and point it at `path`.
 /// All window ops run on the main thread (this is called from a command worker
 /// thread; off-UI-thread window calls can crash on Windows).
+/// Create or reuse the preview window. MUST be called from a worker thread (the
+/// `preview_file` command is async), NOT from inside an event-loop callback:
+/// `WebviewWindowBuilder::build()` dispatches to the event loop and blocks for
+/// the result, so calling it from within `run_on_main_thread` re-enters the
+/// loop and deadlocks the whole app. From a worker thread it's safe.
 fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> Result<(), String> {
     let payload = serde_json::json!({ "path": path, "kind": kind, "name": name });
     if let Some(backend) = app.try_state::<Backend>() {
         *backend.preview_payload.lock().unwrap() = Some(payload.clone());
     }
-    let app_main = app.clone();
-    let title = name.to_string();
-    app.run_on_main_thread(move || {
-        if let Some(window) = app_main.get_webview_window(PREVIEW_WINDOW_LABEL) {
-            let _ = window.emit("preview-load", &payload);
-            let _ = window.set_title(&title);
-            let _ = window.show();
-            let _ = window.unminimize();
-            let _ = window.set_focus();
-            return;
-        }
-        if let Err(err) = WebviewWindowBuilder::new(
-            &app_main,
-            PREVIEW_WINDOW_LABEL,
-            WebviewUrl::App("index.html?window=preview".into()),
-        )
-        .title(&title)
-        .inner_size(760.0, 580.0)
-        .min_inner_size(360.0, 280.0)
-        .decorations(false)
-        .center()
-        .build()
-        {
-            eprintln!("preview window build failed: {err}");
-        }
-    })
-    .map_err(|err| err.to_string())?;
+    if let Some(window) = app.get_webview_window(PREVIEW_WINDOW_LABEL) {
+        let _ = window.emit("preview-load", &payload);
+        let _ = window.set_title(name);
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    WebviewWindowBuilder::new(
+        app,
+        PREVIEW_WINDOW_LABEL,
+        WebviewUrl::App("index.html?window=preview".into()),
+    )
+    .title(name)
+    .inner_size(760.0, 580.0)
+    .min_inner_size(360.0, 280.0)
+    .decorations(false)
+    .center()
+    .build()
+    .map_err(|err| format!("preview window build failed: {err}"))?;
     Ok(())
 }
 
