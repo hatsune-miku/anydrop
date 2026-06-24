@@ -86,6 +86,56 @@ fn save_peer_remarks_file(remarks: &HashMap<String, String>) -> Result<(), Strin
     fs::write(path, raw).map_err(|err| err.to_string())
 }
 
+fn transfers_path() -> Result<PathBuf, String> {
+    let base = config_base();
+    fs::create_dir_all(&base).map_err(|err| err.to_string())?;
+    Ok(base.join("transfers.json"))
+}
+
+/// A transfer status that won't change on its own (no live session driving it).
+fn is_terminal_status(status: u8) -> bool {
+    matches!(status, 2 | 5 | 6 | 7 | 8)
+}
+
+/// Persist the transfer records (history) so they survive restarts. Best-effort.
+fn save_transfers(transfers: &HashMap<String, Transfer>) {
+    let Ok(path) = transfers_path() else {
+        return;
+    };
+    let list: Vec<&Transfer> = transfers.values().collect();
+    if let Ok(raw) = serde_json::to_string(&list) {
+        let _ = fs::write(path, raw);
+    }
+}
+
+/// Load persisted transfer records. In-flight/pending records can't survive a
+/// restart (the QUIC session is gone), so pending offers are dropped and any
+/// non-terminal record is marked interrupted.
+fn load_transfers() -> HashMap<String, Transfer> {
+    let mut map = HashMap::new();
+    let Ok(path) = transfers_path() else {
+        return map;
+    };
+    let Ok(raw) = fs::read_to_string(path) else {
+        return map;
+    };
+    let Ok(list) = serde_json::from_str::<Vec<Transfer>>(&raw) else {
+        return map;
+    };
+    for mut t in list {
+        if t.status == 1 {
+            continue; // a pending offer is meaningless after restart
+        }
+        if !is_terminal_status(t.status) {
+            t.status = 6; // in-progress / paused → interrupted by restart
+            t.error = Some("应用重启，传输中断".to_string());
+            t.speed_bps = 0.0;
+        }
+        map.insert(t.key.clone(), t);
+    }
+    map
+}
+
 fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     if settings.discovery_port == 0 {
         settings.discovery_port = DEFAULT_DISCOVERY_PORT;
@@ -205,7 +255,7 @@ struct PeerGroup {
     remark: Option<String>,
 }
 
-#[derive(Clone, SerdeSerialize)]
+#[derive(Clone, Deserialize, SerdeSerialize)]
 #[serde(rename_all = "camelCase")]
 struct Transfer {
     key: String,
@@ -223,11 +273,12 @@ struct Transfer {
     /// receive task fails (invalid filename, disk full, permission denied,
     /// …) or when the peer aborts. Cleared only on a fresh Transfer entry —
     /// once we've shown an error, we keep showing it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     /// Smoothed instantaneous transfer rate in bytes per second. EWMA-blended
     /// across progress events so the UI shows a stable number instead of
     /// jittery per-chunk samples. Reset to 0 at terminal states.
+    #[serde(default)]
     speed_bps: f64,
     /// Bookkeeping for the EWMA computation — not serialized.
     #[serde(skip)]
@@ -237,13 +288,13 @@ struct Transfer {
     /// Top-level entry name of the transfer (the first path segment of the
     /// first item). For a single-file send this is the file name; for a folder
     /// send it's the folder name. Used to compute `reveal_path` once a save
-    /// root is known. Backend bookkeeping only.
-    #[serde(skip)]
+    /// root is known. Persisted so reveal/preview keep working after a restart.
+    #[serde(default)]
     top_level: String,
     /// Absolute path to reveal/select in the file manager and to preview:
     /// `save_root/top_level` on the receive side, the source path on the send
-    /// side. Empty until known. Backend-only (never sent to the webview).
-    #[serde(skip)]
+    /// side. Empty until known. Persisted across restarts.
+    #[serde(default)]
     reveal_path: String,
 }
 
@@ -471,6 +522,7 @@ impl Backend {
         Self {
             settings: Mutex::new(settings),
             peer_remarks: Arc::new(Mutex::new(load_peer_remarks())),
+            transfers: Arc::new(Mutex::new(load_transfers())),
             ..Self::default()
         }
     }
@@ -567,6 +619,13 @@ impl Backend {
         let mut transfers = transfers.values().cloned().collect::<Vec<_>>();
         transfers.sort_by(|a, b| a.key.cmp(&b.key));
         transfers
+    }
+
+    /// Persist the current transfer records to disk (history survives restart).
+    fn persist_transfers(&self) {
+        if let Ok(map) = self.transfers.lock() {
+            save_transfers(&map);
+        }
     }
 }
 
@@ -1319,6 +1378,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             reveal_path: String::new(), // set on accept once save_root is known
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
+        save_transfers(&offer_transfers.lock().unwrap());
         let _ = offer_app.emit("incoming-file", t);
         // Surface the offer natively: bottom-right popup + dock bounce / taskbar
         // flash + a system notification banner. Skipped while a fullscreen game
@@ -1375,6 +1435,8 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         // from `transfer-updated` directly, so the UI stays current
         // regardless.
         if should_log {
+            // Terminal / error states change the persistent history — save it.
+            save_transfers(&prog_transfers.lock().unwrap());
             emit_snapshot(&prog_app);
         }
     };
@@ -1660,6 +1722,7 @@ fn send_paths(
         });
     }
 
+    backend.persist_transfers();
     backend.set_status(format!("Sending {} item(s) via QUIC", paths.len()));
     emit_snapshot(&app);
     Ok(backend.snapshot())
@@ -1716,6 +1779,7 @@ fn accept_transfer(
         t.reveal_path = reveal.to_string_lossy().to_string();
     }
     handle.respond(transfer_id, Decision::Accept { save_root });
+    backend.persist_transfers();
     emit_snapshot(&app);
     Ok(backend.snapshot())
 }
@@ -1741,6 +1805,7 @@ fn reject_transfer(
         },
     );
     backend.transfers.lock().unwrap().remove(&transfer_key);
+    backend.persist_transfers();
     emit_snapshot(&app);
     Ok(backend.snapshot())
 }
@@ -1882,6 +1947,21 @@ fn copy_text(backend: State<'_, Backend>, text: String) -> Result<(), String> {
 #[tauri::command]
 fn dismiss_transfer(app: AppHandle, backend: State<'_, Backend>, transfer_key: String) -> Snapshot {
     backend.transfers.lock().unwrap().remove(&transfer_key);
+    backend.persist_transfers();
+    emit_snapshot(&app);
+    backend.snapshot()
+}
+
+/// Clear all transfer records that aren't currently active (keep in-flight /
+/// paused / pending so a running transfer isn't wiped from under the user).
+#[tauri::command]
+fn clear_transfers(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
+    backend
+        .transfers
+        .lock()
+        .unwrap()
+        .retain(|_, t| matches!(t.status, 1 | 4 | 9));
+    backend.persist_transfers();
     emit_snapshot(&app);
     backend.snapshot()
 }
@@ -1925,6 +2005,58 @@ fn open_directory(path: String) -> Result<(), String> {
     let _ = fs::create_dir_all(&path);
     open::that(&path).map_err(|err| err.to_string())
 }
+
+/// Show the native window system menu (Restore/Move/Size/Minimize/Maximize/
+/// Close) at the cursor — the right-click menu a real titlebar would have.
+/// Our window is frameless, so we surface it ourselves via Win32. Windows-only.
+#[cfg(windows)]
+#[tauri::command]
+fn show_window_menu(app: AppHandle) {
+    let app_main = app.clone();
+    // Must run on the UI thread; TrackPopupMenu is modal and pumps messages.
+    let _ = app.run_on_main_thread(move || {
+        use windows_sys::Win32::Foundation::{HWND, POINT};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetCursorPos, GetSystemMenu, PostMessageW, TrackPopupMenu, TPM_RETURNCMD,
+            TPM_RIGHTBUTTON, WM_SYSCOMMAND,
+        };
+        let Some(window) = app_main.get_webview_window("main") else {
+            return;
+        };
+        let Ok(handle) = window.hwnd() else {
+            return;
+        };
+        let hwnd: HWND = handle.0;
+        unsafe {
+            let menu = GetSystemMenu(hwnd, 0);
+            if menu.is_null() {
+                return;
+            }
+            let mut pt = POINT { x: 0, y: 0 };
+            if GetCursorPos(&mut pt) == 0 {
+                return;
+            }
+            // TPM_RETURNCMD: return the chosen command instead of posting it,
+            // so we can forward it as WM_SYSCOMMAND ourselves.
+            let cmd = TrackPopupMenu(
+                menu,
+                TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                pt.x,
+                pt.y,
+                0,
+                hwnd,
+                std::ptr::null(),
+            );
+            if cmd != 0 {
+                PostMessageW(hwnd, WM_SYSCOMMAND, cmd as usize, 0);
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn show_window_menu() {}
 
 #[tauri::command]
 fn set_peer_remark(
@@ -2319,7 +2451,9 @@ pub fn run() {
             preview_file,
             get_preview_payload,
             copy_text,
-            open_directory
+            open_directory,
+            clear_transfers,
+            show_window_menu
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

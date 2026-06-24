@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import {
+  ChevronDown,
+  ChevronUp,
   Clipboard,
   Eye,
   FolderOpen,
@@ -19,10 +21,15 @@ import {
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
 import {
+  type PeerGroup,
+  type SettingsModel,
+  type Snapshot,
+  type Transfer,
   emptySnapshot,
   fallbackSettings,
   formatBytes,
@@ -31,9 +38,6 @@ import {
   percent,
   previewKind,
   transferStatus,
-  type SettingsModel,
-  type Snapshot,
-  type Transfer,
 } from './types'
 
 // Detect macOS once at module level. On macOS we rely on the native window
@@ -82,14 +86,22 @@ function Hint({ text }: { text: string }) {
   )
 }
 
+/**
+ * Genshin-style hotkey indicator: keycap chips overlaid (absolute) on the
+ * top-right corner of a bounded host element. The host must be positioned
+ * (`position: relative`). PURELY a visual label — it does NOT listen for keys.
+ */
+function HotkeyBadge({ label }: { label: string }) {
+  return (
+    <span className="hotkey-badge" aria-hidden="true">
+      <kbd className="hotkey-key">{label}</kbd>
+    </span>
+  )
+}
+
 /** Cross-platform basename for display (handles both `/` and `\` separators). */
 function baseName(path: string): string {
-  return (
-    path
-      .split(/[\\/]/)
-      .filter(Boolean)
-      .pop() ?? path
-  )
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
 /** A pending send awaiting user confirmation in the send-confirm dialog. */
@@ -109,7 +121,11 @@ function App() {
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null)
   const [editingRemark, setEditingRemark] = useState<string | null>(null)
   const [remarkDraft, setRemarkDraft] = useState('')
+  const [logsCollapsed, setLogsCollapsed] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
   const logListRef = useRef<HTMLDivElement>(null)
+  // Latest selected peer, read inside the drag-drop handler without re-subscribing.
+  const selectedPeerRef = useRef<PeerGroup | undefined>(undefined)
 
   const systemDark =
     typeof window !== 'undefined' ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false) : false
@@ -183,9 +199,7 @@ function App() {
               fileName: updated.fileName || prevRow.fileName,
             }
           } else {
-            nextTransfers = [...prev.transfers, updated].sort((a, b) =>
-              a.key.localeCompare(b.key)
-            )
+            nextTransfers = [...prev.transfers, updated].sort((a, b) => a.key.localeCompare(b.key))
           }
           return { ...prev, transfers: nextTransfers }
         })
@@ -216,6 +230,36 @@ function App() {
     () => snapshot.peers.find((peer) => peer.name === selectedPeerName),
     [selectedPeerName, snapshot.peers]
   )
+  selectedPeerRef.current = selectedPeer
+
+  // Drag-and-drop upload: dropping file(s)/folder(s) onto the window stages
+  // them in the send-confirm dialog (same path as the pick buttons; the backend
+  // walks files + folders alike). Subscribed once; reads the current peer via a
+  // ref so we don't re-subscribe on every selection change.
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      const payload = event.payload
+      if (payload.type === 'enter' || payload.type === 'over') {
+        setDragOver(true)
+      } else if (payload.type === 'leave') {
+        setDragOver(false)
+      } else if (payload.type === 'drop') {
+        setDragOver(false)
+        const paths = payload.paths ?? []
+        if (paths.length === 0) return
+        const peer = selectedPeerRef.current
+        if (!peer) {
+          setNotice('请先在左侧选择一个设备，再拖入文件')
+          return
+        }
+        setPendingSend({ hosts: peer.hosts, peerLabel: peer.remark ?? peer.label, paths })
+      }
+    })
+    return () => {
+      void unlisten.then((u) => u())
+    }
+  }, [])
 
   async function runCommand<T>(command: string, args?: Record<string, unknown>) {
     if (!isTauriRuntime()) {
@@ -372,6 +416,16 @@ function App() {
 
   return (
     <main className="app-shell">
+      {dragOver ? (
+        <div className="drop-overlay" aria-hidden="true">
+          <div className="drop-overlay-card">
+            <Upload size={28} />
+            <strong>
+              {selectedPeer ? `拖放以发送到 ${selectedPeer.remark ?? selectedPeer.label}` : '请先选择左侧设备'}
+            </strong>
+          </div>
+        </div>
+      ) : null}
       {isMac ? (
         // macOS: fullSizeContentView via titleBarStyle=Overlay.  Native traffic
         // lights float over the top-left of the webview; we just need a thin
@@ -387,6 +441,12 @@ function App() {
           className="window-titlebar"
           data-tauri-drag-region
           onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+          onContextMenu={(e) => {
+            // Surface the native window system menu (frameless windows have none
+            // by default). The global contextmenu suppressor blocks the web menu.
+            e.preventDefault()
+            if (isTauriRuntime()) void invoke('show_window_menu')
+          }}
         >
           <div className="window-title" data-tauri-drag-region>
             AnyDrop
@@ -543,7 +603,7 @@ function App() {
             </section>
           </Surface>
 
-          <div className="main-stack main-stack--with-log">
+          <div className={`main-stack main-stack--with-log${logsCollapsed ? ' main-stack--log-collapsed' : ''}`}>
             <Surface>
               <section className="card send-card">
                 <div className="target-row">
@@ -575,13 +635,16 @@ function App() {
                     选择文件夹
                   </button>
                   <button
-                    className="button"
+                    className="button hotkey-host"
                     type="button"
                     disabled={!snapshot.running || busy}
                     onClick={() => void runCommand<Snapshot>('send_clipboard_now')}
                   >
                     <Clipboard size={16} />
                     发送剪贴板
+                    <HotkeyBadge
+                      label={`${isMac ? '⌘' : 'Ctrl'}+C${snapshot.settings.sendOnlyOnDoubleCopy ? '+C' : ''}`}
+                    />
                   </button>
                 </div>
               </section>
@@ -591,7 +654,17 @@ function App() {
               <section className="card transfers-card">
                 <div className="section-heading">
                   <span>传输</span>
-                  <small>{transfers.length} 条记录</small>
+                  <div className="heading-actions">
+                    <small>{transfers.length} 条记录</small>
+                    <button
+                      className="button quiet"
+                      type="button"
+                      style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
+                      onClick={() => void runCommand<Snapshot>('clear_transfers')}
+                    >
+                      清空
+                    </button>
+                  </div>
                 </div>
                 {transfers.length === 0 ? (
                   <p className="empty">暂无传输记录。</p>
@@ -740,26 +813,41 @@ function App() {
               <section className="card log-card">
                 <div className="section-heading">
                   <span>日志</span>
-                  <button
-                    className="button quiet"
-                    type="button"
-                    style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
-                    onClick={() => void runCommand<Snapshot>('clear_logs')}
-                  >
-                    清空
-                  </button>
+                  <div className="heading-actions">
+                    {!logsCollapsed ? (
+                      <button
+                        className="button quiet"
+                        type="button"
+                        style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
+                        onClick={() => void runCommand<Snapshot>('clear_logs')}
+                      >
+                        清空
+                      </button>
+                    ) : null}
+                    <button
+                      className="icon-button icon-button--ghost"
+                      type="button"
+                      aria-label={logsCollapsed ? '展开日志' : '收起日志'}
+                      title={logsCollapsed ? '展开' : '收起'}
+                      onClick={() => setLogsCollapsed((v) => !v)}
+                    >
+                      {logsCollapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                    </button>
+                  </div>
                 </div>
-                <div className="log-list" ref={logListRef}>
-                  {snapshot.logs.length === 0 ? (
-                    <p className="empty">暂无日志。</p>
-                  ) : (
-                    snapshot.logs.map((entry, i) => (
-                      <div className="log-entry" key={i}>
-                        {entry}
-                      </div>
-                    ))
-                  )}
-                </div>
+                {!logsCollapsed ? (
+                  <div className="log-list" ref={logListRef}>
+                    {snapshot.logs.length === 0 ? (
+                      <p className="empty">暂无日志。</p>
+                    ) : (
+                      snapshot.logs.map((entry, i) => (
+                        <div className="log-entry" key={i}>
+                          {entry}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : null}
               </section>
             </Surface>
           </div>
@@ -874,7 +962,7 @@ function App() {
                   <label className="field">
                     <span>
                       频段
-                      <Hint text="只有频段相同才能互相发现" />
+                      <Hint text="只有频段相同，才能互相发现" />
                     </span>
                     <input
                       className="band-input"

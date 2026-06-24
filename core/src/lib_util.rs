@@ -11,7 +11,7 @@ use crate::service::context::data_service_context::DataServiceContext;
 use crate::service::data_service::DataService;
 use crate::service::discovery_service::DiscoveryService;
 use crate::service::ShouldInterruptFunctionType;
-use log::{error, info, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
@@ -47,7 +47,7 @@ pub fn shared_anydrop_broadcast_text(
             let thread_config = config.clone();
             let thread_text_serialized = text_serialized.clone();
             std::thread::spawn(move || {
-                info!(
+                debug!(
                     "lib: Sending text to (addr={}:{})",
                     thread_peer.host(),
                     thread_config.data_service_listen_port
@@ -91,7 +91,7 @@ pub fn shared_anydrop_broadcast_image(
             let thread_config = config.clone();
             let thread_serialized = serialized.clone();
             std::thread::spawn(move || {
-                info!(
+                debug!(
                     "lib: Sending image to (addr={}:{}, {} bytes)",
                     thread_peer.host(),
                     thread_config.data_service_listen_port,
@@ -132,13 +132,34 @@ pub fn shared_anydrop_data_service(
 }
 
 pub fn shared_anydrop_init() {
+    // Logging policy:
+    //   * NEVER default to Trace/Debug — those drown the console in per-packet
+    //     (`mdns_sd`) and per-poll (`polling`) spam and churn strings hot.
+    //   * Debug builds: Info. Release builds: Error (production stays quiet).
+    //   * `RUST_LOG=<level>` overrides the root level for ad-hoc debugging.
+    //   * The chronically noisy dependencies are pinned to Warn regardless, so
+    //     even bumping the root level can't unleash their flood.
+    //   * Console (stdout) only — we never write logs to disk.
+    let default_root = if cfg!(debug_assertions) {
+        LevelFilter::Info
+    } else {
+        LevelFilter::Error
+    };
+    let root_level = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|v| v.trim().parse::<LevelFilter>().ok())
+        .unwrap_or(default_root);
+
     if let Ok(logger_config) = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(ConsoleAppender::builder().build())))
-        .logger(Logger::builder().build("libanydrop", LevelFilter::Trace))
-        .build(Root::builder().appender("stdout").build(LevelFilter::Trace))
+        .logger(Logger::builder().build("mdns_sd", LevelFilter::Warn))
+        .logger(Logger::builder().build("polling", LevelFilter::Warn))
+        .logger(Logger::builder().build("mio", LevelFilter::Warn))
+        .logger(Logger::builder().build("quinn", LevelFilter::Warn))
+        .logger(Logger::builder().build("quinn_proto", LevelFilter::Warn))
+        .build(Root::builder().appender("stdout").build(root_level))
     {
         let _ = log4rs::init_config(logger_config);
-        info!("lib: Initialized.");
     }
 }
 

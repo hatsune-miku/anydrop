@@ -2,7 +2,7 @@ use crate::extension::ip_to_u32::ConvertIpU32;
 use crate::network::peer::Peer;
 use crate::proto::discovery_packet::DiscoveryPacket;
 use crate::service::ShouldInterruptFunctionType;
-use log::{error, info};
+use log::{debug, error, info};
 use protobuf::Message;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -52,7 +52,10 @@ pub fn broadcast_addresses_for_local_addresses(
     broadcast_addresses.insert(Ipv4Addr::BROADCAST);
 
     for local_addr in local_addresses {
-        if local_addr.is_loopback() || local_addr.is_unspecified() {
+        // Skip loopback, unspecified, and link-local (169.254.0.0/16, APIPA):
+        // link-local addresses are auto-assigned on disconnected / virtual
+        // adapters with no real route, so broadcasting to them always fails.
+        if local_addr.is_loopback() || local_addr.is_unspecified() || local_addr.is_link_local() {
             continue;
         }
 
@@ -147,7 +150,7 @@ impl DiscoveryService {
 
         if packet.group_identifier() != group_identifier {
             // Group identity mismatch.
-            info!(
+            debug!(
                 "Dropped packet from different group (mine={}, theirs={}).",
                 group_identifier,
                 packet.group_identifier()
@@ -155,7 +158,7 @@ impl DiscoveryService {
             return Err("Group identity mismatch".into());
         }
 
-        info!(
+        debug!(
             "Received discovery packet from {} - {}",
             packet.host_name(),
             sender_address
@@ -168,7 +171,7 @@ impl DiscoveryService {
             // our virtual-adapter IPs.  One response is enough: the receiver
             // learns our reachable IP from the UDP source of this response,
             // exactly as we do on our end.
-            info!("Responding to discovery request from {}", sender_address);
+            debug!("Responding to discovery request from {}", sender_address);
             let mut response_packet = DiscoveryPacket::new();
             response_packet.set_address(0); // see broadcast_discovery_request
             response_packet.set_server_port(packet.server_port());
@@ -183,7 +186,7 @@ impl DiscoveryService {
                 SocketAddrV4::new(sender_address_ipv4, packet.server_port() as u16),
             ) {
                 Ok(_) => {
-                    info!("Sent response to {}", sender_address);
+                    debug!("Sent response to {}", sender_address);
                 }
                 Err(e) => {
                     error!("Failed to send response: {}", e);
@@ -192,7 +195,7 @@ impl DiscoveryService {
             }
         }
 
-        info!("Adding peer {} to peer set.", sender_address);
+        debug!("Adding peer {} to peer set.", sender_address);
         if let Ok(mut locked) = peers.lock() {
             locked.insert(
                 Peer::from(
@@ -202,7 +205,7 @@ impl DiscoveryService {
                 )
                 .with_device_id(packet.device_id()),
             );
-            info!("Added peer {} to peer set.", sender_address);
+            debug!("Added peer {} to peer set.", sender_address);
         }
 
         if let Some(last_seen_arc) = last_seen {
@@ -301,9 +304,11 @@ impl DiscoveryService {
                 SocketAddrV4::new(*broadcast_addr_ipv4, server_port),
             );
             if result.is_ok() {
-                info!("Broadcast discovery to {}", broadcast_addr_ipv4);
+                debug!("Broadcast discovery to {}", broadcast_addr_ipv4);
             } else {
-                error!("Failed to broadcast to {}", broadcast_addr_ipv4);
+                // Best-effort: a single dead/unroutable broadcast address among
+                // many is normal (disconnected adapters, etc.), not an error.
+                debug!("Failed to broadcast to {}", broadcast_addr_ipv4);
             }
         }
         Ok(())

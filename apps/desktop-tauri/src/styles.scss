@@ -247,6 +247,74 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
 }
 
+/* Log collapsed: it shrinks to just its header, transfers take the space. */
+.main-stack--log-collapsed {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+/* Groups the trailing controls in a section heading (count + clear/collapse). */
+.heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Genshin-style hotkey indicator overlaid on a bounded host. */
+.hotkey-host {
+  position: relative;
+  overflow: visible;
+}
+
+.hotkey-badge {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  /* Centered horizontally; sits straddling the host's bottom edge. */
+  transform: translate(-50%, -35%);
+  display: inline-flex;
+  pointer-events: none;
+}
+
+.hotkey-key {
+  display: inline-grid;
+  min-width: 15px;
+  height: 16px;
+  padding: 0 3px;
+  place-items: center;
+  border: 1px solid rgba(31, 41, 51, 0.28);
+  border-radius: 4px;
+  background: #fbfdff;
+  color: #1f2933;
+  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Drag-and-drop upload overlay. */
+.drop-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(81, 131, 178, 0.18);
+  backdrop-filter: blur(1px);
+}
+
+.drop-overlay-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 22px 30px;
+  border: 2px dashed var(--accent-blue);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--accent-blue);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .two-column {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -711,17 +779,28 @@ textarea:focus,
   font-weight: 400;
   transition:
     background 120ms ease,
-    border-color 120ms ease;
+    border-color 120ms ease,
+    transform 80ms ease;
 }
 
 .button {
   padding: 0 12px;
 }
 
-.button:hover,
-.icon-button:hover {
+.button:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
   border-color: var(--line-strong);
   background: var(--control-hover);
+  box-shadow: 0 1px 2px rgba(31, 41, 51, 0.08);
+}
+
+/* Pressed feedback. */
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  border-color: var(--line-strong);
+  background: rgba(81, 131, 178, 0.18);
+  box-shadow: none;
+  transform: translateY(1px);
 }
 
 .button.primary {
@@ -759,10 +838,16 @@ textarea:focus,
   color: var(--text-subtle);
 }
 
-.icon-button--ghost:hover {
+.icon-button--ghost:hover:not(:disabled) {
   border-color: transparent;
   background: rgba(81, 131, 178, 0.1);
   color: var(--text);
+  box-shadow: none;
+}
+
+.icon-button--ghost:active:not(:disabled) {
+  border-color: transparent;
+  background: rgba(81, 131, 178, 0.2);
 }
 
 .full-width {
@@ -977,9 +1062,7 @@ textarea:focus,
 .popup-card--clip {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  background:
-    linear-gradient(rgba(170, 212, 248, 0.3), rgba(170, 212, 248, 0.3)),
-    var(--bubble-base);
+  background: linear-gradient(rgba(170, 212, 248, 0.3), rgba(170, 212, 248, 0.3)), var(--bubble-base);
 }
 
 .popup-card-actions {
@@ -995,15 +1078,11 @@ textarea:focus,
 }
 
 .popup-card--offer {
-  background:
-    linear-gradient(rgba(241, 167, 181, 0.32), rgba(241, 167, 181, 0.32)),
-    var(--bubble-base);
+  background: linear-gradient(rgba(241, 167, 181, 0.32), rgba(241, 167, 181, 0.32)), var(--bubble-base);
 }
 
 .popup-card--error {
-  background:
-    linear-gradient(rgba(213, 82, 118, 0.22), rgba(213, 82, 118, 0.22)),
-    var(--bubble-base);
+  background: linear-gradient(rgba(213, 82, 118, 0.22), rgba(213, 82, 118, 0.22)), var(--bubble-base);
 
   .progress-track span {
     background: var(--accent-pink);
