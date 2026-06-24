@@ -53,6 +53,10 @@ export default function ReceivePopup() {
     })
 
   useEffect(() => {
+    // The popup window is transparent — only the bubbles are visible. Clear any
+    // page background this webview inherited from :root.
+    document.documentElement.style.background = 'transparent'
+    document.body.style.background = 'transparent'
     // Seed from current backend state so an offer that landed before this
     // window finished mounting is still shown.
     const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
@@ -169,13 +173,6 @@ export default function ReceivePopup() {
 
   return (
     <div className="popup-shell">
-      <header className="popup-titlebar" data-tauri-drag-region>
-        <span>AnyDrop 接收</span>
-        <button className="popup-close" type="button" aria-label="隐藏" onClick={() => void getCurrentWindow().hide()}>
-          <X size={14} />
-        </button>
-      </header>
-
       <div className="popup-body">
         {cards.map((card, idx) => (
           <article className="popup-card popup-card--clip" key={`card-${card.id}`}>

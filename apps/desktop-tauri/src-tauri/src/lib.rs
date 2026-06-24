@@ -2074,6 +2074,8 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     .inner_size(RECEIVE_WINDOW_WIDTH, RECEIVE_WINDOW_HEIGHT)
     .resizable(false)
     .decorations(false)
+    .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)

@@ -29,6 +29,8 @@
   --card: rgba(255, 255, 255, 0.86);
   --control: rgba(255, 255, 255, 0.68);
   --control-hover: rgba(255, 255, 255, 0.96);
+  /* Opaque base for the transparent-window popup bubbles. */
+  --bubble-base: #ffffff;
   color: var(--text);
   background: var(--surface-base);
   font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
@@ -924,26 +926,14 @@ textarea:focus,
   flex: 0 0 auto;
 }
 
-/* #6 — native bottom-right receive popup window. */
+/* #6 — native bottom-right receive popup. The window itself is transparent;
+   only the bubbles inside are visible. */
 .popup-shell {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background: var(--surface-base);
-}
-
-.popup-titlebar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 34px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--card);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
+  background: transparent;
 }
 
 .popup-close {
@@ -964,26 +954,32 @@ textarea:focus,
 
 .popup-body {
   display: grid;
+  flex: 1;
   align-content: start;
   gap: 8px;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px;
 }
 
+/* Borderless, fully-rounded, OPAQUE info bubbles (the window is transparent,
+   so the bubbles must be solid). Tints are composited over an opaque base. */
 .popup-card {
   display: grid;
   gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--card);
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--bubble-base);
+  box-shadow: 0 2px 8px rgba(31, 41, 51, 0.16);
 }
 
 .popup-card--clip {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  border-color: var(--line-strong);
-  background: rgba(170, 212, 248, 0.16);
+  background:
+    linear-gradient(rgba(170, 212, 248, 0.3), rgba(170, 212, 248, 0.3)),
+    var(--bubble-base);
 }
 
 .popup-card-actions {
@@ -999,11 +995,15 @@ textarea:focus,
 }
 
 .popup-card--offer {
-  border-color: rgba(213, 82, 118, 0.28);
+  background:
+    linear-gradient(rgba(241, 167, 181, 0.32), rgba(241, 167, 181, 0.32)),
+    var(--bubble-base);
 }
 
 .popup-card--error {
-  border-left: 3px solid var(--accent-pink);
+  background:
+    linear-gradient(rgba(213, 82, 118, 0.22), rgba(213, 82, 118, 0.22)),
+    var(--bubble-base);
 
   .progress-track span {
     background: var(--accent-pink);
@@ -1150,6 +1150,7 @@ html.dark {
   --card: rgba(34, 38, 46, 0.92);
   --control: rgba(255, 255, 255, 0.07);
   --control-hover: rgba(255, 255, 255, 0.13);
+  --bubble-base: #2a2f3a;
 
   .window-titlebar {
     background: rgba(20, 22, 28, 0.97);
