@@ -125,6 +125,12 @@ pub struct ServerHandle {
     /// transfers — they don't collide because transfer_id is globally unique
     /// per send and a single host is rarely both sides of the same id.
     pub(crate) cancels: Arc<Mutex<HashMap<u64, CancellationToken>>>,
+    /// Pause-token registry, kept SEPARATE from `cancels` so the affected task
+    /// can tell a pause apart from a terminal cancel. Firing this token makes
+    /// the sender/receiver take the "preserve state, report Paused" path rather
+    /// than the "error/abort, destroy state" path. Like `cancels`, it holds
+    /// tokens for both sender-side and receiver-side active transfers.
+    pub(crate) pauses: Arc<Mutex<HashMap<u64, CancellationToken>>>,
     /// Send args parked for potential resume. Populated by `send_paths` and
     /// drained on cancel/AllDone. `resume_transfer` re-fires send with these.
     pub(crate) send_args: Arc<Mutex<HashMap<u64, SendArgs>>>,
@@ -156,10 +162,15 @@ impl ServerHandle {
     /// recognizes and resumes from saved offsets).
     fn send_with_id(&self, transfer_id: u64, target: SocketAddr, paths: Vec<PathBuf>) {
         let token = CancellationToken::new();
+        let pause = CancellationToken::new();
         self.cancels
             .lock()
             .unwrap()
             .insert(transfer_id, token.clone());
+        self.pauses
+            .lock()
+            .unwrap()
+            .insert(transfer_id, pause.clone());
         self.send_args.lock().unwrap().insert(
             transfer_id,
             SendArgs {
@@ -171,6 +182,7 @@ impl ServerHandle {
         let on_progress = self.on_progress.clone();
         let display_name = self.display_name.clone();
         let cancels = self.cancels.clone();
+        let pauses = self.pauses.clone();
         let send_args = self.send_args.clone();
         self.runtime.spawn(async move {
             let result = client::send_paths_impl(
@@ -180,13 +192,16 @@ impl ServerHandle {
                 display_name,
                 on_progress.clone(),
                 token,
+                pause,
             )
             .await;
-            // On natural completion or hard error, clean up registrations.
-            // Pause is handled inside send_paths_impl: it emits Paused and
-            // returns Ok(()), but pause_transfer() removes the cancel entry
-            // explicitly first, so the entry is gone here either way.
+            // The send task has ended (done, paused, cancelled, or errored).
+            // Tear down the per-transfer cancel/pause tokens. `send_args` is
+            // kept across pause so `resume_transfer` can re-fire; it is only
+            // dropped on a hard error here (cancel/AllDone drop it in their
+            // own handlers).
             cancels.lock().unwrap().remove(&transfer_id);
+            pauses.lock().unwrap().remove(&transfer_id);
             if let Err(e) = result {
                 send_args.lock().unwrap().remove(&transfer_id);
                 on_progress(ProgressUpdate {
@@ -215,6 +230,8 @@ impl ServerHandle {
     /// Returns `true` if a transfer with that id was found and signalled.
     pub fn cancel_transfer(&self, transfer_id: u64) -> bool {
         let token = self.cancels.lock().unwrap().remove(&transfer_id);
+        // Drop the pause token too — cancel is terminal, no resume.
+        self.pauses.lock().unwrap().remove(&transfer_id);
         self.send_args.lock().unwrap().remove(&transfer_id);
         if let Some(t) = token {
             t.cancel();
@@ -224,13 +241,20 @@ impl ServerHandle {
         }
     }
 
-    /// Pause an in-flight transfer.  Semantically the same as cancel locally
-    /// (tasks abort), but keeps `send_args` around so `resume_transfer` can
-    /// re-fire with the original target / paths and the same transfer_id,
-    /// which the receiver recognises via its active-transfer map (the
-    /// already-received offsets get reported back in HelloAck).
+    /// Pause an in-flight transfer.  Fires the dedicated PAUSE token (NOT the
+    /// cancel token), so the affected task takes the "preserve state, report
+    /// Paused" path: it closes the QUIC connection with [`protocol::CLOSE_PAUSE`]
+    /// so the peer can tell pause apart from a drop/cancel, emits
+    /// `TransferStatus::Paused`, and keeps resume state alive.
+    ///
+    /// `send_args` is kept around so `resume_transfer` can re-fire with the
+    /// original target / paths and the same transfer_id, which the receiver
+    /// recognises via its active-transfer map (the already-received offsets
+    /// get reported back in HelloAck). We also keep the cancel-token entry so
+    /// resume's get-or-insert behaviour stays consistent; the spawned task
+    /// itself tears both tokens down when it ends.
     pub fn pause_transfer(&self, transfer_id: u64) -> bool {
-        let token = self.cancels.lock().unwrap().remove(&transfer_id);
+        let token = self.pauses.lock().unwrap().get(&transfer_id).cloned();
         // Note: do NOT remove send_args — that's what resume needs.
         if let Some(t) = token {
             t.cancel();
@@ -301,6 +325,8 @@ where
     let on_progress: OnProgress = Arc::new(on_progress);
     let cancels: Arc<Mutex<HashMap<u64, CancellationToken>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let pauses: Arc<Mutex<HashMap<u64, CancellationToken>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let send_args: Arc<Mutex<HashMap<u64, SendArgs>>> = Arc::new(Mutex::new(HashMap::new()));
 
     {
@@ -309,8 +335,9 @@ where
         let on_offer = on_offer.clone();
         let on_progress = on_progress.clone();
         let cancels = cancels.clone();
+        let pauses = pauses.clone();
         runtime.spawn(async move {
-            server::run(endpoint, pending, on_offer, on_progress, cancels).await;
+            server::run(endpoint, pending, on_offer, on_progress, cancels, pauses).await;
         });
     }
 
@@ -322,6 +349,7 @@ where
         local_addr,
         display_name,
         cancels,
+        pauses,
         send_args,
     })
 }

@@ -12,7 +12,9 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::protocol::{Hello, HelloAck, Item, Status, DATA_HEADER_LEN};
+use super::protocol::{
+    Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_PAUSE, DATA_HEADER_LEN,
+};
 use super::walk::sanitize_rel;
 use super::{
     Decision, Direction, OnOffer, OnProgress, PendingOffers, ProgressUpdate, TransferOffer,
@@ -42,6 +44,63 @@ pub(crate) type ActiveTransfersMap = Arc<Mutex<HashMap<u64, Arc<ActiveTransfer>>
 /// accept so the host's `cancel_transfer` API works symmetrically.
 pub(crate) type CancelMap = Arc<Mutex<HashMap<u64, CancellationToken>>>;
 
+/// Type alias for the shared pause-token registry on `ServerHandle`, kept
+/// separate from `CancelMap`. Receiver-side transfers register their pause
+/// token here on accept so the host's `pause_transfer` API can pause the
+/// receive tasks while preserving resume state.
+pub(crate) type PauseMap = Arc<Mutex<HashMap<u64, CancellationToken>>>;
+
+/// Outcome of one `receive_one_file` task, distinguishing a pause (preserve
+/// state, report Paused) from a cancel and from a genuine error.
+enum RecvOutcome {
+    /// File finished (or its stream ended) without pause/cancel/error.
+    Done,
+    /// A pause was detected — local pause token fired, or the sender closed
+    /// the connection with `CLOSE_PAUSE`. State must be preserved.
+    Paused,
+    /// A cancel was detected — local cancel token fired, or sender closed with
+    /// `CLOSE_CANCEL`. Terminal.
+    Cancelled,
+    /// A genuine error (disk, protocol, etc.) — routed through the Abort path.
+    Error(String),
+}
+
+/// How the sender closed the connection, as seen by the receiver.
+enum ConnClose {
+    Paused,
+    Cancelled,
+    Other,
+}
+
+fn conn_err_closed_with(e: &quinn::ConnectionError, code: u32) -> bool {
+    matches!(
+        e,
+        quinn::ConnectionError::ApplicationClosed(quinn::ApplicationClose { error_code, .. })
+            if *error_code == quinn::VarInt::from_u32(code)
+    )
+}
+
+/// Classify a raw `ConnectionError` (from `accept_uni`) by the application
+/// close code the sender used.
+fn classify_conn_close(e: &quinn::ConnectionError) -> ConnClose {
+    if conn_err_closed_with(e, CLOSE_PAUSE) {
+        ConnClose::Paused
+    } else if conn_err_closed_with(e, CLOSE_CANCEL) {
+        ConnClose::Cancelled
+    } else {
+        ConnClose::Other
+    }
+}
+
+/// Classify a `quinn::ReadError` (from `RecvStream::read`) by the sender's
+/// application close code, if the read failed because the connection was lost.
+fn classify_read_error(e: &quinn::ReadError) -> ConnClose {
+    match e {
+        quinn::ReadError::ConnectionLost(ce) => classify_conn_close(ce),
+        _ => ConnClose::Other,
+    }
+}
+
 /// Main accept loop.
 pub(crate) async fn run(
     endpoint: quinn::Endpoint,
@@ -49,6 +108,7 @@ pub(crate) async fn run(
     on_offer: OnOffer,
     on_progress: OnProgress,
     cancels: CancelMap,
+    pauses: PauseMap,
 ) {
     let active: ActiveTransfersMap = Arc::new(Mutex::new(HashMap::new()));
 
@@ -87,6 +147,7 @@ pub(crate) async fn run(
         let on_progress = on_progress.clone();
         let active = active.clone();
         let cancels = cancels.clone();
+        let pauses = pauses.clone();
         tokio::spawn(async move {
             let conn = match incoming.await {
                 Ok(c) => c,
@@ -95,8 +156,10 @@ pub(crate) async fn run(
                     return;
                 }
             };
-            if let Err(e) =
-                handle_connection(conn, pending, on_offer, on_progress, active, cancels).await
+            if let Err(e) = handle_connection(
+                conn, pending, on_offer, on_progress, active, cancels, pauses,
+            )
+            .await
             {
                 warn!("transfer: connection error: {}", e);
             }
@@ -111,6 +174,7 @@ async fn handle_connection(
     on_progress: OnProgress,
     active: ActiveTransfersMap,
     cancels: CancelMap,
+    pauses: PauseMap,
 ) -> Result<(), String> {
     let remote_addr = conn.remote_address();
     let (mut ctrl_send, mut ctrl_recv) = conn
@@ -191,6 +255,16 @@ async fn handle_connection(
             .or_insert_with(CancellationToken::new)
             .clone()
     };
+    // Same get-or-insert for the pause token. Kept SEPARATE from the cancel
+    // token so `receive_one_file` can tell a pause apart from a cancel and
+    // take the "preserve resume state, report Paused" path.
+    let pause_token = {
+        let mut guard = pauses.lock().unwrap();
+        guard
+            .entry(transfer_id)
+            .or_insert_with(CancellationToken::new)
+            .clone()
+    };
 
     // Receive data streams. Only items not already complete will arrive.
     let mut tasks = Vec::new();
@@ -203,26 +277,48 @@ async fn handle_connection(
         .filter(|(idx, it)| entry.item_bytes[*idx].load(Ordering::Relaxed) < it.size)
         .count();
 
+    // Pause/cancel observed while accepting streams (local token fired, or the
+    // sender closed the connection with CLOSE_PAUSE/CLOSE_CANCEL).
+    let mut accept_paused = false;
+    let mut accept_cancelled = false;
+
     for _ in 0..expected_remaining {
-        let uni = match conn.accept_uni().await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("transfer: accept_uni: {}", e);
-                emit_diagnostic(
-                    &on_progress,
-                    transfer_id,
-                    remote_addr,
-                    &hello.display_name,
-                    &entry,
-                    format!("accept_uni failed: {}", e),
-                );
-                break;
-            }
+        // Race accept_uni against the pause/cancel tokens so a local
+        // pause/cancel between streams is detected promptly.
+        let uni = tokio::select! {
+            biased;
+            _ = pause_token.cancelled() => { accept_paused = true; break; }
+            _ = cancel_token.cancelled() => { accept_cancelled = true; break; }
+            res = conn.accept_uni() => match res {
+                Ok(s) => s,
+                Err(e) => {
+                    // The sender may have paused/cancelled by closing the
+                    // connection with an application code. Classify before
+                    // treating this as a transient drop.
+                    match classify_conn_close(&e) {
+                        ConnClose::Paused => { accept_paused = true; break; }
+                        ConnClose::Cancelled => { accept_cancelled = true; break; }
+                        ConnClose::Other => {
+                            warn!("transfer: accept_uni: {}", e);
+                            emit_diagnostic(
+                                &on_progress,
+                                transfer_id,
+                                remote_addr,
+                                &hello.display_name,
+                                &entry,
+                                format!("accept_uni failed: {}", e),
+                            );
+                            break;
+                        }
+                    }
+                }
+            },
         };
         let entry_c = entry.clone();
         let on_progress_c = on_progress.clone();
         let display_name_c = hello.display_name.clone();
         let cancel_c = cancel_token.clone();
+        let pause_c = pause_token.clone();
         tasks.push(tokio::spawn(async move {
             receive_one_file(
                 uni,
@@ -232,18 +328,24 @@ async fn handle_connection(
                 display_name_c,
                 on_progress_c,
                 cancel_c,
+                pause_c,
             )
             .await
         }));
     }
 
-    // Collect per-task errors so we can both report them individually and
-    // synthesize an overall abort reason.
+    // Collect per-task outcomes. Pause and cancel are kept OUT of
+    // `task_errors` so they don't trip the Abort path (which destroys resume
+    // state). Only genuine errors go into `task_errors`.
     let mut task_errors: Vec<String> = Vec::new();
+    let mut paused = accept_paused;
+    let mut cancelled = accept_cancelled;
     for t in tasks {
         match t.await {
-            Ok(Ok(())) => (),
-            Ok(Err(e)) => {
+            Ok(RecvOutcome::Done) => (),
+            Ok(RecvOutcome::Paused) => paused = true,
+            Ok(RecvOutcome::Cancelled) => cancelled = true,
+            Ok(RecvOutcome::Error(e)) => {
                 warn!("transfer: file recv error: {}", e);
                 emit_diagnostic(
                     &on_progress,
@@ -268,6 +370,94 @@ async fn handle_connection(
                 task_errors.push(format!("task panic: {}", join_err));
             }
         }
+    }
+
+    // Pause takes priority over a coincident cancel only when there were no
+    // genuine errors; errors still win to surface real failures. If a pause
+    // was observed, preserve resume state and report Paused without erroring.
+    if task_errors.is_empty() && paused {
+        *entry.last_activity.lock().unwrap() = Instant::now();
+        // If WE initiated the pause (local token fired), the sender hasn't been
+        // told yet — close with CLOSE_PAUSE so it stops cleanly and reports
+        // Paused too. If the sender initiated it, the connection is already
+        // closing; an extra close is harmless/no-op.
+        if pause_token.is_cancelled() {
+            conn.close(CLOSE_PAUSE.into(), b"paused");
+        }
+        let _ = ctrl_send.finish();
+        // Reset the receiver's pause/cancel tokens to FRESH (uncancelled) ones
+        // so the resume connection — which reuses these map entries via the
+        // get-or-insert above — doesn't immediately re-trip the stale pause.
+        // We keep the entries (so pause/cancel work again on resume) rather
+        // than removing them.
+        {
+            let mut g = pauses.lock().unwrap();
+            g.insert(transfer_id, CancellationToken::new());
+        }
+        {
+            let mut g = cancels.lock().unwrap();
+            g.insert(transfer_id, CancellationToken::new());
+        }
+        let total_done: u64 = entry
+            .item_bytes
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .sum();
+        // Preserve `active` (resume state) AND the cancel/pause token entries
+        // so the transfer can be resumed and paused/cancelled again.
+        on_progress(ProgressUpdate {
+            transfer_id,
+            direction: Direction::Recv,
+            remote_addr,
+            display_name: hello.display_name,
+            item_idx: 0,
+            rel_path: String::new(),
+            item_size: 0,
+            bytes_done: total_done,
+            total_size: entry.total_size,
+            total_done,
+            status: TransferStatus::Paused,
+            error: None,
+        });
+        info!(
+            "transfer: paused transfer_id={} — preserving resume state",
+            transfer_id
+        );
+        let _ = tokio::time::timeout(Duration::from_secs(2), conn.closed()).await;
+        return Ok(());
+    }
+
+    // Cancel (terminal): drop state and tokens, report Cancelled.
+    if task_errors.is_empty() && cancelled {
+        active.lock().unwrap().remove(&transfer_id);
+        cancels.lock().unwrap().remove(&transfer_id);
+        pauses.lock().unwrap().remove(&transfer_id);
+        if cancel_token.is_cancelled() {
+            conn.close(CLOSE_CANCEL.into(), b"cancelled");
+        }
+        let _ = ctrl_send.finish();
+        let total_done: u64 = entry
+            .item_bytes
+            .iter()
+            .map(|c| c.load(Ordering::Relaxed))
+            .sum();
+        on_progress(ProgressUpdate {
+            transfer_id,
+            direction: Direction::Recv,
+            remote_addr,
+            display_name: hello.display_name,
+            item_idx: 0,
+            rel_path: String::new(),
+            item_size: 0,
+            bytes_done: total_done,
+            total_size: entry.total_size,
+            total_done,
+            status: TransferStatus::Cancelled,
+            error: None,
+        });
+        info!("transfer: cancelled transfer_id={}", transfer_id);
+        let _ = tokio::time::timeout(Duration::from_secs(2), conn.closed()).await;
+        return Ok(());
     }
 
     *entry.last_activity.lock().unwrap() = Instant::now();
@@ -562,31 +752,56 @@ async fn receive_one_file(
     display_name: String,
     on_progress: OnProgress,
     cancel: CancellationToken,
-) -> Result<(), String> {
+    pause: CancellationToken,
+) -> RecvOutcome {
+    // Helper: turn an error string into the Error outcome.
+    macro_rules! err {
+        ($e:expr) => {
+            return RecvOutcome::Error($e)
+        };
+    }
+
     // 20-byte header: transfer_id u64 BE + item_idx u32 BE + start_offset u64 BE.
     let mut hdr = [0u8; DATA_HEADER_LEN];
-    uni.read_exact(&mut hdr)
-        .await
-        .map_err(|e| format!("read header: {}", e))?;
+    // Race the header read against pause/cancel so a pause that lands before
+    // any bytes arrive is still recognised (and not folded into an error).
+    let hdr_res = tokio::select! {
+        biased;
+        _ = pause.cancelled() => return RecvOutcome::Paused,
+        _ = cancel.cancelled() => return RecvOutcome::Cancelled,
+        r = uni.read_exact(&mut hdr) => r,
+    };
+    if let Err(e) = hdr_res {
+        // Sender may have paused/cancelled by closing the connection.
+        if let quinn::ReadExactError::ReadError(re) = &e {
+            match classify_read_error(re) {
+                ConnClose::Paused => return RecvOutcome::Paused,
+                ConnClose::Cancelled => return RecvOutcome::Cancelled,
+                ConnClose::Other => {}
+            }
+        }
+        err!(format!("read header: {}", e));
+    }
     let stream_transfer_id = u64::from_be_bytes(hdr[0..8].try_into().unwrap());
     let item_idx = u32::from_be_bytes(hdr[8..12].try_into().unwrap());
     let start_offset = u64::from_be_bytes(hdr[12..20].try_into().unwrap());
     if stream_transfer_id != transfer_id {
-        return Err(format!(
+        err!(format!(
             "stream transfer_id mismatch: {} != {}",
             stream_transfer_id, transfer_id
         ));
     }
-    let item = entry
-        .items
-        .get(item_idx as usize)
-        .cloned()
-        .ok_or_else(|| format!("item_idx {} out of range", item_idx))?;
+    let item = match entry.items.get(item_idx as usize).cloned() {
+        Some(it) => it,
+        None => err!(format!("item_idx {} out of range", item_idx)),
+    };
     if item.is_dir {
-        return Err("data stream targets a directory item".into());
+        err!("data stream targets a directory item".into());
     }
-    let rel = sanitize_rel(&item.rel_path)
-        .ok_or_else(|| format!("unsafe rel_path: {}", item.rel_path))?;
+    let rel = match sanitize_rel(&item.rel_path) {
+        Some(r) => r,
+        None => err!(format!("unsafe rel_path: {}", item.rel_path)),
+    };
     let abs = entry.save_root.join(&rel);
     if let Some(parent) = abs.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
@@ -602,14 +817,14 @@ async fn receive_one_file(
     if start_offset == 0 {
         opts.truncate(true);
     }
-    let mut file = opts
-        .open(&abs)
-        .await
-        .map_err(|e| format!("open {:?}: {}", abs, e))?;
+    let mut file = match opts.open(&abs).await {
+        Ok(f) => f,
+        Err(e) => err!(format!("open {:?}: {}", abs, e)),
+    };
     if start_offset > 0 {
-        file.seek(std::io::SeekFrom::Start(start_offset))
-            .await
-            .map_err(|e| format!("seek {:?}: {}", abs, e))?;
+        if let Err(e) = file.seek(std::io::SeekFrom::Start(start_offset)).await {
+            err!(format!("seek {:?}: {}", abs, e));
+        }
     }
 
     // Counter is monotonic; only advance if the new value is higher.
@@ -633,23 +848,35 @@ async fn receive_one_file(
     let mut last_bytes: u64 = 0;
 
     loop {
-        // Race the stream read against the cancellation token. If cancel
-        // fires, return a sentinel error which handle_connection will fold
-        // into task_errors → Abort path → Status::Abort to sender.
+        // Race the stream read against BOTH the pause and cancel tokens.
+        // Pause → preserve state and report Paused (NOT an error). Cancel →
+        // Cancelled. A read error that is actually the sender closing with
+        // CLOSE_PAUSE/CLOSE_CANCEL is reclassified accordingly; anything else
+        // is a genuine error routed through the Abort path.
         let n = tokio::select! {
             biased;
-            _ = cancel.cancelled() => {
-                return Err("cancelled by user".into());
+            _ = pause.cancelled() => {
+                return RecvOutcome::Paused;
             }
-            res = uni.read(&mut buf) => res.map_err(|e| format!("read: {}", e))?,
+            _ = cancel.cancelled() => {
+                return RecvOutcome::Cancelled;
+            }
+            res = uni.read(&mut buf) => match res {
+                Ok(v) => v,
+                Err(e) => match classify_read_error(&e) {
+                    ConnClose::Paused => return RecvOutcome::Paused,
+                    ConnClose::Cancelled => return RecvOutcome::Cancelled,
+                    ConnClose::Other => err!(format!("read: {}", e)),
+                },
+            },
         };
         let n = match n {
             Some(n) if n > 0 => n,
             _ => break,
         };
-        file.write_all(&buf[..n])
-            .await
-            .map_err(|e| format!("write: {}", e))?;
+        if let Err(e) = file.write_all(&buf[..n]).await {
+            err!(format!("write: {}", e));
+        }
         bytes_this_stream += n as u64;
         counter.fetch_add(n as u64, Ordering::Relaxed);
         let item_total = counter.load(Ordering::Relaxed);
@@ -683,7 +910,9 @@ async fn receive_one_file(
             });
         }
     }
-    file.flush().await.map_err(|e| format!("flush: {}", e))?;
+    if let Err(e) = file.flush().await {
+        err!(format!("flush: {}", e));
+    }
     *entry.last_activity.lock().unwrap() = Instant::now();
 
     let item_total = counter.load(Ordering::Relaxed);
@@ -711,7 +940,7 @@ async fn receive_one_file(
         status: TransferStatus::ItemDone,
         error: None,
     });
-    Ok(())
+    RecvOutcome::Done
 }
 
 /// Length-prefixed JSON read off a quinn RecvStream.

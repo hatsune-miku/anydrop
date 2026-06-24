@@ -15,6 +15,21 @@ use serde::{Deserialize, Serialize};
 
 pub const ALPN: &[u8] = b"anydrop/1";
 
+/// QUIC application close codes used when a side tears down a connection.
+///
+/// These let the *peer* distinguish a graceful completion from a terminal
+/// cancel from a pause. The pause code is what makes the pause feature work:
+/// when a side sees the connection closed with [`CLOSE_PAUSE`] it must
+/// preserve resume state and report `Paused` rather than routing the drop
+/// through the error/abort path.
+///
+/// Normal completion — what a clean `AllDone` close uses.
+pub const CLOSE_DONE: u32 = 0;
+/// Terminal cancel — peer should treat the transfer as aborted, no resume.
+pub const CLOSE_CANCEL: u32 = 1;
+/// Pause — peer must preserve resume state, report `Paused`, and NOT error.
+pub const CLOSE_PAUSE: u32 = 2;
+
 /// Header length on every unidirectional data stream.
 pub const DATA_HEADER_LEN: usize = 8 + 4 + 8;
 

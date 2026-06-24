@@ -17,10 +17,44 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::sync::CancellationToken;
 
 use super::cert::client_config;
-use super::protocol::{Hello, HelloAck, Item, Status, DATA_HEADER_LEN};
+use super::protocol::{
+    Hello, HelloAck, Item, Status, CLOSE_CANCEL, CLOSE_PAUSE, DATA_HEADER_LEN,
+};
 use super::server::{read_msg, write_msg};
 use super::walk::walk_paths;
 use super::{Direction, OnProgress, ProgressUpdate, TransferStatus};
+
+/// Returns true if `e` is a QUIC connection error caused by the peer closing
+/// the connection with the given application close `code`.
+fn conn_err_closed_with(e: &quinn::ConnectionError, code: u32) -> bool {
+    matches!(
+        e,
+        quinn::ConnectionError::ApplicationClosed(quinn::ApplicationClose { error_code, .. })
+            if *error_code == quinn::VarInt::from_u32(code)
+    )
+}
+
+/// How the peer closed the connection, as seen by the sender. Derived from
+/// `Connection::close_reason()` — every read/write/`open_uni`/final-status
+/// failure ultimately stems from the peer's close, so checking the reason
+/// after any such failure tells us whether it was a pause, a cancel, or a
+/// genuine transient drop we should retry.
+enum PeerClose {
+    /// Peer closed with `CLOSE_PAUSE` → emit Paused, keep state, stop retrying.
+    Paused,
+    /// Peer closed with `CLOSE_CANCEL` → existing abort/cancel behaviour.
+    Cancelled,
+    /// Anything else (transient drop, timeout, …) → existing retry behaviour.
+    Other,
+}
+
+fn classify_peer_close(conn: &quinn::Connection) -> PeerClose {
+    match conn.close_reason() {
+        Some(e) if conn_err_closed_with(&e, CLOSE_PAUSE) => PeerClose::Paused,
+        Some(e) if conn_err_closed_with(&e, CLOSE_CANCEL) => PeerClose::Cancelled,
+        _ => PeerClose::Other,
+    }
+}
 
 const PROGRESS_INTERVAL_MS: u128 = 200;
 const PROGRESS_BYTES: u64 = 1 << 20;
@@ -36,6 +70,7 @@ pub(crate) async fn send_paths_impl(
     display_name: String,
     on_progress: OnProgress,
     cancel: CancellationToken,
+    pause: CancellationToken,
 ) -> Result<(), String> {
     if paths.is_empty() {
         return Err("no paths".into());
@@ -80,11 +115,19 @@ pub(crate) async fn send_paths_impl(
     let mut attempt: u32 = 0;
     let mut last_error: Option<String>;
     loop {
-        // Cancel check before each attempt. `cancel_transfer` (terminal) and
-        // `pause_transfer` (resumable) both fire this token; we tell them
-        // apart by checking whether send_args was retained — but here we
-        // only know we should stop. The caller (mod.rs) emits the correct
-        // terminal status (Cancelled vs Paused) based on its own bookkeeping.
+        // Pause/cancel check before each attempt. The two are separate tokens
+        // so we can emit the correct terminal status: pause keeps resume state
+        // and reports Paused; cancel is terminal and reports Cancelled.
+        if pause.is_cancelled() {
+            return emit_paused(
+                transfer_id,
+                &target,
+                &display_name,
+                total_size,
+                &bytes_sent,
+                &on_progress,
+            );
+        }
         if cancel.is_cancelled() {
             return emit_cancelled(
                 transfer_id,
@@ -106,10 +149,24 @@ pub(crate) async fn send_paths_impl(
             display_name.clone(),
             on_progress.clone(),
             cancel.clone(),
+            pause.clone(),
         )
         .await
         {
             Ok(AttemptOutcome::Done) => return Ok(()),
+            Ok(AttemptOutcome::Paused) => {
+                // Either we paused locally or the peer paused. Surface Paused,
+                // keep send_args (mod.rs only drops them on Err), and stop —
+                // resume is user-driven, so we must NOT auto-reconnect.
+                return emit_paused(
+                    transfer_id,
+                    &target,
+                    &display_name,
+                    total_size,
+                    &bytes_sent,
+                    &on_progress,
+                );
+            }
             Ok(AttemptOutcome::Cancelled) => {
                 return emit_cancelled(
                     transfer_id,
@@ -188,8 +245,18 @@ pub(crate) async fn send_paths_impl(
                     break;
                 }
                 let backoff_ms = (BACKOFF_INITIAL_MS << (attempt - 1)).min(BACKOFF_CAP_MS);
-                // Cancel during backoff exits without retrying.
+                // Pause/cancel during backoff exits without retrying.
                 tokio::select! {
+                    _ = pause.cancelled() => {
+                        return emit_paused(
+                            transfer_id,
+                            &target,
+                            &display_name,
+                            total_size,
+                            &bytes_sent,
+                            &on_progress,
+                        );
+                    }
                     _ = cancel.cancelled() => {
                         return emit_cancelled(
                             transfer_id,
@@ -234,6 +301,10 @@ enum AttemptOutcome {
     /// User cancelled via the host's `cancel_transfer` API mid-attempt. We
     /// stop everything and let the outer loop surface `Cancelled`.
     Cancelled,
+    /// Either we paused locally (via `pause_transfer`) or the peer paused
+    /// (closed the connection with `CLOSE_PAUSE`). The outer loop surfaces
+    /// `Paused`, keeps resume state, and does NOT retry.
+    Paused,
 }
 
 /// Emit a TransferStatus::Cancelled progress update from the send-side and
@@ -260,6 +331,36 @@ fn emit_cancelled(
         total_size,
         total_done,
         status: TransferStatus::Cancelled,
+        error: None,
+    });
+    Ok(())
+}
+
+/// Emit a TransferStatus::Paused progress update from the send-side and return
+/// Ok(()). Like `emit_cancelled` but keeps resume state alive (the caller in
+/// mod.rs does NOT drop `send_args` on Ok), so `resume_transfer` can pick up
+/// from the bytes already sent.
+fn emit_paused(
+    transfer_id: u64,
+    target: &SocketAddr,
+    display_name: &str,
+    total_size: u64,
+    bytes_sent: &[AtomicU64],
+    on_progress: &OnProgress,
+) -> Result<(), String> {
+    let total_done: u64 = bytes_sent.iter().map(|c| c.load(Ordering::Relaxed)).sum();
+    on_progress(ProgressUpdate {
+        transfer_id,
+        direction: Direction::Send,
+        remote_addr: *target,
+        display_name: display_name.to_string(),
+        item_idx: 0,
+        rel_path: String::new(),
+        item_size: 0,
+        bytes_done: total_done,
+        total_size,
+        total_done,
+        status: TransferStatus::Paused,
         error: None,
     });
     Ok(())
@@ -307,6 +408,7 @@ async fn attempt_send(
     display_name: String,
     on_progress: OnProgress,
     cancel: CancellationToken,
+    pause: CancellationToken,
 ) -> Result<AttemptOutcome, String> {
     let bind_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
     let mut endpoint =
@@ -319,6 +421,49 @@ async fn attempt_send(
         .await
         .map_err(|e| format!("handshake: {}", e))?;
 
+    // Run the transfer. If it fails with a raw error, check whether the peer
+    // closed with CLOSE_PAUSE/CLOSE_CANCEL — those manifest as read/write/
+    // open_uni/final-status errors but must NOT be treated as transient (which
+    // would retry) or as hard errors (which would destroy resume state).
+    let result = attempt_send_inner(
+        &endpoint,
+        &conn,
+        transfer_id,
+        items,
+        src_paths,
+        bytes_sent,
+        total_size,
+        display_name,
+        on_progress,
+        cancel,
+        pause,
+    )
+    .await;
+    match result {
+        Err(e) => match classify_peer_close(&conn) {
+            PeerClose::Paused => Ok(AttemptOutcome::Paused),
+            PeerClose::Cancelled => Ok(AttemptOutcome::Cancelled),
+            PeerClose::Other => Err(e),
+        },
+        ok => ok,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn attempt_send_inner(
+    endpoint: &quinn::Endpoint,
+    conn: &quinn::Connection,
+    transfer_id: u64,
+    items: &[Item],
+    src_paths: &[Option<PathBuf>],
+    bytes_sent: Arc<Vec<AtomicU64>>,
+    total_size: u64,
+    display_name: String,
+    on_progress: OnProgress,
+    cancel: CancellationToken,
+    pause: CancellationToken,
+) -> Result<AttemptOutcome, String> {
+    let target = conn.remote_address();
     let (mut ctrl_send, mut ctrl_recv) = conn
         .open_bi()
         .await
@@ -395,12 +540,20 @@ async fn attempt_send(
         let mut last_bytes: u64 = 0;
 
         loop {
-            // Cancel-aware chunk loop. Check the token at the top of each
-            // iteration; this gives ~64KB granularity for cancellation,
-            // which at LAN speed is microseconds — plenty fast for "X" UX.
+            // Pause/cancel-aware chunk loop. Check both tokens at the top of
+            // each iteration; this gives ~64KB granularity, which at LAN speed
+            // is microseconds — plenty fast for "pause"/"X" UX. Pause closes
+            // with CLOSE_PAUSE so the receiver preserves resume state; cancel
+            // closes with CLOSE_CANCEL.
+            if pause.is_cancelled() {
+                let _ = uni.finish();
+                conn.close(CLOSE_PAUSE.into(), b"paused");
+                let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
+                return Ok(AttemptOutcome::Paused);
+            }
             if cancel.is_cancelled() {
                 let _ = uni.finish();
-                conn.close(0u32.into(), b"cancelled");
+                conn.close(CLOSE_CANCEL.into(), b"cancelled");
                 let _ = tokio::time::timeout(Duration::from_secs(2), endpoint.wait_idle()).await;
                 return Ok(AttemptOutcome::Cancelled);
             }

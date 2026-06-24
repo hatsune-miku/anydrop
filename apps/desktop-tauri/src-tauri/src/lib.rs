@@ -24,17 +24,66 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, State, UserAttentionType, WebviewUrl,
+    WebviewWindowBuilder, WindowEvent,
+};
+use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 
 const DEFAULT_DISCOVERY_PORT: u16 = 9818;
 const DEFAULT_DATA_PORT: u16 = 9819;
 
-fn settings_path() -> Result<PathBuf, String> {
-    let base = dirs::config_dir()
+/// Bottom-right native popup that surfaces incoming offers / receive progress
+/// (and optionally clipboard receipts). Created lazily, reused across events.
+const RECEIVE_WINDOW_LABEL: &str = "receive";
+const RECEIVE_WINDOW_WIDTH: f64 = 380.0;
+const RECEIVE_WINDOW_HEIGHT: f64 = 440.0;
+/// Quick-Look style preview window for received media.
+const PREVIEW_WINDOW_LABEL: &str = "preview";
+/// Gap from the screen edges when docking the receive popup bottom-right.
+const POPUP_MARGIN: f64 = 16.0;
+
+fn config_base() -> PathBuf {
+    dirs::config_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("AnyDrop");
+        .join("AnyDrop")
+}
+
+fn settings_path() -> Result<PathBuf, String> {
+    let base = config_base();
     fs::create_dir_all(&base).map_err(|err| err.to_string())?;
     Ok(base.join("settings.json"))
+}
+
+fn peer_remarks_path() -> Result<PathBuf, String> {
+    let base = config_base();
+    fs::create_dir_all(&base).map_err(|err| err.to_string())?;
+    Ok(base.join("peer_remarks.json"))
+}
+
+/// Default location for received files: `~/Downloads/AnyDrop`. Used both as the
+/// `default_save_dir` seed and the ultimate fallback when settings are missing.
+fn default_save_root() -> PathBuf {
+    dirs::download_dir()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+        .join("AnyDrop")
+}
+
+fn load_peer_remarks() -> HashMap<String, String> {
+    let Ok(path) = peer_remarks_path() else {
+        return HashMap::new();
+    };
+    let Ok(raw) = fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    serde_json::from_str::<HashMap<String, String>>(&raw).unwrap_or_default()
+}
+
+fn save_peer_remarks_file(remarks: &HashMap<String, String>) -> Result<(), String> {
+    let path = peer_remarks_path()?;
+    let raw = serde_json::to_string_pretty(remarks).map_err(|err| err.to_string())?;
+    fs::write(path, raw).map_err(|err| err.to_string())
 }
 
 fn normalize_settings(mut settings: AppSettings) -> AppSettings {
@@ -46,6 +95,9 @@ fn normalize_settings(mut settings: AppSettings) -> AppSettings {
     }
     if settings.display_name.trim().is_empty() {
         settings.display_name = OSUtil::hostname();
+    }
+    if settings.default_save_dir.trim().is_empty() {
+        settings.default_save_dir = default_save_root().to_string_lossy().to_string();
     }
     settings
 }
@@ -84,6 +136,20 @@ struct AppSettings {
     /// Default off — images are larger and more privacy-sensitive than text.
     #[serde(default)]
     sync_image_enabled: bool,
+    /// UI theme preference. `None` = follow the OS theme (first-run default);
+    /// `Some(true/false)` = explicit dark / light chosen by the user. Persisted
+    /// here (not in browser localStorage) so the choice is native-stored.
+    #[serde(default)]
+    dark_mode: Option<bool>,
+    /// Default directory received files land in. normalize_settings seeds it to
+    /// `~/Downloads/AnyDrop` when empty.
+    #[serde(default)]
+    default_save_dir: String,
+    /// Show a bottom-right popup (like the file-receive one) when clipboard
+    /// content arrives from a peer. Default off — keeps the current silent
+    /// behaviour unless the user opts in.
+    #[serde(default)]
+    clipboard_popup_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -97,6 +163,9 @@ impl Default for AppSettings {
             data_port: DEFAULT_DATA_PORT,
             display_name: String::new(), // normalize_settings fills from OSUtil
             sync_image_enabled: false,
+            dark_mode: None,
+            default_save_dir: String::new(), // normalize_settings fills default
+            clipboard_popup_enabled: false,
         }
     }
 }
@@ -107,6 +176,11 @@ struct PeerGroup {
     label: String,
     name: String,
     hosts: Vec<String>,
+    /// Local-only nickname for this peer, keyed by hostname (`name`). Overlaid
+    /// at snapshot time from `Backend::peer_remarks`; never advertised, so the
+    /// remote device cannot see how it has been labelled here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remark: Option<String>,
 }
 
 #[derive(Clone, SerdeSerialize)]
@@ -138,6 +212,17 @@ struct Transfer {
     speed_last_at: Option<std::time::Instant>,
     #[serde(skip)]
     speed_last_bytes: u64,
+    /// Top-level entry name of the transfer (the first path segment of the
+    /// first item). For a single-file send this is the file name; for a folder
+    /// send it's the folder name. Used to compute `reveal_path` once a save
+    /// root is known. Backend bookkeeping only.
+    #[serde(skip)]
+    top_level: String,
+    /// Absolute path to reveal/select in the file manager and to preview:
+    /// `save_root/top_level` on the receive side, the source path on the send
+    /// side. Empty until known. Backend-only (never sent to the webview).
+    #[serde(skip)]
+    reveal_path: String,
 }
 
 #[derive(Clone, SerdeSerialize)]
@@ -216,9 +301,16 @@ struct Backend {
     clipboard: Arc<Mutex<ClipboardState>>,
     status_text: Mutex<String>,
     log_entries: Arc<Mutex<VecDeque<String>>>,
+    /// Local-only peer nicknames keyed by hostname. Loaded from
+    /// `peer_remarks.json`, overlaid onto peer groups at snapshot time.
+    peer_remarks: Arc<Mutex<HashMap<String, String>>>,
     /// QUIC transfer server. Started alongside the legacy text data service
     /// when the runtime spins up.
     transfer_handle: Mutex<Option<Arc<TransferServerHandle>>>,
+    /// Payload (path / kind / name) for the most recent preview request. The
+    /// preview window reads it on mount via `get_preview_payload`, avoiding a
+    /// build-then-emit race and URL-encoding of arbitrary file paths.
+    preview_payload: Arc<Mutex<Option<serde_json::Value>>>,
 }
 
 /// Build the `Transfer.key` for a given transfer_id. Currently a plain decimal
@@ -292,6 +384,12 @@ fn apply_progress(
         speed_bps: 0.0,
         speed_last_at: None,
         speed_last_bytes: 0,
+        top_level: if p.rel_path.is_empty() {
+            String::new()
+        } else {
+            top_level_name(&p.rel_path)
+        },
+        reveal_path: String::new(),
     });
     // Compute smoothed instantaneous speed before we overwrite progress. EWMA
     // with α=0.3 — enough new-sample weight to react to real changes, enough
@@ -345,6 +443,7 @@ impl Backend {
     fn new(settings: AppSettings) -> Self {
         Self {
             settings: Mutex::new(settings),
+            peer_remarks: Arc::new(Mutex::new(load_peer_remarks())),
             ..Self::default()
         }
     }
@@ -362,11 +461,21 @@ impl Backend {
             .try_lock()
             .map(|settings| settings.clone())
             .unwrap_or_default();
-        let peers = self
+        let mut peers = self
             .peers
             .try_lock()
             .map(|peers| peers.clone())
             .unwrap_or_default();
+        // Overlay local nicknames fresh on every snapshot so editing a remark
+        // takes effect immediately without rebuilding the cached peer list.
+        if let Ok(remarks) = self.peer_remarks.try_lock() {
+            for group in peers.iter_mut() {
+                group.remark = remarks
+                    .get(&group.name)
+                    .filter(|r| !r.trim().is_empty())
+                    .cloned();
+            }
+        }
         let (last_clipboard_text, last_received_text) = self
             .clipboard
             .try_lock()
@@ -529,9 +638,20 @@ fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
                 label: format!("{name} ({}个地址)", hosts.len()),
                 name,
                 hosts,
+                remark: None, // filled at snapshot time from peer_remarks
             }
         })
         .collect()
+}
+
+/// Top-level entry name of a transfer = the first path segment of a relative
+/// path. For `"Folder/sub/file.txt"` → `"Folder"`; for `"file.txt"` → the file
+/// itself. Used to compute the reveal/preview target under the save root.
+fn top_level_name(rel: &str) -> String {
+    rel.split(|c| c == '/' || c == '\\')
+        .find(|s| !s.is_empty())
+        .unwrap_or(rel)
+        .to_string()
 }
 
 /// Window inside which two consecutive clipboard updates count as a "double
@@ -902,10 +1022,13 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         let text_clipboard = clipboard_state.clone();
         let text_callback = move |packet: &TextPacket, peer: Option<&Peer>| {
             let text = packet.text().clone();
+            let mut popup_enabled = false;
             if let Some(backend) = text_app.try_state::<Backend>() {
-                if !backend.settings.lock().unwrap().receive_clipboard_enabled {
+                let settings = backend.settings.lock().unwrap();
+                if !settings.receive_clipboard_enabled {
                     return;
                 }
+                popup_enabled = settings.clipboard_popup_enabled;
             }
 
             if let Ok(mut guard) = text_clipboard.lock() {
@@ -920,6 +1043,19 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 "text-received",
                 serde_json::json!({ "text": text, "peer": peer_text(peer) }),
             );
+            // Optional bottom-right popup mirroring the file-receive one.
+            if popup_enabled {
+                ensure_receive_window(&text_app);
+                let preview: String = text.chars().take(200).collect();
+                let _ = text_app.emit(
+                    "clipboard-popup",
+                    serde_json::json!({
+                        "kind": "text",
+                        "preview": preview,
+                        "peer": peer_text(peer),
+                    }),
+                );
+            }
             emit_snapshot(&text_app);
         };
 
@@ -931,11 +1067,13 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             // existing receive_clipboard_enabled gate AND add a finer-grained
             // sync_image_enabled flag so users can have text sync on but
             // images off.
+            let mut popup_enabled = false;
             if let Some(backend) = image_app.try_state::<Backend>() {
                 let settings = backend.settings.lock().unwrap().clone();
                 if !settings.receive_clipboard_enabled || !settings.sync_image_enabled {
                     return;
                 }
+                popup_enabled = settings.clipboard_popup_enabled;
             }
 
             // Decode PNG into raw RGBA for arboard.set_image. We're holding
@@ -978,6 +1116,17 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     "peer": peer_text(peer),
                 }),
             );
+            if popup_enabled {
+                ensure_receive_window(&image_app);
+                let _ = image_app.emit(
+                    "clipboard-popup",
+                    serde_json::json!({
+                        "kind": "image",
+                        "preview": format!("{}×{} 图片", w, h),
+                        "peer": peer_text(peer),
+                    }),
+                );
+            }
             emit_snapshot(&image_app);
         };
 
@@ -1062,6 +1211,11 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             ),
         );
         let label = offer_label(&offer);
+        let top_level = offer
+            .items
+            .first()
+            .map(|i| top_level_name(&i.rel_path))
+            .unwrap_or_default();
         let key = make_transfer_key(offer.transfer_id);
         let t = Transfer {
             key: key.clone(),
@@ -1079,9 +1233,21 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             speed_bps: 0.0,
             speed_last_at: None,
             speed_last_bytes: 0,
+            top_level,
+            reveal_path: String::new(), // set on accept once save_root is known
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         let _ = offer_app.emit("incoming-file", t);
+        // Surface the offer natively: bottom-right popup + dock bounce / taskbar
+        // flash + a system notification banner.
+        ensure_receive_window(&offer_app);
+        request_attention(&offer_app);
+        let _ = offer_app
+            .notification()
+            .builder()
+            .title("AnyDrop 收到文件请求")
+            .body(offer_label(&offer))
+            .show();
         emit_snapshot(&offer_app);
     };
 
@@ -1232,9 +1398,17 @@ fn save_settings(
     backend: State<'_, Backend>,
     settings: AppSettings,
 ) -> Result<Snapshot, String> {
-    let should_restart = backend.is_running();
     let settings = normalize_settings(settings);
-    if should_restart {
+    // Only fields baked into the running services at start time need a restart.
+    // Clipboard toggles, theme, save dir, and the popup flag are read live (or
+    // only matter on the next receive), so flipping them must NOT tear down
+    // discovery / transfers — that used to drop peers and in-flight files.
+    let old = backend.settings.lock().unwrap().clone();
+    let net_changed = old.discovery_port != settings.discovery_port
+        || old.data_port != settings.data_port
+        || old.group_identity != settings.group_identity
+        || old.display_name != settings.display_name;
+    if backend.is_running() && net_changed {
         start_runtime(&app, &backend, settings.clone())?;
     }
     save_settings_file(&settings)?;
@@ -1344,6 +1518,16 @@ fn send_paths(
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
+    // The send-side reveal target is the source path the user picked (the file
+    // itself, or the folder). "Open folder" should select that exact item.
+    let reveal_path = path_bufs
+        .first()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let top_level = path_bufs
+        .first()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_default();
     {
         let key = make_transfer_key(transfer_id);
         let mut map = backend.transfers.lock().unwrap();
@@ -1366,6 +1550,8 @@ fn send_paths(
             speed_bps: 0.0,
             speed_last_at: None,
             speed_last_bytes: 0,
+            top_level,
+            reveal_path,
         });
     }
 
@@ -1384,6 +1570,7 @@ fn accept_transfer(
     app: AppHandle,
     backend: State<'_, Backend>,
     transfer_key: String,
+    save_dir: Option<String>,
 ) -> Result<Snapshot, String> {
     let transfer_id = parse_transfer_key(&transfer_key)?;
     let handle = backend
@@ -1392,9 +1579,20 @@ fn accept_transfer(
         .unwrap()
         .clone()
         .ok_or_else(|| "transfer server not running".to_string())?;
-    let save_root = dirs::download_dir()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
-        .join("AnyDrop");
+    // Per-transfer override wins; otherwise the configured default; otherwise
+    // the hard fallback. Never an empty path.
+    let save_root = save_dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let cfg = backend.settings.lock().unwrap().default_save_dir.clone();
+            if cfg.trim().is_empty() {
+                default_save_root()
+            } else {
+                PathBuf::from(cfg)
+            }
+        });
     fs::create_dir_all(&save_root).map_err(|err| err.to_string())?;
     backend.log(format!(
         "accept: id={transfer_id} save_root={}",
@@ -1403,6 +1601,14 @@ fn accept_transfer(
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
         t.status = 4;
         t.local_path = save_root.to_string_lossy().to_string();
+        // Reveal target = the top-level entry under the save root. Falls back
+        // to the save root itself if we never learned a top-level name.
+        let reveal = if t.top_level.is_empty() {
+            save_root.clone()
+        } else {
+            save_root.join(&t.top_level)
+        };
+        t.reveal_path = reveal.to_string_lossy().to_string();
     }
     handle.respond(transfer_id, Decision::Accept { save_root });
     emit_snapshot(&app);
@@ -1532,7 +1738,11 @@ fn dismiss_transfer(app: AppHandle, backend: State<'_, Backend>, transfer_key: S
 }
 
 #[tauri::command]
-fn open_transfer_folder(backend: State<'_, Backend>, transfer_key: String) -> Result<(), String> {
+fn open_transfer_folder(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<(), String> {
     let transfer = backend
         .transfers
         .lock()
@@ -1540,10 +1750,194 @@ fn open_transfer_folder(backend: State<'_, Backend>, transfer_key: String) -> Re
         .get(&transfer_key)
         .cloned()
         .ok_or_else(|| "Transfer not found".to_string())?;
-    let folder = Path::new(&transfer.local_path)
-        .parent()
-        .ok_or_else(|| "Transfer has no local folder".to_string())?;
-    open::that(folder).map_err(|err| err.to_string())
+    // Prefer revealing (and selecting) the actual landed file/folder. This
+    // fixes the old bug where we opened the *parent* of the save root (e.g.
+    // ~/Downloads instead of ~/Downloads/AnyDrop) and selected nothing.
+    let target = if !transfer.reveal_path.is_empty() {
+        transfer.reveal_path.clone()
+    } else if !transfer.local_path.is_empty() {
+        transfer.local_path.clone()
+    } else {
+        return Err("Transfer has no local path".to_string());
+    };
+    app.opener()
+        .reveal_item_in_dir(&target)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn set_peer_remark(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    hostname: String,
+    remark: String,
+) -> Result<Snapshot, String> {
+    {
+        let mut remarks = backend.peer_remarks.lock().unwrap();
+        let trimmed = remark.trim();
+        if trimmed.is_empty() {
+            remarks.remove(&hostname);
+        } else {
+            remarks.insert(hostname.clone(), trimmed.to_string());
+        }
+        save_peer_remarks_file(&remarks)?;
+    }
+    emit_snapshot(&app);
+    Ok(backend.snapshot())
+}
+
+#[tauri::command]
+fn preview_file(
+    app: AppHandle,
+    backend: State<'_, Backend>,
+    transfer_key: String,
+) -> Result<(), String> {
+    let transfer = backend
+        .transfers
+        .lock()
+        .unwrap()
+        .get(&transfer_key)
+        .cloned()
+        .ok_or_else(|| "Transfer not found".to_string())?;
+    let path = transfer.reveal_path.clone();
+    if path.is_empty() {
+        return Err("没有可预览的文件".to_string());
+    }
+    if !Path::new(&path).is_file() {
+        return Err("仅支持预览单个文件".to_string());
+    }
+    let kind = preview_kind(&path);
+    open_preview_window(&app, &path, kind, &transfer.file_name)
+}
+
+#[tauri::command]
+fn get_preview_payload(backend: State<'_, Backend>) -> Option<serde_json::Value> {
+    backend.preview_payload.lock().unwrap().clone()
+}
+
+/// Flash the taskbar (Windows) / bounce the dock (macOS) so the user notices an
+/// incoming transfer even when AnyDrop isn't focused.
+fn request_attention(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.request_user_attention(Some(UserAttentionType::Critical));
+    }
+}
+
+/// Create (if needed), position bottom-right, and show the native receive
+/// popup. Reused for file offers and clipboard receipts. The popup hides itself
+/// from the webview side once there is nothing left to show.
+fn ensure_receive_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    // on_offer / clipboard callbacks fire on background network threads; window
+    // creation must happen on the main (event-loop) thread.
+    let app = app.clone();
+    let _ = app.clone().run_on_main_thread(move || {
+        if app.get_webview_window(RECEIVE_WINDOW_LABEL).is_some() {
+            return; // lost a create race — fine
+        }
+        let built = WebviewWindowBuilder::new(
+            &app,
+            RECEIVE_WINDOW_LABEL,
+            WebviewUrl::App("index.html?window=receive".into()),
+        )
+        .title("AnyDrop")
+        .inner_size(RECEIVE_WINDOW_WIDTH, RECEIVE_WINDOW_HEIGHT)
+        .resizable(false)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .build();
+        match built {
+            Ok(window) => {
+                position_bottom_right(&window);
+                let _ = window.show();
+            }
+            Err(err) => eprintln!("receive window build failed: {err}"),
+        }
+    });
+}
+
+/// Dock the popup to the bottom-right of the monitor it landed on. Tauri's
+/// monitor API has no work-area accessor, so we reserve a fixed taskbar/dock
+/// allowance to avoid sitting underneath it.
+fn position_bottom_right(window: &tauri::WebviewWindow) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let scale = monitor.scale_factor();
+    let m_pos = monitor.position();
+    let m_size = monitor.size();
+    let margin = (POPUP_MARGIN * scale) as i32;
+    let taskbar = (48.0 * scale) as i32; // clear a typical taskbar / dock
+    let win_w = (RECEIVE_WINDOW_WIDTH * scale) as i32;
+    let win_h = (RECEIVE_WINDOW_HEIGHT * scale) as i32;
+    let x = m_pos.x + m_size.width as i32 - win_w - margin;
+    let y = m_pos.y + m_size.height as i32 - win_h - margin - taskbar;
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+/// Classify a file for the preview window by extension. Archives intentionally
+/// fall through to "other" — we do not preview compressed files.
+fn preview_kind(path: &str) -> &'static str {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "ico" | "avif" => "image",
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "oga" | "m4a" | "opus" => "audio",
+        "mp4" | "webm" | "mov" | "m4v" | "ogv" => "video",
+        _ => "other",
+    }
+}
+
+/// Create or reuse the Quick-Look style preview window and point it at `path`.
+fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> Result<(), String> {
+    let payload = serde_json::json!({ "path": path, "kind": kind, "name": name });
+    if let Some(backend) = app.try_state::<Backend>() {
+        *backend.preview_payload.lock().unwrap() = Some(payload.clone());
+    }
+    if let Some(window) = app.get_webview_window(PREVIEW_WINDOW_LABEL) {
+        let _ = window.emit("preview-load", &payload);
+        let _ = window.set_title(name);
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    // Build off the (possibly background) caller thread onto the main thread.
+    let app_main = app.clone();
+    let title = name.to_string();
+    app.run_on_main_thread(move || {
+        if app_main.get_webview_window(PREVIEW_WINDOW_LABEL).is_some() {
+            return;
+        }
+        if let Err(err) = WebviewWindowBuilder::new(
+            &app_main,
+            PREVIEW_WINDOW_LABEL,
+            WebviewUrl::App("index.html?window=preview".into()),
+        )
+        .title(&title)
+        .inner_size(760.0, 580.0)
+        .min_inner_size(360.0, 280.0)
+        .build()
+        {
+            eprintln!("preview window build failed: {err}");
+        }
+    })
+    .map_err(|err| err.to_string())?;
+    Ok(())
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -1603,9 +1997,20 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     shared_anydrop_init();
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // Single-instance MUST be the first plugin registered. A second launch
+    // re-focuses the existing window instead of spawning another process —
+    // which also stops the duplicate tray icons that multiple processes bred.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            show_main_window(app);
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(Backend::new(load_settings()))
         .on_window_event(|window, event| {
             if window.label() == "main" {
@@ -1643,7 +2048,10 @@ pub fn run() {
             send_paths,
             cancel_transfer,
             pause_transfer,
-            resume_transfer
+            resume_transfer,
+            set_peer_remark,
+            preview_file,
+            get_preview_payload
         ])
         .run(tauri::generate_context!())
         .expect("error while running AnyDrop");

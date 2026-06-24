@@ -1,58 +1,38 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Check, Clipboard, FolderOpen, Minus, Pause, Play, RefreshCw, Share2, Square, Upload, X } from 'lucide-react'
+import {
+  Clipboard,
+  Eye,
+  FolderOpen,
+  Minus,
+  Pause,
+  Pencil,
+  Play,
+  RefreshCw,
+  Share2,
+  Square,
+  Upload,
+  X,
+} from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
-type SettingsModel = {
-  sendClipboardEnabled: boolean
-  receiveClipboardEnabled: boolean
-  sendOnlyOnDoubleCopy: boolean
-  groupIdentity: number
-  discoveryPort: number
-  dataPort: number
-  displayName: string
-  syncImageEnabled: boolean
-}
-
-type PeerGroup = {
-  label: string
-  name: string
-  hosts: string[]
-}
-
-type Transfer = {
-  key: string
-  fileId: number
-  fileName: string
-  remotePath: string
-  localPath: string
-  peer: string
-  host: string
-  direction: 'incoming' | 'outgoing'
-  progress: number
-  total: number
-  status: number
-  /** Latest error reported for the transfer, if any. Sticky once set. */
-  error?: string
-  /** Smoothed transfer rate in bytes/sec; 0 at start/terminal. */
-  speedBps: number
-}
-
-type Snapshot = {
-  running: boolean
-  settings: SettingsModel
-  peers: PeerGroup[]
-  transfers: Transfer[]
-  lastClipboardText: string
-  lastReceivedText: string
-  statusText: string
-  logs: string[]
-}
+import {
+  emptySnapshot,
+  fallbackSettings,
+  formatBytes,
+  formatSpeed,
+  isTauriRuntime,
+  percent,
+  transferStatus,
+  type SettingsModel,
+  type Snapshot,
+  type Transfer,
+} from './types'
 
 // Detect macOS once at module level. On macOS we rely on the native window
 // chrome (traffic lights + drag) and skip the custom titlebar entirely.
@@ -60,87 +40,25 @@ const isMac =
   typeof navigator !== 'undefined' &&
   (navigator.platform.startsWith('Mac') || navigator.userAgent.includes('Macintosh'))
 
-const fallbackSettings: SettingsModel = {
-  sendClipboardEnabled: true,
-  receiveClipboardEnabled: true,
-  sendOnlyOnDoubleCopy: false,
-  groupIdentity: 0,
-  discoveryPort: 9818,
-  dataPort: 9819,
-  displayName: '',
-  syncImageEnabled: false,
-}
-
-const emptySnapshot: Snapshot = {
-  running: false,
-  settings: fallbackSettings,
-  peers: [],
-  transfers: [],
-  lastClipboardText: '',
-  lastReceivedText: '',
-  statusText: 'Loading',
-  logs: [],
-}
-
 function Surface({ children, className = '' }: { children: ReactNode; className?: string }) {
   return <div className={`surface-shell ${className}`}>{children}</div>
 }
 
-function transferStatus(status: number) {
-  switch (status) {
-    case 1:
-      return '等待确认'
-    case 2:
-      return '已拒绝'
-    case 3:
-      return '已接受'
-    case 4:
-      return '传输中'
-    case 5:
-      return '已取消'
-    case 6:
-      return '错误'
-    case 7:
-      return '完成'
-    case 8:
-      return '错误'
-    case 9:
-      return '已暂停'
-    default:
-      return '未知'
-  }
+/** Cross-platform basename for display (handles both `/` and `\` separators). */
+function baseName(path: string): string {
+  return (
+    path
+      .split(/[\\/]/)
+      .filter(Boolean)
+      .pop() ?? path
+  )
 }
 
-function formatBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) {
-    return '0 B'
-  }
-  const units = ['B', 'KB', 'MB', 'GB']
-  let size = value
-  let index = 0
-  while (size >= 1024 && index < units.length - 1) {
-    size /= 1024
-    index += 1
-  }
-  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
-}
-
-function formatSpeed(bps: number) {
-  if (!Number.isFinite(bps) || bps <= 0) {
-    return ''
-  }
-  return `${formatBytes(bps)}/s`
-}
-
-function percent(transfer: Transfer) {
-  if (transfer.total <= 0) {
-    return 0
-  }
-  return Math.min(100, Math.round((transfer.progress / transfer.total) * 100))
-}
-
-function isTauriRuntime() {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+/** A pending send awaiting user confirmation in the send-confirm dialog. */
+type PendingSend = {
+  hosts: string[]
+  peerLabel: string
+  paths: string[]
 }
 
 function App() {
@@ -148,21 +66,21 @@ function App() {
   const [selectedPeerName, setSelectedPeerName] = useState('')
   const [settingsDraft, setSettingsDraft] = useState<SettingsModel>(fallbackSettings)
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState('')
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null)
+  const [editingRemark, setEditingRemark] = useState<string | null>(null)
+  const [remarkDraft, setRemarkDraft] = useState('')
   const logListRef = useRef<HTMLDivElement>(null)
-  const [darkMode, setDarkMode] = useState(() => {
-    try {
-      const stored = localStorage.getItem('darkMode')
-      if (stored !== null) return stored === 'true'
-    } catch {}
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-  })
+
+  const systemDark =
+    typeof window !== 'undefined' ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false) : false
+  // Theme preference is stored natively in settings now (settings.darkMode):
+  // null = follow the OS theme, an explicit boolean = user override.
+  const darkMode = snapshot.settings.darkMode ?? systemDark
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
-    try {
-      localStorage.setItem('darkMode', String(darkMode))
-    } catch {}
   }, [darkMode])
 
   // Auto-scroll the log panel to the newest entry whenever logs change.
@@ -283,13 +201,22 @@ function App() {
       return
     }
 
-    // Trigger a fresh discovery broadcast; ignore errors if service is offline.
+    // Keep the spinner up for at least one full 200ms turn so the animation
+    // reads as a deliberate, lively refresh even when the round-trip is instant.
+    setRefreshing(true)
+    const started = Date.now()
     try {
-      await invoke<Snapshot>('refresh_peers')
-    } catch {}
-    const next = await invoke<Snapshot>('get_snapshot')
-    setSnapshot(next)
-    setSettingsDraft(next.settings)
+      // Trigger a fresh discovery broadcast; ignore errors if service is offline.
+      try {
+        await invoke<Snapshot>('refresh_peers')
+      } catch {}
+      const next = await invoke<Snapshot>('get_snapshot')
+      setSnapshot(next)
+      setSettingsDraft(next.settings)
+    } finally {
+      const wait = Math.max(0, 200 - (Date.now() - started))
+      setTimeout(() => setRefreshing(false), wait)
+    }
   }
 
   async function toggleService() {
@@ -315,7 +242,9 @@ function App() {
       | 'sendClipboardEnabled'
       | 'receiveClipboardEnabled'
       | 'sendOnlyOnDoubleCopy'
-      | 'syncImageEnabled',
+      | 'syncImageEnabled'
+      | 'clipboardPopupEnabled'
+      | 'darkMode',
     value: boolean
   ) {
     const next = { ...snapshot.settings, [key]: value }
@@ -323,40 +252,50 @@ function App() {
     await runCommand<Snapshot>('save_settings', { settings: next })
   }
 
-  async function sendFiles() {
+  // Pick file(s) or a folder, then stage them in the send-confirm dialog rather
+  // than firing off immediately — guards against accidental sends.
+  async function stageSend(directory: boolean) {
     if (!selectedPeer) {
       return
     }
-    const selected = await open({
-      multiple: true,
-      directory: false,
-    })
+    const selected = await open({ multiple: !directory, directory })
     const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
     if (paths.length === 0) {
       return
     }
-    await runCommand<Snapshot>('send_paths', {
+    setPendingSend({
       hosts: selectedPeer.hosts,
+      peerLabel: selectedPeer.remark ?? selectedPeer.label,
       paths,
     })
   }
 
-  async function sendFolder() {
-    if (!selectedPeer) {
+  async function confirmSend() {
+    if (!pendingSend) {
       return
     }
-    const selected = await open({
-      multiple: false,
-      directory: true,
-    })
-    const paths = Array.isArray(selected) ? selected : selected ? [selected] : []
-    if (paths.length === 0) {
-      return
+    const { hosts, paths } = pendingSend
+    setPendingSend(null)
+    await runCommand<Snapshot>('send_paths', { hosts, paths })
+  }
+
+  async function setDefaultSaveDir() {
+    const picked = await open({ multiple: false, directory: true })
+    if (typeof picked === 'string') {
+      const next = { ...snapshot.settings, defaultSaveDir: picked }
+      setSettingsDraft((draft) => ({ ...draft, defaultSaveDir: picked }))
+      await runCommand<Snapshot>('save_settings', { settings: next })
     }
-    await runCommand<Snapshot>('send_paths', {
-      hosts: selectedPeer.hosts,
-      paths,
-    })
+  }
+
+  function beginEditRemark(peerName: string, current: string) {
+    setEditingRemark(peerName)
+    setRemarkDraft(current)
+  }
+
+  async function commitRemark(peerName: string) {
+    setEditingRemark(null)
+    await runCommand<Snapshot>('set_peer_remark', { hostname: peerName, remark: remarkDraft.trim() })
   }
 
   async function runWindowAction(event: React.MouseEvent, action: 'close' | 'minimize' | 'toggleMaximize') {
@@ -378,7 +317,8 @@ function App() {
     await appWindow.close()
   }
 
-  const incoming = snapshot.transfers.filter((transfer) => transfer.direction === 'incoming' && transfer.status === 1)
+  // Pending incoming offers are handled by the native receive popup now, so the
+  // main window only lists transfers that have moved past the decision stage.
   const transfers = snapshot.transfers.filter((transfer) => transfer.status !== 1)
   const selectedPeerHosts = selectedPeer?.hosts.join(' / ') ?? '等待设备发现'
 
@@ -438,50 +378,37 @@ function App() {
         </div>
       ) : null}
 
-      {incoming.length > 0 ? (
+      {pendingSend ? (
         <section className="dialog-backdrop" aria-live="polite">
           <div className="dialog">
             <div className="section-heading">
-              <span>文件接收</span>
-              <small>{incoming.length} 个请求</small>
+              <span>确认发送</span>
+              <small>{pendingSend.paths.length} 个项目</small>
             </div>
             <div className="dialog-list">
-              {incoming.map((transfer) => (
-                <article className="request-row" key={transfer.key}>
-                  <div className="row-main">
-                    <strong>{transfer.fileName}</strong>
-                    <span>
-                      {transfer.peer} · {formatBytes(transfer.total)}
-                    </span>
-                  </div>
-                  <div className="row-actions">
-                    <button
-                      className="button primary"
-                      type="button"
-                      onClick={() =>
-                        void runCommand<Snapshot>('accept_transfer', {
-                          transferKey: transfer.key,
-                        })
-                      }
-                    >
-                      <Check size={16} />
-                      接收
-                    </button>
-                    <button
-                      className="button"
-                      type="button"
-                      onClick={() =>
-                        void runCommand<Snapshot>('reject_transfer', {
-                          transferKey: transfer.key,
-                        })
-                      }
-                    >
-                      <X size={16} />
-                      拒绝
-                    </button>
-                  </div>
-                </article>
+              <article className="request-row">
+                <div className="row-main">
+                  <strong>发送到 {pendingSend.peerLabel}</strong>
+                  <span>共 {pendingSend.paths.length} 个项目</span>
+                </div>
+              </article>
+              {pendingSend.paths.slice(0, 8).map((path) => (
+                <div className="confirm-path" key={path} title={path}>
+                  {baseName(path)}
+                </div>
               ))}
+              {pendingSend.paths.length > 8 ? (
+                <div className="confirm-path confirm-path--more">… 等 {pendingSend.paths.length} 个</div>
+              ) : null}
+            </div>
+            <div className="card-footer">
+              <button className="button" type="button" onClick={() => setPendingSend(null)}>
+                取消
+              </button>
+              <button className="button primary" type="button" disabled={busy} onClick={() => void confirmSend()}>
+                <Upload size={15} />
+                确认发送
+              </button>
             </div>
           </div>
         </section>
@@ -515,7 +442,7 @@ function App() {
                   title="刷新设备列表"
                   onClick={() => void refresh()}
                 >
-                  <RefreshCw size={14} />
+                  <RefreshCw size={14} className={refreshing ? 'spin' : undefined} />
                 </button>
               </div>
               <div className="device-list">
@@ -523,18 +450,45 @@ function App() {
                   <p className="empty">暂无设备。开启服务后会自动发现同一网络中运行 AnyDrop 的设备。</p>
                 ) : (
                   snapshot.peers.map((peer) => (
-                    <button
+                    <div
                       className={peer.name === selectedPeerName ? 'device-row selected' : 'device-row'}
                       key={peer.name}
-                      type="button"
                       onClick={() => setSelectedPeerName(peer.name)}
                     >
                       <span className="device-dot" />
                       <span className="row-main">
-                        <strong>{peer.label}</strong>
+                        {editingRemark === peer.name ? (
+                          <input
+                            className="remark-input"
+                            autoFocus
+                            value={remarkDraft}
+                            placeholder={peer.name}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => setRemarkDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void commitRemark(peer.name)
+                              if (e.key === 'Escape') setEditingRemark(null)
+                            }}
+                            onBlur={() => void commitRemark(peer.name)}
+                          />
+                        ) : (
+                          <strong>{peer.remark ?? peer.label}</strong>
+                        )}
                         <small>{peer.hosts.join(' / ')}</small>
                       </span>
-                    </button>
+                      <button
+                        className="icon-button icon-button--ghost device-remark-edit"
+                        type="button"
+                        aria-label="备注"
+                        title="设置本地备注名"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          beginEditRemark(peer.name, peer.remark ?? '')
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
                   ))
                 )}
               </div>
@@ -561,7 +515,7 @@ function App() {
                     className="button primary"
                     type="button"
                     disabled={!selectedPeer || busy}
-                    onClick={() => void sendFiles()}
+                    onClick={() => void stageSend(false)}
                   >
                     <Upload size={16} />
                     选择文件
@@ -570,7 +524,7 @@ function App() {
                     className="button"
                     type="button"
                     disabled={!selectedPeer || busy}
-                    onClick={() => void sendFolder()}
+                    onClick={() => void stageSend(true)}
                   >
                     <FolderOpen size={16} />
                     选择文件夹
@@ -685,12 +639,27 @@ function App() {
                             </>
                           ) : (
                             <>
+                              {transfer.status === 7 && transfer.direction === 'incoming' ? (
+                                <button
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="速览"
+                                  title="速览此文件"
+                                  onClick={() =>
+                                    void runCommand<void>('preview_file', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <Eye size={15} />
+                                </button>
+                              ) : null}
                               {transfer.localPath ? (
                                 <button
                                   className="icon-button"
                                   type="button"
                                   aria-label="打开所在目录"
-                                  title="打开所在目录"
+                                  title="打开所在目录并选中"
                                   onClick={() =>
                                     void runCommand<void>('open_transfer_folder', {
                                       transferKey: transfer.key,
@@ -762,7 +731,11 @@ function App() {
                 {busy ? <small>正在应用…</small> : null}
               </div>
               <label className="toggle-row">
-                <input checked={darkMode} type="checkbox" onChange={(event) => setDarkMode(event.target.checked)} />
+                <input
+                  checked={darkMode}
+                  type="checkbox"
+                  onChange={(event) => void setBoolSetting('darkMode', event.target.checked)}
+                />
                 <span>深色模式</span>
               </label>
               <label className="toggle-row">
@@ -796,6 +769,23 @@ function App() {
                   onChange={(event) => void setBoolSetting('syncImageEnabled', event.target.checked)}
                 />
                 <span>同步剪贴板图片（最大 64MB）</span>
+              </label>
+              <label className="toggle-row">
+                <input
+                  checked={snapshot.settings.clipboardPopupEnabled}
+                  type="checkbox"
+                  onChange={(event) => void setBoolSetting('clipboardPopupEnabled', event.target.checked)}
+                />
+                <span>收到剪贴板时弹窗提示</span>
+              </label>
+              <label className="field">
+                <span>默认保存目录</span>
+                <div className="field-row">
+                  <input type="text" readOnly value={snapshot.settings.defaultSaveDir} title={snapshot.settings.defaultSaveDir} />
+                  <button className="button" type="button" disabled={busy} onClick={() => void setDefaultSaveDir()}>
+                    更改
+                  </button>
+                </div>
               </label>
               <label className="field">
                 <span>本机外显名</span>
