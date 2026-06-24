@@ -255,7 +255,7 @@ export default function ReceivePopup() {
                     onClick={() => void invoke('open_transfer_folder', { transferKey: t.key })}
                   >
                     <FolderOpen size={15} />
-                    打开
+                    打开目录
                   </button>
                 ) : null}
                 <button className="button" type="button" onClick={() => dismiss(t.key)}>

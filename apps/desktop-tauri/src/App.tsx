@@ -694,10 +694,25 @@ function App() {
                           <span style={{ width: `${percent(transfer)}%` }} />
                         </div>
                         <div className="row-actions">
-                          {/* In-flight (status=4): Pause + Cancel.
+                          {/* Awaiting accept (status=10): Cancel only.
+                              In-flight (status=4): Pause + Cancel.
                               Paused (status=9): Resume + Cancel.
                               Terminal (5/6/7/2): Open folder + Dismiss. */}
-                          {transfer.status === 4 ? (
+                          {transfer.status === 10 ? (
+                            <button
+                              className="icon-button icon-button--ghost"
+                              type="button"
+                              aria-label="取消"
+                              title="取消发送"
+                              onClick={() =>
+                                void runCommand<Snapshot>('cancel_transfer', {
+                                  transferKey: transfer.key,
+                                })
+                              }
+                            >
+                              <X size={15} />
+                            </button>
+                          ) : transfer.status === 4 ? (
                             <>
                               <button
                                 className="icon-button icon-button--ghost"

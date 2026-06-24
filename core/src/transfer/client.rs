@@ -140,7 +140,10 @@ pub(crate) async fn send_paths_impl(
 
     // Seed the host UI with a transfer-summary label before any per-item
     // progress fires — otherwise the row gets named after the first file in
-    // the list, which is wrong/confusing when the user picked a folder.
+    // the list, which is wrong/confusing when the user picked a folder. Status
+    // is AwaitingAccept: we've not connected/streamed yet, we're about to ask
+    // the peer to accept — the sender UI should show "waiting for response"
+    // rather than a stuck "in progress".
     on_progress(ProgressUpdate {
         transfer_id,
         direction: Direction::Send,
@@ -152,7 +155,7 @@ pub(crate) async fn send_paths_impl(
         bytes_done: 0,
         total_size,
         total_done: 0,
-        status: TransferStatus::InProgress,
+        status: TransferStatus::AwaitingAccept,
         error: None,
     });
 

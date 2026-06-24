@@ -407,6 +407,8 @@ fn transfer_status_to_u8(status: TransferStatus) -> u8 {
         TransferStatus::Rejected => 2,
         TransferStatus::Cancelled => 5,
         TransferStatus::Paused => 9,
+        // Sender-side: waiting for the peer to accept/reject.
+        TransferStatus::AwaitingAccept => 10,
     }
 }
 
@@ -1712,7 +1714,7 @@ fn send_paths(
             direction: "outgoing".to_string(),
             progress: 0,
             total: 0,
-            status: 4,
+            status: 10, // awaiting peer accept/reject (no bytes yet)
             error: None,
             speed_bps: 0.0,
             speed_last_at: None,
@@ -1960,7 +1962,7 @@ fn clear_transfers(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
         .transfers
         .lock()
         .unwrap()
-        .retain(|_, t| matches!(t.status, 1 | 4 | 9));
+        .retain(|_, t| matches!(t.status, 1 | 4 | 9 | 10));
     backend.persist_transfers();
     emit_snapshot(&app);
     backend.snapshot()

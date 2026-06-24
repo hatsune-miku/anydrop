@@ -37,6 +37,9 @@ pub enum Direction {
 pub enum TransferStatus {
     /// Offer received; waiting on user decision.
     PendingDecision,
+    /// Sender side: offer sent, waiting for the peer to accept or reject (no
+    /// bytes are flowing yet).
+    AwaitingAccept,
     /// Bytes flowing.
     InProgress,
     /// One item finished; more to go.

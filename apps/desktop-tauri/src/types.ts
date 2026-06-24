@@ -104,6 +104,8 @@ export function transferStatus(status: number): string {
       return '错误'
     case 9:
       return '已暂停'
+    case 10:
+      return '等待对方接受'
     default:
       return '未知'
   }
