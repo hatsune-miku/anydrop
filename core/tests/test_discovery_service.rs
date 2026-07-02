@@ -82,7 +82,12 @@ fn handle_new_peer_sends_response_as_single_datagram() {
     assert_eq!(response.server_port(), response_port as u32);
 
     let locked = peers.lock().unwrap();
-    assert!(locked.iter().any(|peer| peer.host() == "127.0.0.1"));
+    let peer = locked
+        .iter()
+        .find(|peer| peer.host() == "127.0.0.1")
+        .expect("peer added");
+    // device_id from the packet round-trips onto the discovered peer.
+    assert_eq!(peer.device_id(), "dev-xyz");
 }
 
 #[test]
@@ -125,7 +130,9 @@ fn handle_new_peer_keeps_same_hostname_addresses() {
 }
 
 #[test]
-fn discovery_run_accepts_single_datagram_packets() {
+fn discovery_run_ignores_loopback_source() {
+    // A datagram whose real UDP source is loopback (our own broadcast bouncing
+    // back) must NOT be added as a peer — otherwise we'd send to ourselves.
     let server_port = unused_udp_port();
     let peers: PeerCollectionType = Arc::new(Mutex::new(HashSet::new()));
     let should_stop = Arc::new(AtomicBool::new(false));
@@ -148,6 +155,7 @@ fn discovery_run_accepts_single_datagram_packets() {
 
     thread::sleep(Duration::from_millis(250));
 
+    // Sent over loopback → the server sees src 127.0.0.1.
     let client = UdpSocket::bind("127.0.0.1:0").unwrap();
     let packet = packet(Ipv4Addr::LOCALHOST, server_port, false, 99);
     let bytes = packet.write_to_bytes().unwrap();
@@ -155,25 +163,14 @@ fn discovery_run_accepts_single_datagram_packets() {
         .send_to(&bytes, SocketAddrV4::new(Ipv4Addr::LOCALHOST, server_port))
         .unwrap();
 
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while Instant::now() < deadline {
-        if let Some(peer) = peers
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|peer| peer.host() == "127.0.0.1")
-        {
-            // device_id from the packet round-trips onto the discovered peer.
-            assert_eq!(peer.device_id(), "dev-xyz");
-            should_stop.store(true, Ordering::SeqCst);
-            handle.join().unwrap();
-            return;
-        }
-
-        thread::sleep(Duration::from_millis(50));
-    }
-
+    // Give it time to (not) be processed, then assert no loopback peer appeared.
+    thread::sleep(Duration::from_millis(600));
+    let added = peers
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|peer| peer.host() == "127.0.0.1");
     should_stop.store(true, Ordering::SeqCst);
     handle.join().unwrap();
-    panic!("discovery service did not accept a single datagram discovery packet");
+    assert!(!added, "loopback source must not be added as a peer");
 }

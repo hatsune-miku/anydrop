@@ -750,6 +750,13 @@ fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
     }
     let mut groups: BTreeMap<String, Agg> = BTreeMap::new();
     for peer in peers {
+        // Safety net: never surface loopback / unspecified as a peer (would let
+        // us send to ourselves). Discovery/mDNS already drop these at the source.
+        if let Ok(ip) = peer.host().parse::<Ipv4Addr>() {
+            if ip.is_loopback() || ip.is_unspecified() {
+                continue;
+            }
+        }
         let dev = peer.device_id().clone();
         let key = if dev.is_empty() {
             format!("ip:{}", peer.host())

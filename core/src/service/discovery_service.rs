@@ -383,6 +383,14 @@ impl DiscoveryService {
                 // is genuinely reachable from us, which is the only address we
                 // should ever try for data connections.
                 if let SocketAddr::V4(v4_src) = src_addr {
+                    // Ignore our own broadcast looping back via loopback. The
+                    // self-check in handle_new_peer uses real-NIC addresses only
+                    // (loopback excluded), so a 127.0.0.1 source would otherwise
+                    // be added as a peer — making us send clipboard/files to
+                    // ourselves.
+                    if v4_src.ip().is_loopback() || v4_src.ip().is_unspecified() {
+                        continue;
+                    }
                     packet.set_address(v4_src.ip().to_u32());
                 }
 

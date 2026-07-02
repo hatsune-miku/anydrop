@@ -159,6 +159,9 @@ fn handle_resolved(
         let IpAddr::V4(v4) = addr else {
             continue; // IPv6 elided for now — the rest of the stack is v4
         };
+        if v4.is_loopback() || v4.is_unspecified() {
+            continue; // never treat 127.0.0.1 / 0.0.0.0 as a peer
+        }
         let peer = Peer::from(&v4, port, Some(&display)).with_device_id(device_id.clone());
         let host_key = peer.host().clone();
         peer_set.replace(peer);
