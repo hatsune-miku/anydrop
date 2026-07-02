@@ -267,6 +267,20 @@ textarea {
   gap: 4px;
 }
 
+// "清空" stays hidden until the pointer enters its region (the card) — a quiet
+// affordance that doesn't compete with the content. Keyboard focus reveals it too.
+.clear-on-hover {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t1) var(--c2);
+}
+
+.card:hover .clear-on-hover,
+.clear-on-hover:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 // ── Panels (borderless fusion) ─────────────────────────────────────────────
 .surface-shell,
 .card,

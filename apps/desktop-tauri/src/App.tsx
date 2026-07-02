@@ -727,15 +727,15 @@ function App() {
                     <Hint text="时间降序排列" />
                   </span>
                   <div className="heading-actions">
-                    <small>{transfers.length} 条记录</small>
                     <button
-                      className="button quiet"
+                      className="button quiet clear-on-hover"
                       type="button"
                       style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
                       onClick={() => void runCommand<Snapshot>('clear_transfers')}
                     >
                       清空
                     </button>
+                    <small>{transfers.length} 条记录</small>
                   </div>
                 </div>
                 {transfers.length === 0 ? (
@@ -923,7 +923,7 @@ function App() {
                   <div className="heading-actions">
                     {!logsCollapsed ? (
                       <button
-                        className="button quiet"
+                        className="button quiet clear-on-hover"
                         type="button"
                         style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
                         onClick={() => void runCommand<Snapshot>('clear_logs')}
