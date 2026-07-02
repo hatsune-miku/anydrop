@@ -1,3 +1,67 @@
+// AnyDrop UI — crafted with CakeDesign.
+//
+// Design intent: 和谐 · 干练 · 洁净 · 实用 · 克制 · 灵动.
+//   * One accent (rose), extracted from the project's existing brand tone.
+//   * Borderless fusion — regions are separated by tonal fills + whitespace,
+//     never by drawn module borders ("N 分天下" is avoided).
+//   * Shadows only ever (a) simulate a solid inner edge, or (b) render a very
+//     large-blur, low-opacity atmosphere. No tight drop shadows.
+//   * Motion rides the CakeDesign curve/duration tokens.
+//   * Self-implemented type scale (no h1–h4), no italics, no ligatures.
+
+:root {
+  // ── Accent (rose). Single brand hue; kept away from the blue-fatigue band.
+  --rose: #d15776;
+  --rose-strong: #be476a;
+  --rose-tint: rgba(209, 87, 118, 0.14);
+  --rose-tint-soft: rgba(209, 87, 118, 0.08);
+  // Danger stays hue-adjacent to rose (warm) so the palette reads as one family.
+  --danger: #c0453f;
+  --danger-tint: rgba(192, 69, 63, 0.12);
+
+  // ── Neutrals over a warm-paper canvas.
+  --paper: #f4f1ee;
+  --panel: rgba(255, 255, 255, 0.66);
+  --panel-strong: rgba(255, 255, 255, 0.9);
+  --control: rgba(255, 255, 255, 0.7);
+  --control-hover: rgba(255, 255, 255, 0.98);
+  --fill-soft: rgba(38, 34, 31, 0.04);
+  --fill-softer: rgba(38, 34, 31, 0.028);
+  --ink: #2a2521;
+  --ink-soft: #8a807a;
+  --hairline: rgba(38, 34, 31, 0.09);
+  // Opaque base under transparent-window bubbles.
+  --bubble-base: #ffffff;
+
+  // ── Shadow tokens (the only two sanctioned uses).
+  --inset-hairline: inset 0 0 0 1px rgba(38, 34, 31, 0.06);
+  --inset-edge: inset 0 0 0 1px var(--hairline);
+  --atmosphere: 0 0 40px 6px rgba(31, 27, 22, 0.12);
+  --atmosphere-strong: 0 0 56px 10px rgba(31, 27, 22, 0.16);
+
+  // ── Motion (CakeDesign C/T tokens).
+  --c1: ease-in;
+  --c2: cubic-bezier(0.29, 0, 0, 1);
+  --c3: linear;
+  --t1: 150ms;
+  --t2: 200ms;
+  --t3: 250ms;
+
+  // ── Type scale — adjacent steps stay within 30% pixel height.
+  --fs-title: 15px;
+  --fs-body: 13px;
+  --fs-meta: 12px;
+  --fs-fine: 11px;
+
+  color: var(--ink);
+  background: var(--paper);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', system-ui, sans-serif;
+  font-size: var(--fs-body);
+  font-synthesis: none;
+  font-variant-ligatures: none;
+  text-rendering: geometricPrecision;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -8,35 +72,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(97, 112, 131, 0.28);
+  background: rgba(138, 128, 122, 0.3);
   border-radius: 99px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(97, 112, 131, 0.5);
-}
-
-:root {
-  --accent-blue: rgb(81, 131, 178);
-  --accent-blue-soft: rgb(170, 212, 248);
-  --surface-base: rgb(242, 245, 250);
-  --accent-pink-soft: rgb(241, 167, 181);
-  --accent-pink: rgb(213, 82, 118);
-  --text: #1f2933;
-  --text-subtle: #617083;
-  --line: rgba(31, 41, 51, 0.1);
-  --line-strong: rgba(81, 131, 178, 0.24);
-  --card: rgba(255, 255, 255, 0.86);
-  --control: rgba(255, 255, 255, 0.68);
-  --control-hover: rgba(255, 255, 255, 0.96);
-  /* Opaque base for the transparent-window popup bubbles. */
-  --bubble-base: #ffffff;
-  color: var(--text);
-  background: var(--surface-base);
-  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
-  font-size: 13px;
-  font-synthesis: none;
-  text-rendering: geometricPrecision;
+  background: rgba(138, 128, 122, 0.52);
 }
 
 * {
@@ -68,44 +109,37 @@ textarea {
   -webkit-user-select: text;
 }
 
+// ── Shell ────────────────────────────────────────────────────────────────
 .app-shell {
   display: grid;
-  /* First row is auto so it collapses to zero when the custom titlebar
-     is not rendered (macOS uses native window chrome instead). */
+  // First row collapses to zero on macOS (native chrome instead of titlebar).
   grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
-  background: var(--surface-base);
+  background: var(--paper);
 }
 
+// Titlebar carries no product name — only a drag region and window controls.
+// (CakeDesign: the software's own name is not useful in a prominent area.)
 .window-titlebar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  min-height: 46px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(242, 245, 250, 0.96);
+  min-height: 44px;
+  background: transparent;
 }
 
 .window-title {
-  overflow: hidden;
   padding-left: 16px;
-  color: var(--text-subtle);
-  font-size: 13px;
-  line-height: 46px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-/* macOS Overlay titlebar: just a thin drag region. No background, no border,
-   no title text — let the webview content blend right up to the window edge.
-   The native traffic lights float above this area automatically. */
+// macOS Overlay titlebar: a thin, invisible drag strip clearing the traffic
+// lights; the webview blends to the window edge.
 .window-titlebar--mac {
   grid-template-columns: 1fr;
-  min-height: 32px;
+  min-height: 30px;
   padding: 0;
   background: transparent;
-  border-bottom: 0;
 }
 
 .window-controls {
@@ -115,29 +149,32 @@ textarea {
 
 .window-control {
   display: grid;
-  width: 46px;
-  min-height: 46px;
+  width: 44px;
+  min-height: 44px;
   place-items: center;
   background: transparent;
-  color: var(--text);
+  color: var(--ink-soft);
   cursor: default;
+  transition: background var(--t1) var(--c2), color var(--t1) var(--c2);
 }
 
 .window-control:hover {
-  background: rgba(81, 131, 178, 0.1);
+  background: var(--fill-soft);
+  color: var(--ink);
 }
 
 .window-control.close:hover {
   background: #c42b1c;
-  color: white;
+  color: #fff;
 }
 
+// ── Content frame ──────────────────────────────────────────────────────────
 .app-window {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   height: 100%;
-  padding: 18px;
+  padding: 6px 18px 18px;
 }
 
 .content-header {
@@ -145,41 +182,49 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  min-height: 48px;
+  min-height: 44px;
+  padding: 0 4px;
 }
 
 .app-identity {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.app-icon {
-  display: grid;
-  width: 32px;
-  height: 32px;
+// Service status indicator — a quiet dot + restrained label, not a shouted title.
+.status-dot {
+  width: 9px;
+  height: 9px;
   flex: 0 0 auto;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--accent-pink);
-  color: white;
-  font-weight: 600;
+  border-radius: 99px;
+  background: var(--ink-soft);
+  opacity: 0.5;
+  transition: background var(--t2) var(--c2), opacity var(--t2) var(--c2);
 }
 
-.app-identity h1 {
-  margin: 0;
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
+.status-dot--on {
+  background: var(--rose);
+  opacity: 1;
 }
 
-.app-identity p {
+.status-text {
+  min-width: 0;
+}
+
+.status-title {
+  color: var(--ink);
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.status-text p {
   overflow: hidden;
-  margin: 2px 0 0;
-  color: var(--text-subtle);
-  font-size: 13px;
+  margin: 1px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -191,133 +236,38 @@ textarea {
   gap: 8px;
 }
 
-.summary-bar {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.summary-item {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.summary-item span,
-.section-heading small,
-.row-main span,
-.row-main small,
-.empty,
-.info-row p {
-  color: var(--text-subtle);
-}
-
-.summary-item strong {
-  color: var(--accent-blue);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
-}
-
+// Three open regions on the shared canvas — no drawn module borders.
 .content-grid {
   display: grid;
   grid-template-columns: 250px minmax(420px, 1fr) 282px;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .main-stack {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
   min-height: 0;
 }
 
-/* Three-row variant: send (fixed) + transfers + log (equal flexible) */
 .main-stack--with-log {
   grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr);
 }
 
-/* Log collapsed: it shrinks to just its header, transfers take the space. */
 .main-stack--log-collapsed {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
-/* Groups the trailing controls in a section heading (count + clear/collapse). */
 .heading-actions {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-/* Genshin-style hotkey indicator overlaid on a bounded host. */
-.hotkey-host {
-  position: relative;
-  overflow: visible;
-}
-
-.hotkey-badge {
-  position: absolute;
-  left: 50%;
-  top: 100%;
-  /* Centered horizontally; sits straddling the host's bottom edge. */
-  transform: translate(-50%, -35%);
-  display: inline-flex;
-  pointer-events: none;
-}
-
-.hotkey-key {
-  display: inline-grid;
-  min-width: 15px;
-  height: 16px;
-  padding: 0 3px;
-  place-items: center;
-  border: 1px solid rgba(31, 41, 51, 0.28);
-  border-radius: 4px;
-  background: #fbfdff;
-  color: #1f2933;
-  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-/* Drag-and-drop upload overlay. */
-.drop-overlay {
-  position: fixed;
-  z-index: 60;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(81, 131, 178, 0.18);
-  backdrop-filter: blur(1px);
-}
-
-.drop-overlay-card {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  padding: 22px 30px;
-  border: 2px dashed var(--accent-blue);
-  border-radius: 14px;
-  background: var(--card);
-  color: var(--accent-blue);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.two-column {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
-}
-
+// ── Panels (borderless fusion) ─────────────────────────────────────────────
 .surface-shell,
 .card,
 .full-height {
@@ -325,36 +275,40 @@ textarea {
   min-height: 0;
 }
 
+// A region reads as a soft tonal fill with a simulated inner edge — never a
+// hard border box.
 .card {
   display: flex;
   overflow: hidden;
   height: 100%;
   flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--inset-hairline);
 }
 
+// Region label: quiet, not a heavy chip; separated by weight + space, not a rule.
 .section-heading {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: 42px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--line);
+  min-height: 40px;
+  padding: 4px 14px 0;
 }
 
 .section-heading span {
-  color: var(--text);
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
   font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .section-heading small {
   overflow: hidden;
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -365,48 +319,9 @@ textarea {
 .dialog-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 4px;
   overflow: auto;
   padding: 8px;
-}
-
-.device-row,
-.request-row,
-.transfer-row,
-.target-row,
-.info-row,
-.toggle-row {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-}
-
-.device-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  width: 100%;
-  align-items: center;
-  min-height: 46px;
-  padding: 7px 9px;
-  color: var(--text);
-  text-align: left;
-}
-
-.device-row:hover {
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.device-row.selected {
-  border-color: rgba(213, 82, 118, 0.28);
-  background: rgba(241, 167, 181, 0.16);
-}
-
-.device-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 99px;
-  background: var(--accent-pink);
 }
 
 .row-main {
@@ -417,9 +332,9 @@ textarea {
 
 .row-main strong {
   overflow: hidden;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 400;
+  color: var(--ink);
+  font-size: var(--fs-body);
+  font-weight: 500;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -428,12 +343,78 @@ textarea {
 .row-main span,
 .row-main small {
   overflow: hidden;
-  font-size: 13px;
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.empty {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--ink-soft);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+// ── Device list ────────────────────────────────────────────────────────────
+.device-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  width: 100%;
+  align-items: center;
+  min-height: 46px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  color: var(--ink);
+  text-align: left;
+  background: transparent;
+  transition: background var(--t1) var(--c2);
+}
+
+.device-row:hover {
+  background: var(--fill-soft);
+}
+
+.device-row.selected {
+  background: var(--rose-tint);
+}
+
+.device-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+  background: var(--rose);
+}
+
+.device-remark-edit {
+  width: 24px;
+  min-height: 24px;
+  opacity: 0;
+  transition: opacity var(--t1) var(--c2);
+}
+
+.device-row:hover .device-remark-edit,
+.device-row.selected .device-remark-edit {
+  opacity: 1;
+}
+
+.remark-input {
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: var(--control-hover);
+  box-shadow: inset 0 0 0 1px var(--rose);
+  color: var(--ink);
+  font-size: var(--fs-body);
+}
+
+// ── Send region ────────────────────────────────────────────────────────────
 .send-card {
   min-height: 132px;
 }
@@ -443,9 +424,10 @@ textarea {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  margin: 12px 14px 0;
+  margin: 10px 12px 0;
   padding: 10px;
-  background: rgba(242, 245, 250, 0.72);
+  border-radius: 10px;
+  background: var(--fill-softer);
 }
 
 .target-icon {
@@ -453,9 +435,9 @@ textarea {
   width: 30px;
   height: 30px;
   place-items: center;
-  border-radius: 7px;
-  background: rgba(170, 212, 248, 0.36);
-  color: var(--accent-blue);
+  border-radius: 8px;
+  background: var(--rose-tint);
+  color: var(--rose);
 }
 
 .send-actions,
@@ -467,76 +449,11 @@ textarea {
 }
 
 .send-actions {
-  padding: 12px 14px 14px;
+  flex-wrap: wrap;
+  padding: 12px;
 }
 
-.message-card,
-.clipboard-card {
-  min-height: 176px;
-}
-
-textarea {
-  min-height: 92px;
-  flex: 1;
-  resize: none;
-  margin: 10px 14px 0;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  outline: none;
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-textarea::placeholder {
-  color: rgba(97, 112, 131, 0.72);
-}
-
-textarea:focus,
-.field input:focus {
-  border-color: rgba(213, 82, 118, 0.46);
-  box-shadow: 0 0 0 2px rgba(241, 167, 181, 0.24);
-}
-
-.card-footer {
-  justify-content: flex-end;
-  padding: 10px 14px 14px;
-}
-
-.clipboard-card {
-  gap: 8px;
-  padding-bottom: 10px;
-}
-
-.info-row {
-  display: grid;
-  gap: 4px;
-  margin: 0 14px;
-  padding: 9px 10px;
-  background: rgba(242, 245, 250, 0.62);
-}
-
-.info-row:first-of-type {
-  margin-top: 10px;
-}
-
-.info-row label {
-  color: var(--accent-blue);
-  font-size: 13px;
-}
-
-.info-row p {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
+// ── Transfers ──────────────────────────────────────────────────────────────
 .transfers-card {
   min-height: 0;
 }
@@ -548,75 +465,79 @@ textarea:focus,
   align-items: center;
   min-height: 44px;
   padding: 7px 9px;
-  background: rgba(255, 255, 255, 0.42);
+  border-radius: 9px;
+  background: transparent;
+  transition: background var(--t1) var(--c2);
+}
+
+.transfer-row:hover {
+  background: var(--fill-soft);
 }
 
 .transfer-row--error {
-  background: rgba(213, 82, 118, 0.06);
-  border-left: 3px solid var(--accent-pink);
-  padding-left: 6px;
+  background: var(--danger-tint);
 
   .progress-track span {
-    background: var(--accent-pink);
+    background: var(--danger);
   }
 }
 
 .transfer-error {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 2px;
-  color: var(--accent-pink);
-  font-size: 11px;
+  overflow: hidden;
+  color: var(--danger);
+  font-size: var(--fs-fine);
   line-height: 1.4;
   white-space: nowrap;
-  overflow: hidden;
   text-overflow: ellipsis;
+
+  svg {
+    flex: 0 0 auto;
+  }
 }
 
 .progress-track {
   height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(170, 212, 248, 0.48);
+  background: var(--rose-tint);
 }
 
 .progress-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent-blue);
+  background: var(--rose);
+  transition: width var(--t2) var(--c2);
 }
 
-/* Completed rows: keep the grid column but show no bar. */
 .progress-track--empty {
   background: transparent;
 }
 
-/* Hover detail tooltip for a transfer row (portaled to body, positioned fixed
-   over the row, rendered above it). */
+// ── Hover detail tooltip (portaled, fixed above the row) ────────────────────
 .row-tooltip {
   position: fixed;
   z-index: 9999;
   transform: translateY(calc(-100% - 8px));
-  /* Media (left) + info (right), side by side. */
   display: flex;
   align-items: flex-start;
   gap: 12px;
   width: max-content;
   max-width: 460px;
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  /* Themed: opaque surface + theme text colors (light in light mode). */
+  padding: 10px 12px;
+  border-radius: 12px;
   background: var(--bubble-base);
-  color: var(--text);
-  font-size: 11px;
+  box-shadow: var(--inset-edge), var(--atmosphere);
+  color: var(--ink);
+  font-size: var(--fs-fine);
   line-height: 1.4;
   pointer-events: none;
-  box-shadow: 0 6px 20px rgba(31, 41, 51, 0.18);
 }
 
-/* Inline media preview inside the hover tooltip: a square, transparent box
-   with the media contained (letterboxed). */
 .row-tooltip-media {
   width: 180px;
   height: 180px;
@@ -631,7 +552,6 @@ textarea:focus,
   }
 }
 
-/* Right column: the key/value lines. */
 .row-tooltip-info {
   display: grid;
   gap: 3px;
@@ -645,7 +565,7 @@ textarea:focus,
 }
 
 .row-tooltip-line span {
-  color: var(--text-subtle);
+  color: var(--ink-soft);
   white-space: nowrap;
 }
 
@@ -654,19 +574,45 @@ textarea:focus,
   font-weight: 500;
   text-align: right;
   word-break: break-all;
-  color: var(--text);
+  color: var(--ink);
 }
 
+// ── Log ────────────────────────────────────────────────────────────────────
+.log-card {
+  min-height: 0;
+}
+
+.log-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 6px 10px 8px;
+  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+  font-size: var(--fs-fine);
+  line-height: 1.55;
+}
+
+.log-entry {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: var(--ink-soft);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.log-entry:hover {
+  background: var(--fill-soft);
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
 .settings-pane .card {
   gap: 0;
 }
 
-/* Scrollable settings body; the save button is pinned in a footer below it. */
 .settings-scroll {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -674,10 +620,10 @@ textarea:focus,
 }
 
 .settings-footer {
+  display: grid;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 10px 14px;
-  border-top: 1px solid var(--line);
-  background: var(--card);
+  padding: 12px 14px;
 }
 
 .settings-footer .full-width {
@@ -685,94 +631,12 @@ textarea:focus,
   margin: 0;
 }
 
-/* Fixed-width numeric input that fits exactly three digits, monospace. */
-.field input.band-input {
-  width: calc(3ch + 20px);
-  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+// Low-key about line — version is discoverable, never prominent.
+.about-line {
+  color: var(--ink-soft);
+  font-size: var(--fs-fine);
   text-align: center;
-  letter-spacing: 1px;
-}
-
-/* Read-only paired-port display (not an input). */
-.static-value {
-  display: flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: rgba(127, 127, 127, 0.08);
-  color: var(--text-subtle);
-  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
-}
-
-/* "?" hint badge with a custom hover/focus tooltip (not a native title). */
-.field-hint {
-  position: relative;
-  display: inline-grid;
-  width: 14px;
-  height: 14px;
-  margin-left: 4px;
-  place-items: center;
-  border-radius: 99px;
-  background: rgba(97, 112, 131, 0.28);
-  color: var(--text);
-  font-size: 10px;
-  font-weight: 600;
-  cursor: help;
-  vertical-align: middle;
-  outline: none;
-}
-
-/* In a section heading the badge sits next to bold 13px text — make it
-   smaller and lighter so it reads as a subtle hint, not a heavy chip. */
-.section-heading .field-hint {
-  width: 14px;
-  height: 14px;
-  background: rgba(97, 112, 131, 0.16);
-  color: var(--text-subtle);
-  font-size: 10px;
-  font-weight: 700;
-  vertical-align: baseline;
-}
-
-.field-hint:hover {
-  background: rgba(81, 131, 178, 0.5);
-}
-
-/* Portaled to document.body, positioned fixed over the badge (centered above).
-   Inline left/top come from the badge's bounding rect. */
-.field-tooltip {
-  position: fixed;
-  z-index: 9999;
-  transform: translate(-50%, calc(-100% - 6px));
-  width: max-content;
-  max-width: 220px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: rgba(31, 41, 51, 0.96);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.45;
-  text-align: left;
-  white-space: normal;
-  pointer-events: none;
-}
-
-/* "正在应用…" state: dims the whole pane and disables interaction.
-   Activates while save_settings is in flight (service restart pending). */
-.settings-pane--busy {
-  position: relative;
-  pointer-events: none;
-  opacity: 0.55;
-  filter: saturate(0.6);
-  transition: opacity 120ms ease;
-}
-
-.settings-pane--busy .section-heading small {
-  color: var(--accent-blue);
-  font-style: italic;
+  line-height: 1.5;
 }
 
 .toggle-row {
@@ -780,10 +644,16 @@ textarea:focus,
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  min-height: 28px;
+  min-height: 30px;
   margin: 0 8px;
-  padding: 0 6px;
-  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: var(--ink);
+  transition: background var(--t1) var(--c2);
+}
+
+.toggle-row:hover {
+  background: var(--fill-softer);
 }
 
 .toggle-row:first-of-type {
@@ -793,284 +663,42 @@ textarea:focus,
 .toggle-row input {
   width: 16px;
   height: 16px;
-  accent-color: var(--accent-blue);
+  accent-color: var(--rose);
+}
+
+.toggle-row span {
+  display: inline-flex;
+  align-items: center;
 }
 
 .field {
   display: grid;
   gap: 6px;
-  margin: 0 14px;
-  color: var(--text);
-  font-size: 13px;
+  margin: 6px 14px 0;
+  color: var(--ink);
+  font-size: var(--fs-body);
 }
 
 .field span {
-  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
 }
 
 .field input {
   width: 100%;
   min-height: 32px;
   padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  outline: none;
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--text);
-}
-
-.field-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 0 14px;
-}
-
-.field-grid .field {
-  margin: 0;
-}
-
-/* 频段 (narrow) + 发现端口 + 数据端口, three cells in one row. */
-.port-grid {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr;
-  gap: 8px;
-  align-items: end;
-  margin: 0 14px;
-}
-
-.port-grid .field {
-  margin: 0;
-}
-
-.button,
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--control);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 400;
-  transition:
-    background 120ms ease,
-    border-color 120ms ease,
-    transform 80ms ease;
-}
-
-.button {
-  padding: 0 12px;
-}
-
-.button:hover:not(:disabled),
-.icon-button:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  background: var(--control-hover);
-  box-shadow: 0 1px 2px rgba(31, 41, 51, 0.08);
-}
-
-/* Pressed feedback. */
-.button:active:not(:disabled),
-.icon-button:active:not(:disabled) {
-  border-color: var(--line-strong);
-  background: rgba(81, 131, 178, 0.18);
-  box-shadow: none;
-  transform: translateY(1px);
-}
-
-.button.primary {
-  border-color: rgba(213, 82, 118, 0.18);
-  background: var(--accent-pink);
-  color: white;
-}
-
-.button.primary:hover {
-  background: #c84a70;
-}
-
-.button.quiet {
-  background: transparent;
-}
-
-.button:disabled,
-.icon-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.icon-button {
-  width: 30px;
-  min-height: 30px;
-  padding: 0;
-}
-
-/* Borderless icon button — used for inline actions inside section headings
-   where a bordered chip would feel heavy.  Keeps the hover affordance via a
-   soft background tint instead of a border highlight. */
-.icon-button--ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-subtle);
-}
-
-.icon-button--ghost:hover:not(:disabled) {
-  border-color: transparent;
-  background: rgba(81, 131, 178, 0.1);
-  color: var(--text);
-  box-shadow: none;
-}
-
-.icon-button--ghost:active:not(:disabled) {
-  border-color: transparent;
-  background: rgba(81, 131, 178, 0.2);
-}
-
-.full-width {
-  width: calc(100% - 28px);
-  margin: 2px 14px 0;
-}
-
-.empty {
-  margin: 0;
-  padding: 10px;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.notice {
-  position: fixed;
-  z-index: 20;
-  top: 58px;
-  left: 50%;
-  max-width: min(520px, calc(100vw - 32px));
-  padding: 8px 12px;
-  border: 1px solid rgba(213, 82, 118, 0.18);
+  border: 0;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--text);
-  font-size: 13px;
-  transform: translateX(-50%);
-}
-
-.dialog-backdrop {
-  position: fixed;
-  z-index: 18;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(31, 41, 51, 0.18);
-}
-
-.dialog {
-  width: min(520px, calc(100vw - 48px));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  /* Opaque — the confirm dialog should not show content behind it. */
-  background: var(--bubble-base);
-  box-shadow: 0 18px 48px rgba(31, 41, 51, 0.18);
-}
-
-.request-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  min-height: 48px;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.46);
-}
-
-.log-card {
-  min-height: 0;
-}
-
-.log-list {
-  overflow-y: auto;
-  flex: 1;
-  padding: 6px 8px;
-  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.log-entry {
-  padding: 1px 4px;
-  color: var(--text-subtle);
-  word-break: break-all;
-  white-space: pre-wrap;
-}
-
-.log-entry:hover {
-  background: rgba(81, 131, 178, 0.06);
-  border-radius: 4px;
-}
-
-/* #9 — lively 200ms-per-turn refresh spinner. */
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.spin {
-  animation: spin 200ms linear infinite;
-}
-
-/* #1 — peer local remark editing. Device row now reserves a trailing column
-   for the (hover-revealed) edit affordance. */
-.device-row {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-}
-
-.device-remark-edit {
-  width: 24px;
-  min-height: 24px;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.device-row:hover .device-remark-edit,
-.device-row.selected .device-remark-edit {
-  opacity: 1;
-}
-
-.remark-input {
-  width: 100%;
-  min-height: 24px;
-  padding: 2px 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
   outline: none;
-  background: var(--control-hover);
-  color: var(--text);
-  font-size: 13px;
+  background: var(--control);
+  box-shadow: var(--inset-edge);
+  color: var(--ink);
+  transition: box-shadow var(--t1) var(--c2);
 }
 
-/* #3 — send-confirm dialog file list. */
-.confirm-path {
-  overflow: hidden;
-  margin: 0 10px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: rgba(242, 245, 250, 0.62);
-  color: var(--text-subtle);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.confirm-path--more {
-  background: transparent;
-  font-style: italic;
-}
-
-/* #7 — settings field with an inline action button (default save dir). */
 .field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1082,40 +710,343 @@ textarea:focus,
   width: 100%;
   min-height: 32px;
   padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--text);
+  border: 0;
+  border-radius: 8px;
+  background: var(--control);
+  box-shadow: var(--inset-edge);
+  color: var(--ink);
 }
 
 .field-row .button {
   flex: 0 0 auto;
 }
 
-/* #6 — native bottom-right receive popup. The window itself is transparent;
-   only the bubbles inside are visible. */
+// 频段 (narrow numeric) + 只读端口, three cells in one row.
+.port-grid {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 8px;
+  align-items: end;
+  margin: 6px 14px 0;
+}
+
+.port-grid .field {
+  margin: 0;
+}
+
+.field input.band-input {
+  width: calc(3ch + 20px);
+  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.static-value {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--fill-soft);
+  color: var(--ink-soft);
+  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+}
+
+textarea,
+.field input:focus,
+.field-row input:focus {
+  outline: none;
+}
+
+.field input:focus,
+.field-row input:focus {
+  box-shadow: inset 0 0 0 1px var(--rose);
+}
+
+// "正在应用…" — dims the pane while a service-restarting save is in flight.
+.settings-pane--busy {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.55;
+  filter: saturate(0.6);
+  transition: opacity var(--t1) var(--c1);
+}
+
+.settings-pane--busy .section-heading small {
+  color: var(--rose);
+}
+
+// ── "?" hint badge + portaled tooltip ──────────────────────────────────────
+.field-hint {
+  position: relative;
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  place-items: center;
+  border-radius: 99px;
+  background: rgba(138, 128, 122, 0.24);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: help;
+  vertical-align: middle;
+  outline: none;
+  transition: background var(--t1) var(--c2);
+}
+
+.section-heading .field-hint {
+  background: rgba(138, 128, 122, 0.18);
+  color: var(--ink-soft);
+  font-weight: 700;
+  vertical-align: baseline;
+}
+
+.field-hint:hover {
+  background: var(--rose-tint);
+}
+
+.field-tooltip {
+  position: fixed;
+  z-index: 9999;
+  transform: translate(-50%, calc(-100% - 6px));
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--bubble-base);
+  box-shadow: var(--inset-edge), var(--atmosphere);
+  color: var(--ink);
+  font-size: var(--fs-fine);
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+
+// ── Buttons ────────────────────────────────────────────────────────────────
+.button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--control);
+  box-shadow: var(--inset-edge);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--fs-body);
+  font-weight: 400;
+  transition: background var(--t1) var(--c2), box-shadow var(--t1) var(--c2), transform var(--t1) var(--c2);
+}
+
+.button {
+  padding: 0 12px;
+}
+
+.button:hover:not(:disabled),
+.icon-button:hover:not(:disabled) {
+  background: var(--control-hover);
+}
+
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled) {
+  background: var(--rose-tint);
+  transform: translateY(1px);
+}
+
+.button.primary {
+  background: var(--rose);
+  box-shadow: none;
+  color: #fff;
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--rose-strong);
+}
+
+.button.primary:active:not(:disabled) {
+  background: var(--rose-strong);
+}
+
+.button.quiet {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-soft);
+}
+
+.button.quiet:hover:not(:disabled) {
+  background: var(--fill-soft);
+  color: var(--ink);
+}
+
+.button:disabled,
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.icon-button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+// Borderless icon button for inline heading/row actions.
+.icon-button--ghost {
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-soft);
+}
+
+.icon-button--ghost:hover:not(:disabled) {
+  background: var(--fill-soft);
+  color: var(--ink);
+}
+
+.icon-button--ghost:active:not(:disabled) {
+  background: var(--rose-tint);
+}
+
+.full-width {
+  width: calc(100% - 28px);
+  margin: 2px 14px 0;
+}
+
+// ── Hotkey badge (pure visual label; not a listener) ────────────────────────
+.hotkey-host {
+  position: relative;
+  overflow: visible;
+}
+
+.hotkey-badge {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, -35%);
+  display: inline-flex;
+  pointer-events: none;
+}
+
+.hotkey-key {
+  display: inline-grid;
+  min-width: 15px;
+  height: 16px;
+  padding: 0 3px;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--bubble-base);
+  box-shadow: inset 0 0 0 1px rgba(38, 34, 31, 0.24);
+  color: var(--ink);
+  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+// ── Drag-and-drop overlay ───────────────────────────────────────────────────
+.drop-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--rose-tint-soft);
+  backdrop-filter: blur(1px);
+}
+
+.drop-overlay-card {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 22px 30px;
+  border-radius: 14px;
+  background: var(--panel-strong);
+  box-shadow: var(--inset-edge), var(--atmosphere);
+  color: var(--rose);
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+// ── Toast notice ────────────────────────────────────────────────────────────
+.notice {
+  position: fixed;
+  z-index: 20;
+  top: 56px;
+  left: 50%;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: var(--bubble-base);
+  box-shadow: var(--inset-edge), var(--atmosphere);
+  color: var(--ink);
+  font-size: var(--fs-body);
+  transform: translateX(-50%);
+}
+
+// ── Send-confirm dialog ─────────────────────────────────────────────────────
+.dialog-backdrop {
+  position: fixed;
+  z-index: 18;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 27, 22, 0.2);
+}
+
+.dialog {
+  width: min(520px, calc(100vw - 48px));
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--bubble-base);
+  box-shadow: var(--inset-edge), var(--atmosphere-strong);
+}
+
+.request-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--fill-softer);
+}
+
+.card-footer {
+  justify-content: flex-end;
+  padding: 12px 14px 14px;
+}
+
+.confirm-path {
+  overflow: hidden;
+  margin: 0 10px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: var(--fill-softer);
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.confirm-path--more {
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0.85;
+}
+
+// ── Receive popup (transparent window; only the bubbles are visible) ─────────
 .popup-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
   background: transparent;
-}
-
-.popup-close {
-  display: grid;
-  width: 26px;
-  height: 26px;
-  place-items: center;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-subtle);
-  cursor: pointer;
-}
-
-.popup-close:hover {
-  background: rgba(81, 131, 178, 0.12);
-  color: var(--text);
 }
 
 .popup-body {
@@ -1128,22 +1059,20 @@ textarea:focus,
   padding: 10px;
 }
 
-/* Borderless, fully-rounded, OPAQUE info bubbles (the window is transparent,
-   so the bubbles must be solid). Tints are composited over an opaque base. */
+// Fully-rounded, borderless, opaque bubbles. Separation comes from a large-blur
+// atmosphere (sanctioned) rather than a tight drop shadow.
 .popup-card {
   display: grid;
   gap: 8px;
-  padding: 11px 14px;
-  border: 0;
-  border-radius: 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
   background: var(--bubble-base);
-  box-shadow: 0 2px 8px rgba(31, 41, 51, 0.16);
+  box-shadow: var(--inset-edge), var(--atmosphere);
 }
 
 .popup-card--clip {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  background: linear-gradient(rgba(170, 212, 248, 0.3), rgba(170, 212, 248, 0.3)), var(--bubble-base);
 }
 
 .popup-card-actions {
@@ -1153,27 +1082,27 @@ textarea:focus,
 }
 
 .copied-tag {
-  color: var(--accent-blue);
-  font-size: 11px;
+  color: var(--rose);
+  font-size: var(--fs-fine);
   white-space: nowrap;
 }
 
 .popup-card--offer {
-  background: linear-gradient(rgba(241, 167, 181, 0.32), rgba(241, 167, 181, 0.32)), var(--bubble-base);
+  background: linear-gradient(var(--rose-tint), var(--rose-tint)), var(--bubble-base);
 }
 
 .popup-card--error {
-  background: linear-gradient(rgba(213, 82, 118, 0.22), rgba(213, 82, 118, 0.22)), var(--bubble-base);
+  background: linear-gradient(var(--danger-tint), var(--danger-tint)), var(--bubble-base);
 
   .progress-track span {
-    background: var(--accent-pink);
+    background: var(--danger);
   }
 }
 
 .popup-dest {
   overflow: hidden;
-  color: var(--accent-blue);
-  font-size: 11px;
+  color: var(--rose);
+  font-size: var(--fs-fine);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1188,17 +1117,34 @@ textarea:focus,
   flex: 1 1 auto;
   min-height: 30px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--fs-meta);
 }
 
-/* #5 — Quick-Look style preview window (frameless: titlebar + stage + footer). */
+.popup-close {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: background var(--t1) var(--c2), color var(--t1) var(--c2);
+}
+
+.popup-close:hover {
+  background: var(--fill-soft);
+  color: var(--ink);
+}
+
+// ── Quick-Look style preview window ─────────────────────────────────────────
 .preview-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100vh;
   overflow: hidden;
-  background: #15161c;
-  color: #e8edf2;
+  background: #17161a;
+  color: #e9e4e0;
 }
 
 .preview-titlebar {
@@ -1208,9 +1154,9 @@ textarea:focus,
   gap: 10px;
   min-height: 36px;
   padding: 0 8px 0 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  background: #1b1d24;
-  font-size: 13px;
+  background: #201e23;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  font-size: var(--fs-body);
   font-weight: 600;
 
   span {
@@ -1221,19 +1167,19 @@ textarea:focus,
   }
 
   .popup-close {
-    color: #9fb3c8;
+    color: #b6aca6;
   }
 
   .popup-close:hover {
     background: rgba(255, 255, 255, 0.1);
-    color: #e8edf2;
+    color: #e9e4e0;
   }
 }
 
 .preview-shell--empty {
   display: grid;
   place-items: center;
-  color: var(--text-subtle);
+  color: var(--ink-soft);
 }
 
 .preview-stage {
@@ -1246,7 +1192,7 @@ textarea:focus,
 .preview-media {
   max-width: 100%;
   max-height: 100%;
-  border-radius: 6px;
+  border-radius: 8px;
   object-fit: contain;
 }
 
@@ -1254,7 +1200,7 @@ textarea:focus,
   display: grid;
   justify-items: center;
   gap: 16px;
-  color: #9fb3c8;
+  color: #b6aca6;
 }
 
 .preview-generic {
@@ -1262,18 +1208,19 @@ textarea:focus,
   justify-items: center;
   gap: 10px;
   padding: 24px;
-  color: #9fb3c8;
+  color: #b6aca6;
   text-align: center;
 
   strong {
-    color: #e8edf2;
-    font-size: 15px;
+    color: #e9e4e0;
+    font-size: var(--fs-title);
   }
 
+  span,
   code {
     max-width: 90%;
     overflow: hidden;
-    font-size: 11px;
+    font-size: var(--fs-meta);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -1285,9 +1232,9 @@ textarea:focus,
   justify-content: space-between;
   gap: 12px;
   padding: 8px 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  background: #1b1d24;
-  font-size: 12px;
+  background: #201e23;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  font-size: var(--fs-meta);
 
   span {
     overflow: hidden;
@@ -1297,61 +1244,46 @@ textarea:focus,
 
   small {
     flex: 0 0 auto;
-    color: #7a8fa4;
+    color: #8a7f79;
   }
 }
 
+// ── Refresh spinner (C3 · T2) ───────────────────────────────────────────────
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin var(--t2) var(--c3) infinite;
+}
+
+// ── Dark theme ──────────────────────────────────────────────────────────────
 html.dark {
-  --surface-base: rgb(20, 22, 28);
-  --text: #dce3ea;
-  --text-subtle: #7a8fa4;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(81, 131, 178, 0.32);
-  --card: rgba(34, 38, 46, 0.92);
+  --paper: #16151a;
+  --panel: rgba(255, 255, 255, 0.045);
+  --panel-strong: rgba(40, 38, 46, 0.96);
   --control: rgba(255, 255, 255, 0.07);
   --control-hover: rgba(255, 255, 255, 0.13);
-  --bubble-base: #2a2f3a;
+  --fill-soft: rgba(255, 255, 255, 0.055);
+  --fill-softer: rgba(255, 255, 255, 0.03);
+  --ink: #e7e2df;
+  --ink-soft: #948b86;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --bubble-base: #26242b;
+  --rose-tint: rgba(209, 87, 118, 0.2);
+  --rose-tint-soft: rgba(209, 87, 118, 0.12);
+  --danger-tint: rgba(192, 69, 63, 0.2);
+  --inset-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --atmosphere: 0 0 40px 6px rgba(0, 0, 0, 0.4);
+  --atmosphere-strong: 0 0 56px 10px rgba(0, 0, 0, 0.5);
 
-  .window-titlebar {
-    background: rgba(20, 22, 28, 0.97);
-  }
-
-  .device-row.selected {
-    background: rgba(213, 82, 118, 0.14);
-  }
-
-  .target-row {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .transfer-row {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .request-row {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  /* Light hover/fill values look glaringly bright on dark — tone them down. */
-  .device-row:hover {
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .confirm-path {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  textarea,
-  .field input {
-    background: rgba(0, 0, 0, 0.25);
-    color: var(--text);
-  }
-
-  .notice {
-    background: rgba(34, 38, 46, 0.97);
+  .window-control:hover {
+    background: var(--fill-soft);
   }
 
   .dialog-backdrop {
-    background: rgba(0, 0, 0, 0.45);
+    background: rgba(0, 0, 0, 0.5);
   }
 }

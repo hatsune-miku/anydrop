@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Share2,
   Square,
+  TriangleAlert,
   Upload,
   X,
 } from 'lucide-react'
@@ -305,6 +306,10 @@ function App() {
   )
   selectedPeerRef.current = selectedPeer
 
+  // Pure visual hotkey label for the clipboard button — platform-aware, and it
+  // mirrors the "仅双击复制时发送" toggle (copy pressed twice). Not a listener.
+  const hotkeyLabel = `${isMac ? '⌘ C' : 'Ctrl C'}${snapshot.settings.sendOnlyOnDoubleCopy ? ' ×2' : ''}`
+
   // Drag-and-drop upload: dropping file(s)/folder(s) onto the window stages
   // them in the send-confirm dialog (same path as the pick buttons; the backend
   // walks files + folders alike). Subscribed once; reads the current peer via a
@@ -531,9 +536,7 @@ function App() {
             if (isTauriRuntime()) void invoke('show_window_menu')
           }}
         >
-          <div className="window-title" data-tauri-drag-region>
-            AnyDrop {version}
-          </div>
+          <div className="window-title" data-tauri-drag-region />
           <div className="window-controls">
             <button
               aria-label="最小化"
@@ -608,8 +611,9 @@ function App() {
       <section className="app-window">
         <header className="content-header">
           <div className="app-identity">
-            <div>
-              <h1>(˶'ᵕ'˶ {snapshot.running ? 'Daemon Alive!' : 'Daemon Stopped'}</h1>
+            <span className={snapshot.running ? 'status-dot status-dot--on' : 'status-dot'} />
+            <div className="status-text">
+              <div className="status-title">{snapshot.running ? '服务运行中' : '服务未启动'}</div>
               <p>{snapshot.statusText}</p>
             </div>
           </div>
@@ -625,7 +629,7 @@ function App() {
           <Surface className="device-pane">
             <section className="card full-height">
               <div className="section-heading">
-                <span>Peers</span>
+                <span>设备</span>
                 <button
                   className="icon-button icon-button--ghost"
                   type="button"
@@ -725,6 +729,7 @@ function App() {
                   >
                     <Clipboard size={16} />
                     发送剪贴板
+                    <HotkeyBadge label={hotkeyLabel} />
                   </button>
                 </div>
               </section>
@@ -782,7 +787,8 @@ function App() {
                           </span>
                           {transfer.error ? (
                             <span className="transfer-error" title={transfer.error}>
-                              ⚠ {transfer.error}
+                              <TriangleAlert size={12} />
+                              {transfer.error}
                             </span>
                           ) : null}
                         </div>
@@ -1109,6 +1115,11 @@ function App() {
                 <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
                   保存设置
                 </button>
+                <div className="about-line">
+                  AnyDrop {version}
+                  <br />
+                  Proudly Crafted With CakeDesign
+                </div>
               </div>
             </section>
           </Surface>

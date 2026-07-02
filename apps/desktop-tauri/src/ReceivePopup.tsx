@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Check, Copy, FolderInput, FolderOpen, X } from 'lucide-react'
+import { Check, Copy, FolderInput, FolderOpen, TriangleAlert, X } from 'lucide-react'
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -240,7 +240,8 @@ export default function ReceivePopup() {
               </span>
               {t.error ? (
                 <small className="transfer-error" title={t.error}>
-                  ⚠ {t.error}
+                  <TriangleAlert size={12} />
+                  {t.error}
                 </small>
               ) : null}
             </div>
