@@ -37,8 +37,10 @@ const DEFAULT_DATA_PORT: u16 = 9819;
 /// Bottom-right native popup that surfaces incoming offers / receive progress
 /// (and optionally clipboard receipts). Created lazily, reused across events.
 const RECEIVE_WINDOW_LABEL: &str = "receive";
-const RECEIVE_WINDOW_WIDTH: f64 = 380.0;
-const RECEIVE_WINDOW_HEIGHT: f64 = 440.0;
+// Sized to fit ~340px-wide bubbles plus a 26px gutter on every side so the
+// large-blur atmosphere shadow renders fully instead of being clipped.
+const RECEIVE_WINDOW_WIDTH: f64 = 400.0;
+const RECEIVE_WINDOW_HEIGHT: f64 = 500.0;
 /// Quick-Look style preview window for received media.
 const PREVIEW_WINDOW_LABEL: &str = "preview";
 /// Gap from the screen edges when docking the receive popup bottom-right.

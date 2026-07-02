@@ -172,11 +172,24 @@ export default function ReceivePopup() {
     })
   }
 
+  // Clipboard receipts are throwaway — clicking anywhere on the card removes
+  // just that one, leaving any other cards / transfers untouched.
+  function dismissCard(id: number) {
+    setCards((prev) => prev.filter((c) => c.id !== id))
+  }
+
   return (
     <div className="popup-shell">
       <div className="popup-body">
         {cards.map((card, idx) => (
-          <article className="popup-card popup-card--clip" key={`card-${card.id}`}>
+          <article
+            className="popup-card popup-card--clip"
+            key={`card-${card.id}`}
+            role="button"
+            tabIndex={0}
+            title="点击关闭"
+            onClick={() => dismissCard(card.id)}
+          >
             <div className="row-main">
               <strong>{card.kind === 'image' ? '收到剪贴板图片' : '收到剪贴板文本'}</strong>
               <span>{card.preview || card.peer}</span>
@@ -189,7 +202,11 @@ export default function ReceivePopup() {
                   type="button"
                   aria-label="复制"
                   title="复制到剪贴板"
-                  onClick={() => void invoke('copy_text', { text: card.text })}
+                  onClick={(e) => {
+                    // Copying is a distinct action — don't let it also dismiss the card.
+                    e.stopPropagation()
+                    void invoke('copy_text', { text: card.text })
+                  }}
                 >
                   <Copy size={15} />
                 </button>

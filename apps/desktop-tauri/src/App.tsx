@@ -714,7 +714,7 @@ function App() {
                   >
                     <Clipboard size={16} />
                     发送剪贴板
-                    1                  </button>
+                  </button>
                 </div>
               </section>
             </Surface>
@@ -1026,7 +1026,7 @@ function App() {
                   />
                   <span>
                     全屏游戏时不弹窗
-                    <Hint text="包含无边框全屏和独占全屏" />
+                    <Hint text="包含无边框全屏、独占全屏" />
                   </span>
                 </label>
                 <label className="field">
