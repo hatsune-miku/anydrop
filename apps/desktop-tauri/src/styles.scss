@@ -631,14 +631,6 @@ textarea {
   margin: 0;
 }
 
-// Low-key about line — version is discoverable, never prominent.
-.about-line {
-  color: var(--ink-soft);
-  font-size: var(--fs-fine);
-  text-align: center;
-  line-height: 1.5;
-}
-
 .toggle-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -779,7 +771,7 @@ textarea,
 // ── "?" hint badge + portaled tooltip ──────────────────────────────────────
 .field-hint {
   position: relative;
-  display: inline-grid;
+  display: inline-flex;
   width: 14px;
   height: 14px;
   margin-left: 5px;
@@ -788,11 +780,13 @@ textarea,
   background: rgba(138, 128, 122, 0.24);
   color: var(--ink);
   font-size: 10px;
+  line-height: 1;
   font-weight: 600;
   cursor: help;
   vertical-align: middle;
   outline: none;
   transition: background var(--t1) var(--c2);
+  justify-content: center;
 }
 
 .section-heading .field-hint {

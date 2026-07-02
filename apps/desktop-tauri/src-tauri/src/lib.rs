@@ -1976,6 +1976,16 @@ fn clear_logs(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
     backend.snapshot()
 }
 
+/// Append a line to the log region from the frontend. Reuses the same
+/// timestamping + 200-entry cap as backend-side logging, then broadcasts a
+/// fresh snapshot so every window's log panel updates.
+#[tauri::command]
+fn push_log(app: AppHandle, backend: State<'_, Backend>, msg: String) -> Snapshot {
+    backend.log(msg);
+    emit_snapshot(&app);
+    backend.snapshot()
+}
+
 /// Copy a received clipboard text back onto the local clipboard (used by the
 /// "复制" button on older clipboard receipts). Pre-arms loopback suppression so
 /// the clipboard listener doesn't rebroadcast it to peers.
@@ -2535,6 +2545,7 @@ pub fn run() {
             dismiss_transfer,
             open_transfer_folder,
             clear_logs,
+            push_log,
             send_paths,
             cancel_transfer,
             pause_transfer,

@@ -90,19 +90,6 @@ function Hint({ text }: { text: string }) {
   )
 }
 
-/**
- * Genshin-style hotkey indicator: keycap chips overlaid (absolute) on the
- * top-right corner of a bounded host element. The host must be positioned
- * (`position: relative`). PURELY a visual label — it does NOT listen for keys.
- */
-function HotkeyBadge({ label }: { label: string }) {
-  return (
-    <span className="hotkey-badge" aria-hidden="true">
-      <kbd className="hotkey-key">{label}</kbd>
-    </span>
-  )
-}
-
 /** Hover detail for a transfer row, portaled above the row (fixed position). */
 function TransferDetail({ transfer, x, y }: { transfer: Transfer; x: number; y: number }) {
   const done = typeof transfer.completedAt === 'number'
@@ -184,7 +171,6 @@ function App() {
   const [dragOver, setDragOver] = useState(false)
   // Hovered transfer row → its detail tooltip (portaled, positioned over the row).
   const [detail, setDetail] = useState<{ transfer: Transfer; x: number; y: number } | null>(null)
-  const [version, setVersion] = useState('')
   const logListRef = useRef<HTMLDivElement>(null)
   // Latest selected peer, read inside the drag-drop handler without re-subscribing.
   const selectedPeerRef = useRef<PeerGroup | undefined>(undefined)
@@ -196,7 +182,10 @@ function App() {
   const darkMode = snapshot.settings.darkMode ?? systemDark
 
   useEffect(() => {
-    getVersion().then((v) => setVersion(v))
+    getVersion().then(async (v) => {
+      await invoke('push_log', { msg: `AnyDrop ${v}` })
+      await invoke('push_log', { msg: 'Proudly Crafted With CakeDesign.' })
+    })
   }, [])
 
   useEffect(() => {
@@ -305,10 +294,6 @@ function App() {
     [selectedPeerName, snapshot.peers]
   )
   selectedPeerRef.current = selectedPeer
-
-  // Pure visual hotkey label for the clipboard button — platform-aware, and it
-  // mirrors the "仅双击复制时发送" toggle (copy pressed twice). Not a listener.
-  const hotkeyLabel = `${isMac ? '⌘ C' : 'Ctrl C'}${snapshot.settings.sendOnlyOnDoubleCopy ? ' ×2' : ''}`
 
   // Drag-and-drop upload: dropping file(s)/folder(s) onto the window stages
   // them in the send-confirm dialog (same path as the pick buttons; the backend
@@ -729,8 +714,7 @@ function App() {
                   >
                     <Clipboard size={16} />
                     发送剪贴板
-                    <HotkeyBadge label={hotkeyLabel} />
-                  </button>
+                    1                  </button>
                 </div>
               </section>
             </Surface>
@@ -1115,11 +1099,6 @@ function App() {
                 <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
                   保存设置
                 </button>
-                <div className="about-line">
-                  AnyDrop {version}
-                  <br />
-                  Proudly Crafted With CakeDesign
-                </div>
               </div>
             </section>
           </Surface>
