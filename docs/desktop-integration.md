@@ -2,7 +2,7 @@
 
 更新日期：2026-09-22。适用：当前 Tauri 桌面应用，发布目标为 Windows x64 和 macOS universal。
 
-维护状态：在线更新已恢复接入，独立签名密钥、GitHub Secrets、HTTPS 端点与服务器定时镜像已配置。默认渠道为现有 RC 工作流；服务端部署与备份说明见 [deploy/updater](../deploy/updater/README.md)。
+维护状态：在线更新已上线，首个签名版本为 `0.1.2-rc.47.1`，已完成远程构建、镜像和真实客户端下载验签。默认渠道为现有 RC 工作流；服务端部署与备份说明见 [deploy/updater](../deploy/updater/README.md)。
 
 ## 用户行为
 
@@ -23,9 +23,9 @@
 | 项目                 | 配置位置                                             | 内容                                                                                 |
 | -------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | AnyDrop 专属更新公钥 | GitHub Actions Variable `ANYDROP_UPDATER_PUBLIC_KEY` | Tauri signer 生成的 `.pub` 文件完整文本；可以公开                                    |
-| 更新元数据地址       | Variable `ANYDROP_UPDATER_ENDPOINT`                  | 稳定 HTTPS 地址，返回该渠道的 Tauri 更新 JSON；请同时确定域名和 RC / stable 渠道策略 |
-| AnyDrop 专属更新私钥 | Secret `ANYDROP_UPDATER_PRIVATE_KEY`                 | 私钥文件完整文本，由维护者直接录入 Secrets 并另行备份，无需发到对话                  |
-| 私钥密码（如有）     | Secret `ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD`        | 与该私钥配套的密码                                                                   |
+| 更新元数据地址       | Variable `ANYDROP_UPDATER_ENDPOINT`                  | `https://anydrop-api.vanillacake.cn/rc/latest.json`，当前采用 RC 渠道 |
+| AnyDrop 专属更新私钥 | Secret `ANYDROP_UPDATER_PRIVATE_KEY`                 | 已生成并录入的加密私钥；另有本机备份，不写入仓库或日志                  |
+| 私钥密码             | Secret `ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD`        | 已生成并录入的配套随机密码；与私钥一同备份                                                                   |
 | 元数据发布目标       | `/var/www/html/anydrop-api/rc/`                      | 独立 Nginx 站点与 `anydrop-updater.timer`；每五分钟检查 GitHub RC                   |
 
 2026-09-22 已生成 AnyDrop 专用密钥并配置以上 Secrets / Variables。私钥加密保存在维护者本机 `~/.config/anydrop/signing/desktop-updater.key`，密码保存在同目录 `desktop-updater.password`，文件权限 0600、目录权限 0700；两者均需备份，不能提交到仓库。服务器仅持有公钥。KFC / KVM 仅用于参考更新调用链与镜像方式，未复制它们的签名密钥。更新签名与 Apple 代码签名 / 公证、Windows 代码签名是独立事项；如需正式分发的系统信任，仍沿对应平台的签名流程配置。
@@ -66,6 +66,12 @@ Windows 生成 NSIS `.exe` 和 `.exe.sig`；macOS 生成更新用 `.app.tar.gz` 
 
 更新基线后重新执行全部 36 个场景，超阈值变化像素均为 0，见[本次完整回归报告](verification/more-settings-regression.json)。
 
-尚未执行：真实登录自启、两台机器的全局快捷键发送、Windows 原生构建 / 运行、真实签名更新的端到端安装，以及 GitHub Actions 的远程发布。这些检查依赖实际平台、签名配置或发布端点，不能用浏览器替身测试代替。已有 macOS 预览相关未使用代码告警仍存在。
+2026-09-22：GitHub Actions 已完成 Windows x64 与 macOS universal 原生发布构建、签名和 Release 上传。[首个签名 RC 为 0.1.2-rc.47.1](https://github.com/hatsune-miku/anydrop/releases/tag/rc-v0.1.2-rc.47.1)，对应提交 `23425f39dce4157253cf9b911ccebaff8e9cbaa8`；[工作流的四个任务全部通过](https://github.com/hatsune-miku/anydrop/actions/runs/35699426937)。修正了 CakeUI Native 本地归档与 yarn.lock 的 SHA-1 不一致问题，并在全新目录、全新缓存下使用 Node 22 完成 frozen-lockfile 安装；没有改变组件样式。
+
+服务器已用 minisign 验证两个安装包后发布 `/rc/latest.json`；清单返回 HTTP 200 且禁止缓存，版本目录启用不可变缓存，重复同步保持当前版本。补齐了 systemd 服务的现有代理配置（本机 7897 端口），首次完整镜像用时约 6 秒。
+
+在 macOS 的隔离 Tauri 测试运行时中，使用项目相同的 `tauri-plugin-updater 2.11.0`、正式端点与公钥，对三个目标分别执行真实 HTTPS 检查、下载和签名验证，全部通过。Windows 包为 4,418,794 字节，macOS 通用包为 13,717,375 字节，下载内容的 SHA-256 均与 GitHub Release 附件一致；macOS 包经 lipo 确认为 arm64 / x86_64 双架构，发布版本、端点与公钥均已嵌入实际二进制。该探针没有执行安装或重启，也没有启动 AnyDrop 的局域网服务。[完整验证记录](verification/updater-release.json)。
+
+尚未执行：真实登录自启、两台机器的全局快捷键发送、Windows 原生运行，以及真实签名更新的覆盖安装、重启和设置保留。这些检查依赖实际运行平台，不能用浏览器替身或下载验签代替。已有 macOS 预览相关未使用代码告警仍存在。
 
 实现入口：`src-tauri/src/desktop.rs` 负责系统集成，`src-tauri/src/updates.rs` 负责更新状态和安装，`src/components/DesktopSettings/` 负责界面。[Tauri Autostart](https://v2.tauri.app/plugin/autostart/) 和 [Global Shortcut](https://v2.tauri.app/plugin/global-shortcut/) 提供底层插件能力。

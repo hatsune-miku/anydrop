@@ -1,0 +1,90 @@
+{
+  "verifiedAt": "2026-09-22T07:49:06.875599+00:00",
+  "version": "0.1.2-rc.47.1",
+  "commit": "23425f39dce4157253cf9b911ccebaff8e9cbaa8",
+  "releaseUrl": "https://github.com/hatsune-miku/anydrop/releases/tag/rc-v0.1.2-rc.47.1",
+  "workflowUrl": "https://github.com/hatsune-miku/anydrop/actions/runs/35699426937",
+  "workflowConclusion": "success",
+  "successfulJobs": [
+    "validate-updater",
+    "build-windows",
+    "build-macos",
+    "release"
+  ],
+  "endpoint": "https://anydrop-api.vanillacake.cn/rc/latest.json",
+  "manifestStatus": 200,
+  "manifestCacheControl": "no-store",
+  "server": {
+    "signatureTool": "minisign",
+    "signedArtifactsVerified": 2,
+    "sha256Check": "passed",
+    "repeatMirror": "Already serving 0.1.2-rc.47.1",
+    "timer": "enabled and active",
+    "downloadProxy": "http://127.0.0.1:7897"
+  },
+  "clientProbe": {
+    "host": "macOS arm64",
+    "runtime": "Tauri MockRuntime for the isolated application; real HTTPS and tauri-plugin-updater download/signature verification",
+    "tauriVersion": "2.11.2",
+    "updaterVersion": "2.11.0",
+    "currentVersion": "0.1.0",
+    "versionComparator": "default",
+    "installOrRestartCalled": false,
+    "results": [
+      {
+        "bytes": 4418794,
+        "target": "windows-x86_64",
+        "tauriSignatureVerified": true,
+        "url": "https://anydrop-api.vanillacake.cn/rc/0.1.2-rc.47.1/AnyDrop_0.1.2-rc.47.1_x64-setup.exe",
+        "version": "0.1.2-rc.47.1"
+      },
+      {
+        "bytes": 13717375,
+        "target": "darwin-aarch64",
+        "tauriSignatureVerified": true,
+        "url": "https://anydrop-api.vanillacake.cn/rc/0.1.2-rc.47.1/AnyDrop.app.tar.gz",
+        "version": "0.1.2-rc.47.1"
+      },
+      {
+        "bytes": 13717375,
+        "target": "darwin-x86_64",
+        "tauriSignatureVerified": true,
+        "url": "https://anydrop-api.vanillacake.cn/rc/0.1.2-rc.47.1/AnyDrop.app.tar.gz",
+        "version": "0.1.2-rc.47.1"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "name": "AnyDrop.app.tar.gz",
+      "url": "https://anydrop-api.vanillacake.cn/rc/0.1.2-rc.47.1/AnyDrop.app.tar.gz",
+      "bytes": 13717375,
+      "sha256": "1ee5e9eae8ab79360e4aad41af697e09ecd6b24e9ced1eea3c21b376d05f7530",
+      "matchesGitHubAssetDigest": true,
+      "immutableCache": true
+    },
+    {
+      "name": "AnyDrop_0.1.2-rc.47.1_x64-setup.exe",
+      "url": "https://anydrop-api.vanillacake.cn/rc/0.1.2-rc.47.1/AnyDrop_0.1.2-rc.47.1_x64-setup.exe",
+      "bytes": 4418794,
+      "sha256": "fcdb51ca14f9eab5ecb0897e9fab9f898b1e9003db54c6b580e7204d1d89624d",
+      "matchesGitHubAssetDigest": true,
+      "immutableCache": true
+    }
+  ],
+  "macOSBundle": {
+    "version": "0.1.2-rc.47.1",
+    "architectures": [
+      "x86_64",
+      "arm64"
+    ],
+    "compiledUpdaterPublicKeyMatchesConfig": true,
+    "compiledEndpointMatchesConfig": true,
+    "compiledVersionMatchesRelease": true
+  },
+  "notVerified": [
+    "Windows application execution",
+    "Replacing an installed application",
+    "Restart and retained settings after installation"
+  ]
+}

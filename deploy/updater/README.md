@@ -8,7 +8,7 @@
 2. GitHub 编译版本 `0.1.2-rc.<run_number>.<run_attempt>`，使用 AnyDrop 私钥签名 Windows NSIS 与 macOS `.app.tar.gz`，将产物和 `latest.json` 放入 `rc-v<版本>` Release。
 3. 服务器 `anydrop-updater.timer` 每五分钟检查一次。`mirror.py` 从 GitHub API 选择最高的签名 RC，下载两个平台产物并执行 minisign 验签。
 4. 全部成功后发布不可变版本目录，原子切换清单，地址改为本站 HTTPS 下载。未完整上传、下载或验签失败时保留上一个版本；并发运行由文件锁互斥。
-5. 客户端在「更多设置」检查、下载、再次验签，由用户安装并重启。没有更新版本时返回 204。存在未完成传输时禁止安装。
+5. 客户端在「更多设置」检查、下载、再次验签，由用户安装并重启。尚未发布签名版本时端点返回 204；发布后返回最新清单，由客户端比较版本。存在未完成传输时禁止安装。
 
 不复用 KVM 密钥或发布目录。KVM 仅作为 GitHub Release 镜像流程参考。当前不是 stable 渠道；未来增加 stable 时应使用独立清单和明确的版本迁移策略。
 
@@ -24,7 +24,7 @@
 - `/etc/letsencrypt/live/anydrop-api.vanillacake.cn/`：独立域名证书，Certbot webroot 自动续期。
 - `/etc/letsencrypt/renewal-hooks/deploy/30-anydrop-nginx`：本目录 renew-nginx.sh，仅此证书续期后检查并重载 Nginx。
 
-GitHub CLI 使用服务器上 miku 已有的 GitHub 登录，不复制 token。若服务器必须使用代理，可在 root 所有的 `/etc/anydrop-updater/mirror.env` 中设置 `HTTPS_PROXY`；当前采用服务器可用的直接连接。
+GitHub CLI 使用服务器上 miku 已有的 GitHub 登录，不复制 token。当前服务器的登录环境使用 `http://127.0.0.1:7897` 代理；systemd 不继承该环境，已在 root 所有的 `/etc/anydrop-updater/mirror.env` 中明确设置 `HTTPS_PROXY` 和 `HTTP_PROXY`，并以 `NO_PROXY=127.0.0.1,localhost` 排除本机地址。参考项目中的旧端口 7890 已不可用。若代理端口变化，修改此环境文件即可在下一次任务中生效；不需要修改客户端或重新发布。
 
 ```sh
 sudo systemctl start anydrop-updater.service
@@ -56,4 +56,4 @@ python3 -m unittest discover -s tests -p updater_mirror_test.py
 cargo test --workspace --locked
 ```
 
-镜像测试覆盖双平台完整性、universal 包复用、异常下载 / 验签不发布、版本防回退、路径来源校验和不可变版本保护。已用真实新密钥签署测试文件，并在服务器执行 minisign 验签通过。首次签名 Release 的构建与公网文件验证结果记录在桌面集成文档中。
+镜像测试覆盖双平台完整性、universal 包复用、异常下载 / 验签不发布、版本防回退、路径来源校验和不可变版本保护。首个签名 Release `0.1.2-rc.47.1` 已完成两端原生构建、服务器 minisign 验签与发布、Tauri 原生更新插件对三个目标的真实 HTTPS 下载和验签；下载内容与 GitHub 附件的 SHA-256 一致。参见[验证记录](../../docs/verification/updater-release.json)及[桌面集成说明](../../docs/desktop-integration.md)。实际覆盖安装、重启和设置保留仍需在对应操作系统验收。
