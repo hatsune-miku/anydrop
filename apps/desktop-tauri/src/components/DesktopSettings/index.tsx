@@ -24,6 +24,9 @@ type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' |
 
 export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfers: boolean; disabled?: boolean }) {
   const [showMore, setShowMore] = useState(false)
+  const [closingMore, setClosingMore] = useState(false)
+  const settingsElement = useRef<HTMLDivElement>(null)
+  const closeMoreTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<Preferences | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -54,6 +57,7 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
       setProgress({ downloaded: payload.downloaded, total: payload.total })
     })
     return () => {
+      if (closeMoreTimer.current !== null) window.clearTimeout(closeMoreTimer.current)
       void preferencesChanged.then((stop) => stop())
       void progressChanged.then((stop) => stop())
       void invoke('set_shortcut_recording', { recording: false })
@@ -116,13 +120,40 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
     }
   }
 
+  function finishMoreClose() {
+    if (closeMoreTimer.current === null) return
+    window.clearTimeout(closeMoreTimer.current)
+    closeMoreTimer.current = null
+    setShowMore(false)
+    setClosingMore(false)
+  }
+
   function setMoreOpen(open: boolean) {
     if (phase === 'installing') return
-    setShowMore(open)
-    if (!open) {
-      setShowUpdate(false)
-      void stopRecording().catch((e) => setError(String(e)))
+    if (open) {
+      const dialog = settingsElement.current?.querySelector<HTMLDialogElement>('#desktop-more-settings')
+      dialog?.style.setProperty('--desktop-settings-open-opacity', dialog.open ? getComputedStyle(dialog).opacity : '0')
+      if (closeMoreTimer.current !== null) window.clearTimeout(closeMoreTimer.current)
+      closeMoreTimer.current = null
+      setClosingMore(false)
+      setShowMore(true)
+      return
     }
+    if (!showMore || closeMoreTimer.current !== null) return
+    setShowUpdate(false)
+    void stopRecording().catch((e) => setError(String(e)))
+    const dialog = settingsElement.current?.querySelector<HTMLDialogElement>('#desktop-more-settings')
+    const style = dialog ? getComputedStyle(dialog) : null
+    const duration = Number.parseFloat(style?.animationDuration ?? '0') * 1000
+    if (!dialog || !duration || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShowMore(false)
+      return
+    }
+    // Closing during entry starts from the current opacity, without a flash back to fully opaque.
+    dialog.style.setProperty('--desktop-settings-close-opacity', style!.opacity)
+    setClosingMore(true)
+    // Keep closing reliable even if the animation is cancelled or its end event is not delivered.
+    closeMoreTimer.current = window.setTimeout(finishMoreClose, duration + 100)
   }
 
   async function saveShortcut(shortcut: string) {
@@ -201,7 +232,7 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
   if (!isTauriRuntime()) return null
   const updating = ['checking', 'downloading', 'installing'].includes(phase)
   return (
-    <div className="desktop-settings">
+    <div className="desktop-settings" ref={settingsElement}>
       <Button
         className="button full-width"
         disabled={disabled}
@@ -218,8 +249,15 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
       <Dialog
         id="desktop-more-settings"
         className="desktop-more-settings-dialog"
+        data-closing={closingMore || undefined}
+        inert={closingMore}
         open={showMore}
         onOpenChange={setMoreOpen}
+        onAnimationEnd={(event) => {
+          if (event.target === event.currentTarget && event.animationName === 'desktop-more-settings-exit') {
+            finishMoreClose()
+          }
+        }}
         title="更多设置"
         closeLabel="关闭更多设置"
         footer={

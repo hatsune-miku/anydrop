@@ -1,0 +1,78 @@
+[
+  {
+    "engine": "chromium",
+    "reducedMotion": "no-preference",
+    "entryOpacity": 0.543117,
+    "exit": {
+      "open": true,
+      "inert": true,
+      "animations": 2,
+      "samples": [
+        {
+          "time": 0,
+          "panel": 0.543117,
+          "backdrop": 0.543117,
+          "curve": "cubic-bezier(0.29, 0, 0, 1)",
+          "duration": "0.2s",
+          "transform": "none"
+        },
+        {
+          "time": 100,
+          "panel": 0.0699725,
+          "backdrop": 0.0699725,
+          "curve": "cubic-bezier(0.29, 0, 0, 1)",
+          "duration": "0.2s",
+          "transform": "none"
+        }
+      ]
+    },
+    "rapidReopen": true,
+    "cancelledAnimationFallback": true,
+    "escapeClose": true,
+    "focusRestored": true
+  },
+  {
+    "engine": "chromium",
+    "reducedMotion": "reduce",
+    "immediateClose": true,
+    "focusRestored": true
+  },
+  {
+    "engine": "webkit",
+    "reducedMotion": "no-preference",
+    "entryOpacity": 0.543117,
+    "exit": {
+      "open": true,
+      "inert": true,
+      "animations": 2,
+      "samples": [
+        {
+          "time": 0,
+          "panel": 0.543117,
+          "backdrop": 0.543117,
+          "curve": "cubic-bezier(0.29, 0, 0, 1)",
+          "duration": "0.2s",
+          "transform": "none"
+        },
+        {
+          "time": 100,
+          "panel": 0.069973,
+          "backdrop": 0.069973,
+          "curve": "cubic-bezier(0.29, 0, 0, 1)",
+          "duration": "0.2s",
+          "transform": "none"
+        }
+      ]
+    },
+    "rapidReopen": true,
+    "cancelledAnimationFallback": true,
+    "escapeClose": true,
+    "focusRestored": true
+  },
+  {
+    "engine": "webkit",
+    "reducedMotion": "reduce",
+    "immediateClose": true,
+    "focusRestored": true
+  }
+]
