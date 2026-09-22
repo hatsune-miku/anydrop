@@ -165,4 +165,3 @@ class AnyDropRuntime private constructor(private val context: Context) {
     fun get(context: Context): AnyDropRuntime = instance ?: synchronized(this) { instance ?: AnyDropRuntime(context.applicationContext).also { instance = it } }
   }
 }
-

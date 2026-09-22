@@ -1,0 +1,2 @@
+# Store Windows launchers as text while keeping CRLF in Windows checkouts.
+*.bat text eol=crlf

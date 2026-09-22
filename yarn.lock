@@ -4,7 +4,7 @@
 
 "@a1knla/cakeui-native@file:vendor/a1knla-cakeui-native-0.1.0.tgz":
   version "0.1.0"
-  resolved "file:vendor/a1knla-cakeui-native-0.1.0.tgz#430177a5e82fb9e5a4562b7656731f9d87c60e03"
+  resolved "file:vendor/a1knla-cakeui-native-0.1.0.tgz#1fd5ba6e1a0bcd79d321ab432dc3935ddabe1f13"
 
 "@a1knla/cakeui@0.3.0":
   version "0.3.0"
