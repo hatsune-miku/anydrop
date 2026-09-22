@@ -1,0 +1,182 @@
+[
+  {
+    "name": "chromium-light-main.png",
+    "changedPixels": 2795,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-mac.png",
+    "changedPixels": 3369,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-compact.png",
+    "changedPixels": 867,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-empty.png",
+    "changedPixels": 2795,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-send.png",
+    "changedPixels": 2780,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-hover.png",
+    "changedPixels": 2795,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-hint.png",
+    "changedPixels": 2795,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-receive.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-light-preview.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-main.png",
+    "changedPixels": 8476,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-mac.png",
+    "changedPixels": 9607,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-compact.png",
+    "changedPixels": 1076,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-empty.png",
+    "changedPixels": 8476,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-send.png",
+    "changedPixels": 7787,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-hover.png",
+    "changedPixels": 8476,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-hint.png",
+    "changedPixels": 8476,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-receive.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "chromium-dark-preview.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-main.png",
+    "changedPixels": 7703,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-mac.png",
+    "changedPixels": 8453,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-compact.png",
+    "changedPixels": 1422,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-empty.png",
+    "changedPixels": 7703,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-send.png",
+    "changedPixels": 7670,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-hover.png",
+    "changedPixels": 7703,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-hint.png",
+    "changedPixels": 7703,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-receive.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-light-preview.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-main.png",
+    "changedPixels": 13785,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-mac.png",
+    "changedPixels": 15060,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-compact.png",
+    "changedPixels": 1669,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-empty.png",
+    "changedPixels": 13785,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-send.png",
+    "changedPixels": 13006,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-hover.png",
+    "changedPixels": 13785,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-hint.png",
+    "changedPixels": 13785,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-receive.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  },
+  {
+    "name": "webkit-dark-preview.png",
+    "changedPixels": 0,
+    "outsideSettingsPixels": 0
+  }
+]

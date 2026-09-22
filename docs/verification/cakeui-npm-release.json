@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-19",
+  "package": "@a1knla/cakeui",
+  "version": "0.3.0",
+  "distTag": "latest",
+  "registry": "https://registry.npmjs.org/",
+  "tarball": "https://registry.npmjs.org/@a1knla/cakeui/-/cakeui-0.3.0.tgz",
+  "integrity": "sha512-XLT3fdp8qgg4ZUfchcU1sQjiAJ0SRAGHHr3s2cJGJdoqb7lTW4ByZ07WJbx7IY5DXTgC7fll9miFxO63UdGdhg==",
+  "sourceCommit": "4b6adeb5b5d9ddf222fdcc3b0b0cd11f32b01ec6",
+  "tag": "v0.3.0",
+  "workflow": "https://github.com/hatsune-miku/cakeui/actions/runs/35437433832",
+  "workflowConclusion": "success",
+  "cssSha256": "ef202bc22a0b613d7fa862bfff11fd9d4451761e0580cd2d6739c578471e3a47",
+  "jsSha256": "f0ad35ab44918edbecac4f8348dc723924888e042c6ef8c415bd9a1fd59b39ea"
+}

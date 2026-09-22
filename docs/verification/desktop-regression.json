@@ -1,0 +1,236 @@
+{
+  "date": "2026-09-19",
+  "stage": "Complete production UI consuming the published npm package",
+  "cakeuiPackage": "@a1knla/cakeui",
+  "cakeuiVersion": "0.3.0",
+  "cakeuiIntegrity": "sha512-XLT3fdp8qgg4ZUfchcU1sQjiAJ0SRAGHHr3s2cJGJdoqb7lTW4ByZ07WJbx7IY5DXTgC7fll9miFxO63UdGdhg==",
+  "chromium": "151.0.7922.34",
+  "webkit": "26.5 / Playwright 2336",
+  "pixelmatch": {
+    "threshold": 0.02,
+    "includeAA": false,
+    "maxRatio": 0.0001
+  },
+  "results": {
+    "chromium": [
+      {
+        "name": "chromium-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ],
+    "webkit": [
+      {
+        "name": "webkit-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ]
+  }
+}

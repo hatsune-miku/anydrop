@@ -1,5 +1,5 @@
-# AnyDrop macOS Frontend
+# Former AnyDrop macOS Client
 
-AnyDrop is a cross-platform text and file sharing system.
+This directory preserves the retired SwiftUI client as historical source. It is not part of the current build and no longer receives new features.
 
-- [View Demo Video](https://hatsune-miku.github.io/#anydrop-video)
+Current desktop development uses the shared Rust core and Tauri application. See the [project README](../../README.md).

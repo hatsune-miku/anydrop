@@ -11,3 +11,9 @@
 *.suo
 *.pdb
 *.ilk
+
+/test-results/
+/apps/desktop-tauri/src-tauri/.generated/
+*.key
+*.key.pub
+__pycache__/

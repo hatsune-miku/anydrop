@@ -9,57 +9,40 @@
 //   * Motion rides the CakeDesign curve/duration tokens.
 //   * Self-implemented type scale (no h1–h4), no italics, no ligatures.
 
-:root {
-  // ── Accent (rose). Single brand hue; kept away from the blue-fatigue band.
-  --rose: #d15776;
-  --rose-strong: #be476a;
-  --rose-tint: rgba(209, 87, 118, 0.14);
-  --rose-tint-soft: rgba(209, 87, 118, 0.08);
-  // Danger stays hue-adjacent to rose (warm) so the palette reads as one family.
-  --danger: #c0453f;
-  --danger-tint: rgba(192, 69, 63, 0.12);
-
-  // ── Neutrals over a warm-paper canvas.
-  --paper: #f4f1ee;
-  --panel: rgba(255, 255, 255, 0.66);
-  --panel-strong: rgba(255, 255, 255, 0.9);
-  --control: rgba(255, 255, 255, 0.7);
-  --control-hover: rgba(255, 255, 255, 0.98);
-  --fill-soft: rgba(38, 34, 31, 0.04);
-  --fill-softer: rgba(38, 34, 31, 0.028);
-  --ink: #2a2521;
-  --ink-soft: #8a807a;
-  --hairline: rgba(38, 34, 31, 0.09);
-  // Opaque base under transparent-window bubbles.
-  --bubble-base: #ffffff;
-
-  // ── Shadow tokens (the only two sanctioned uses).
-  --inset-hairline: inset 0 0 0 1px rgba(38, 34, 31, 0.06);
-  --inset-edge: inset 0 0 0 1px var(--hairline);
-  --atmosphere: 0 0 40px 6px rgba(31, 27, 22, 0.12);
-  --atmosphere-strong: 0 0 56px 10px rgba(31, 27, 22, 0.16);
-
-  // ── Motion (CakeDesign C/T tokens).
+// Shared colors and controls are owned by CakeUI. Keep only application aliases and layout here.
+.app-theme {
+  --rose: var(--cake-accent);
+  --rose-strong: var(--cake-accent-hover);
+  --rose-tint: var(--cake-accent-soft);
+  --rose-tint-soft: var(--cake-accent-subtle);
+  --danger: var(--cake-danger);
+  --danger-tint: var(--cake-danger-soft);
+  --paper: var(--cake-bg);
+  --panel: var(--cake-surface);
+  --panel-strong: var(--cake-surface-strong);
+  --control: var(--cake-control);
+  --control-hover: var(--cake-control-hover);
+  --fill-soft: var(--cake-hover);
+  --fill-softer: var(--cake-hover-subtle);
+  --ink: var(--cake-text);
+  --ink-soft: var(--cake-muted);
+  --hairline: var(--cake-line);
+  --bubble-base: var(--cake-popup);
+  --inset-hairline: var(--cake-hairline);
+  --inset-edge: var(--cake-edge);
+  --atmosphere: var(--cake-atmosphere);
+  --atmosphere-strong: var(--cake-atmosphere-strong);
   --c1: ease-in;
-  --c2: cubic-bezier(0.29, 0, 0, 1);
+  --c2: var(--cake-ease);
   --c3: linear;
-  --t1: 150ms;
-  --t2: 200ms;
-  --t3: 250ms;
-
-  // ── Type scale — adjacent steps stay within 30% pixel height.
+  --t1: var(--cake-fast);
+  --t2: var(--cake-normal);
+  --t3: var(--cake-slow);
   --fs-title: 15px;
   --fs-body: 13px;
   --fs-meta: 12px;
   --fs-fine: 11px;
-
-  color: var(--ink);
-  background: var(--paper);
-  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'PingFang SC', system-ui, sans-serif;
-  font-size: var(--fs-body);
-  font-synthesis: none;
-  font-variant-ligatures: none;
-  text-rendering: geometricPrecision;
+  height: 100vh;
 }
 
 ::-webkit-scrollbar {
@@ -155,7 +138,9 @@ textarea {
   background: transparent;
   color: var(--ink-soft);
   cursor: default;
-  transition: background var(--t1) var(--c2), color var(--t1) var(--c2);
+  transition:
+    background var(--t1) var(--c2),
+    color var(--t1) var(--c2);
 }
 
 .window-control:hover {
@@ -201,7 +186,9 @@ textarea {
   border-radius: 99px;
   background: var(--ink-soft);
   opacity: 0.5;
-  transition: background var(--t2) var(--c2), opacity var(--t2) var(--c2);
+  transition:
+    background var(--t2) var(--c2),
+    opacity var(--t2) var(--c2);
 }
 
 .status-dot--on {
@@ -292,13 +279,8 @@ textarea {
 // A region reads as a soft tonal fill with a simulated inner edge — never a
 // hard border box.
 .card {
-  display: flex;
   overflow: hidden;
   height: 100%;
-  flex-direction: column;
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--inset-hairline);
 }
 
 // Region label: quiet, not a heavy chip; separated by weight + space, not a rule.
@@ -312,7 +294,7 @@ textarea {
   padding: 4px 14px 0;
 }
 
-.section-heading span {
+.section-heading > span {
   color: var(--ink-soft);
   font-size: var(--fs-meta);
   font-weight: 600;
@@ -490,9 +472,8 @@ textarea {
 
 .transfer-row--error {
   background: var(--danger-tint);
-
-  .progress-track span {
-    background: var(--danger);
+  .progress-track {
+    --cake-accent: var(--danger);
   }
 }
 
@@ -514,21 +495,11 @@ textarea {
 }
 
 .progress-track {
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--rose-tint);
-}
-
-.progress-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--rose);
-  transition: width var(--t2) var(--c2);
+  min-width: 0;
 }
 
 .progress-track--empty {
+  height: 5px;
   background: transparent;
 }
 
@@ -597,12 +568,10 @@ textarea {
 }
 
 .log-list {
-  overflow-y: auto;
   flex: 1;
-  padding: 6px 10px 8px;
-  font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
-  font-size: var(--fs-fine);
-  line-height: 1.55;
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
 }
 
 .log-entry {
@@ -635,6 +604,8 @@ textarea {
 
 .settings-footer {
   display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 8px;
   flex: 0 0 auto;
   padding: 12px 14px;
@@ -666,13 +637,7 @@ textarea {
   margin-top: 6px;
 }
 
-.toggle-row input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--rose);
-}
-
-.toggle-row span {
+.toggle-row .cake-checkbox-label {
   display: inline-flex;
   align-items: center;
 }
@@ -685,24 +650,11 @@ textarea {
   font-size: var(--fs-body);
 }
 
-.field span {
+.field > span {
   display: inline-flex;
   align-items: center;
   color: var(--ink-soft);
   font-size: var(--fs-meta);
-}
-
-.field input {
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 8px;
-  outline: none;
-  background: var(--control);
-  box-shadow: var(--inset-edge);
-  color: var(--ink);
-  transition: box-shadow var(--t1) var(--c2);
 }
 
 .field-row {
@@ -710,17 +662,6 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
   align-items: center;
-}
-
-.field-row input {
-  width: 100%;
-  min-height: 32px;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--control);
-  box-shadow: var(--inset-edge);
-  color: var(--ink);
 }
 
 .field-row .button {
@@ -740,7 +681,7 @@ textarea {
   margin: 0;
 }
 
-.field input.band-input {
+.band-input {
   width: calc(3ch + 20px);
   font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
   text-align: center;
@@ -758,17 +699,6 @@ textarea {
   font-family: 'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Menlo', monospace;
 }
 
-textarea,
-.field input:focus,
-.field-row input:focus {
-  outline: none;
-}
-
-.field input:focus,
-.field-row input:focus {
-  box-shadow: inset 0 0 0 1px var(--rose);
-}
-
 // "正在应用…" — dims the pane while a service-restarting save is in flight.
 .settings-pane--busy {
   position: relative;
@@ -783,6 +713,10 @@ textarea,
 }
 
 // ── "?" hint badge + portaled tooltip ──────────────────────────────────────
+.hint-anchor {
+  vertical-align: middle;
+}
+
 .field-hint {
   position: relative;
   display: inline-flex;
@@ -803,7 +737,18 @@ textarea,
   justify-content: center;
 }
 
+.section-heading .hint-anchor {
+  vertical-align: baseline;
+}
+
+.field .field-hint {
+  color: var(--ink-soft);
+  font-size: var(--fs-meta);
+}
+
 .section-heading .field-hint {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.02em;
   background: rgba(138, 128, 122, 0.18);
   color: var(--ink-soft);
   font-weight: 700;
@@ -814,110 +759,11 @@ textarea,
   background: var(--rose-tint);
 }
 
-.field-tooltip {
-  position: fixed;
-  z-index: 9999;
-  transform: translate(-50%, calc(-100% - 6px));
-  width: max-content;
-  max-width: 220px;
-  padding: 6px 9px;
-  border-radius: 8px;
-  background: var(--bubble-base);
-  box-shadow: var(--inset-edge), var(--atmosphere);
-  color: var(--ink);
-  font-size: var(--fs-fine);
-  font-weight: 400;
-  line-height: 1.45;
-  text-align: left;
-  white-space: normal;
-  pointer-events: none;
-}
-
 // ── Buttons ────────────────────────────────────────────────────────────────
-.button,
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--control);
-  box-shadow: var(--inset-edge);
-  color: var(--ink);
-  cursor: pointer;
-  font-size: var(--fs-body);
-  font-weight: 400;
-  transition: background var(--t1) var(--c2), box-shadow var(--t1) var(--c2), transform var(--t1) var(--c2);
-}
-
-.button {
-  padding: 0 12px;
-}
-
-.button:hover:not(:disabled),
-.icon-button:hover:not(:disabled) {
-  background: var(--control-hover);
-}
-
-.button:active:not(:disabled),
-.icon-button:active:not(:disabled) {
-  background: var(--rose-tint);
-  transform: translateY(1px);
-}
-
-.button.primary {
-  background: var(--rose);
-  box-shadow: none;
-  color: #fff;
-}
-
-.button.primary:hover:not(:disabled) {
-  background: var(--rose-strong);
-}
-
-.button.primary:active:not(:disabled) {
-  background: var(--rose-strong);
-}
-
-.button.quiet {
-  background: transparent;
-  box-shadow: none;
-  color: var(--ink-soft);
-}
-
-.button.quiet:hover:not(:disabled) {
-  background: var(--fill-soft);
-  color: var(--ink);
-}
-
-.button:disabled,
-.icon-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .icon-button {
   width: 30px;
   min-height: 30px;
   padding: 0;
-}
-
-// Borderless icon button for inline heading/row actions.
-.icon-button--ghost {
-  background: transparent;
-  box-shadow: none;
-  color: var(--ink-soft);
-}
-
-.icon-button--ghost:hover:not(:disabled) {
-  background: var(--fill-soft);
-  color: var(--ink);
-}
-
-.icon-button--ghost:active:not(:disabled) {
-  background: var(--rose-tint);
 }
 
 .full-width {
@@ -1003,7 +849,7 @@ textarea,
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(31, 27, 22, 0.2);
+  background: var(--cake-backdrop);
 }
 
 .dialog {
@@ -1112,8 +958,8 @@ textarea,
 .popup-card--error {
   background: linear-gradient(var(--danger-tint), var(--danger-tint)), var(--bubble-base);
 
-  .progress-track span {
-    background: var(--danger);
+  .progress-track {
+    --cake-accent: var(--danger);
   }
 }
 
@@ -1147,7 +993,9 @@ textarea,
   background: transparent;
   color: var(--ink-soft);
   cursor: pointer;
-  transition: background var(--t1) var(--c2), color var(--t1) var(--c2);
+  transition:
+    background var(--t1) var(--c2),
+    color var(--t1) var(--c2);
 }
 
 .popup-close:hover {
@@ -1275,33 +1123,4 @@ textarea,
 
 .spin {
   animation: spin var(--t2) var(--c3) infinite;
-}
-
-// ── Dark theme ──────────────────────────────────────────────────────────────
-html.dark {
-  --paper: #16151a;
-  --panel: rgba(255, 255, 255, 0.045);
-  --panel-strong: rgba(40, 38, 46, 0.96);
-  --control: rgba(255, 255, 255, 0.07);
-  --control-hover: rgba(255, 255, 255, 0.13);
-  --fill-soft: rgba(255, 255, 255, 0.055);
-  --fill-softer: rgba(255, 255, 255, 0.03);
-  --ink: #e7e2df;
-  --ink-soft: #948b86;
-  --hairline: rgba(255, 255, 255, 0.08);
-  --bubble-base: #26242b;
-  --rose-tint: rgba(209, 87, 118, 0.2);
-  --rose-tint-soft: rgba(209, 87, 118, 0.12);
-  --danger-tint: rgba(192, 69, 63, 0.2);
-  --inset-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --atmosphere: 0 0 40px 6px rgba(0, 0, 0, 0.4);
-  --atmosphere-strong: 0 0 56px 10px rgba(0, 0, 0, 0.5);
-
-  .window-control:hover {
-    background: var(--fill-soft);
-  }
-
-  .dialog-backdrop {
-    background: rgba(0, 0, 0, 0.5);
-  }
 }

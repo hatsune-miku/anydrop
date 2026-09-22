@@ -1,11 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 
+import '@a1knla/cakeui/style.css'
+
 import App from './App'
 import PreviewWindow from './PreviewWindow'
 import ReceivePopup from './ReceivePopup'
-import { windowKind } from './types'
 import './styles.scss'
+import { windowKind } from './types'
 
 // One HTML entry, three surfaces. The native receive popup and the preview
 // window load `index.html?window=...`; the main window has no query param.
@@ -20,6 +22,4 @@ function Root() {
   }
 }
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <Root />
-)
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(<Root />)

@@ -2,16 +2,29 @@
   "name": "anydrop-workspace",
   "private": true,
   "workspaces": [
-    "apps/desktop-tauri"
+    "apps/desktop-tauri",
+    "apps/mobile"
   ],
   "scripts": {
     "tauri": "yarn workspace @anydrop/desktop-tauri tauri",
     "dev": "yarn workspace @anydrop/desktop-tauri tauri dev",
     "build": "yarn workspace @anydrop/desktop-tauri tauri build",
-    "format": "prettier --write \"apps/desktop-tauri/**/*.{ts,tsx,scss,json}\""
+    "format": "prettier --write \"apps/desktop-tauri/**/*.{ts,tsx,scss,json}\"",
+    "test:visual": "node scripts/visual-check.mjs",
+    "test:desktop": "node scripts/desktop-check.mjs",
+    "test:release": "node --test tests/updater.test.mjs",
+    "updater:prepare": "node scripts/prepare-updater.mjs",
+    "mobile:start": "yarn workspace @anydrop/mobile start",
+    "mobile:android": "yarn workspace @anydrop/mobile android",
+    "mobile:ios": "yarn workspace @anydrop/mobile ios",
+    "mobile:typecheck": "yarn workspace @anydrop/mobile typecheck",
+    "mobile:apk": "yarn workspace @anydrop/mobile android:apk"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "pixelmatch": "7.2.0",
+    "playwright": "1.62.1",
+    "pngjs": "7.0.0",
     "prettier": "^3.5.3"
   }
 }

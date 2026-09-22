@@ -8,11 +8,15 @@
         "width": 1060,
         "height": 770,
         "minWidth": 1020,
-        "minHeight": 580
+        "minHeight": 580,
+        "visible": false
       }
     ]
   },
   "bundle": {
-    "targets": ["app", "dmg"]
+    "targets": [
+      "app",
+      "dmg"
+    ]
   }
 }

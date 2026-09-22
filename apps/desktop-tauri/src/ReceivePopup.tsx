@@ -2,19 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Check, Copy, FolderInput, FolderOpen, TriangleAlert, X } from 'lucide-react'
 
+import { Button, CakeProvider, ProgressBar } from '@a1knla/cakeui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
-import {
-  formatBytes,
-  formatSpeed,
-  percent,
-  transferStatus,
-  type Snapshot,
-  type Transfer,
-} from './types'
+import { type Snapshot, type Transfer, formatBytes, formatSpeed, percent, transferStatus } from './types'
 
 type ClipboardCard = {
   id: number
@@ -33,6 +27,7 @@ function isTerminal(status: number) {
 }
 
 export default function ReceivePopup() {
+  const [darkMode, setDarkMode] = useState(window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
   const [transfers, setTransfers] = useState<Record<string, Transfer>>({})
   // Keys the popup is responsible for showing. Seeded from incoming-file
   // events and any already-active incoming transfers in the initial snapshot.
@@ -62,16 +57,12 @@ export default function ReceivePopup() {
     const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
     void invoke<Snapshot>('get_snapshot')
       .then((snap) => {
-        document.documentElement.classList.toggle('dark', snap.settings.darkMode ?? systemDark)
+        setDarkMode(snap.settings.darkMode ?? systemDark)
         const map: Record<string, Transfer> = {}
         for (const t of snap.transfers) map[t.key] = t
         setTransfers(map)
         setTracked(
-          new Set(
-            snap.transfers
-              .filter((t) => t.direction === 'incoming' && ACTIVE.has(t.status))
-              .map((t) => t.key)
-          )
+          new Set(snap.transfers.filter((t) => t.direction === 'incoming' && ACTIVE.has(t.status)).map((t) => t.key))
         )
       })
       .catch(() => {})
@@ -95,33 +86,26 @@ export default function ReceivePopup() {
         })
       }),
       listen<Snapshot>('snapshot', (event) => {
+        setDarkMode(event.payload.settings.darkMode ?? systemDark)
         const map: Record<string, Transfer> = {}
         for (const t of event.payload.transfers) map[t.key] = t
         setTransfers(map)
       }),
-      listen<{ kind: 'text' | 'image'; preview: string; text?: string; peer: string }>(
-        'clipboard-popup',
-        (event) => {
-          const {
-            kind,
-            preview,
-            text = '',
-            peer,
-          } = event.payload ?? { kind: 'text', preview: '', text: '', peer: '' }
-          // Skip empty text receipts — nothing useful to show, and an empty card
-          // reads as a glitch.
-          if (kind === 'text' && !preview.trim() && !peer.trim()) return
-          // Drop a back-to-back duplicate of the same content.
-          const sig = `${kind}:${preview}:${peer}`
-          const now = Date.now()
-          if (lastCard.current.sig === sig && now - lastCard.current.ts < 1500) return
-          lastCard.current = { sig, ts: now }
-          const id = (cardSeq.current += 1)
-          setCards((prev) => [{ id, kind, preview, text, peer }, ...prev].slice(0, 4))
-          // Auto-dismiss clipboard cards after a few seconds.
-          setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
-        }
-      ),
+      listen<{ kind: 'text' | 'image'; preview: string; text?: string; peer: string }>('clipboard-popup', (event) => {
+        const { kind, preview, text = '', peer } = event.payload ?? { kind: 'text', preview: '', text: '', peer: '' }
+        // Skip empty text receipts — nothing useful to show, and an empty card
+        // reads as a glitch.
+        if (kind === 'text' && !preview.trim() && !peer.trim()) return
+        // Drop a back-to-back duplicate of the same content.
+        const sig = `${kind}:${preview}:${peer}`
+        const now = Date.now()
+        if (lastCard.current.sig === sig && now - lastCard.current.ts < 1500) return
+        lastCard.current = { sig, ts: now }
+        const id = (cardSeq.current += 1)
+        setCards((prev) => [{ id, kind, preview, text, peer }, ...prev].slice(0, 4))
+        // Auto-dismiss clipboard cards after a few seconds.
+        setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
+      }),
     ]
     return () => {
       void Promise.all(unlisteners).then((items) => items.forEach((u) => u()))
@@ -179,7 +163,7 @@ export default function ReceivePopup() {
   }
 
   return (
-    <div className="popup-shell">
+    <CakeProvider className="app-theme popup-shell" theme="pink" density="compact" mode={darkMode ? 'dark' : 'light'}>
       <div className="popup-body">
         {cards.map((card, idx) => (
           <article
@@ -197,8 +181,9 @@ export default function ReceivePopup() {
             {card.kind === 'text' ? (
               <div className="popup-card-actions">
                 {idx === 0 ? <small className="copied-tag">已复制</small> : null}
-                <button
-                  className="icon-button icon-button--ghost"
+                <Button
+                  variant="ghost"
+                  className="icon-button"
                   type="button"
                   aria-label="复制"
                   title="复制到剪贴板"
@@ -209,7 +194,7 @@ export default function ReceivePopup() {
                   }}
                 >
                   <Copy size={15} />
-                </button>
+                </Button>
               </div>
             ) : null}
           </article>
@@ -227,22 +212,22 @@ export default function ReceivePopup() {
               </small>
             </div>
             <div className="popup-actions">
-              <button className="button primary" type="button" onClick={() => void accept(t.key)}>
+              <Button variant="primary" className="button" type="button" onClick={() => void accept(t.key)}>
                 <Check size={15} />
                 接收
-              </button>
-              <button className="button" type="button" onClick={() => void chooseLocation(t.key)}>
+              </Button>
+              <Button className="button" type="button" onClick={() => void chooseLocation(t.key)}>
                 <FolderInput size={15} />
                 更改位置
-              </button>
-              <button
+              </Button>
+              <Button
                 className="button"
                 type="button"
                 onClick={() => void invoke('reject_transfer', { transferKey: t.key })}
               >
                 <X size={15} />
                 拒绝
-              </button>
+              </Button>
             </div>
           </article>
         ))}
@@ -262,30 +247,28 @@ export default function ReceivePopup() {
                 </small>
               ) : null}
             </div>
-            <div className="progress-track">
-              <span style={{ width: `${percent(t)}%` }} />
-            </div>
+            <ProgressBar className="progress-track" value={percent(t)} max={100} aria-label="传输进度" />
             {isTerminal(t.status) ? (
               <div className="popup-actions">
                 {t.localPath ? (
-                  <button
+                  <Button
                     className="button"
                     type="button"
                     onClick={() => void invoke('open_transfer_folder', { transferKey: t.key })}
                   >
                     <FolderOpen size={15} />
                     打开目录
-                  </button>
+                  </Button>
                 ) : null}
-                <button className="button" type="button" onClick={() => dismiss(t.key)}>
+                <Button className="button" type="button" onClick={() => dismiss(t.key)}>
                   <Check size={15} />
                   已读
-                </button>
+                </Button>
               </div>
             ) : null}
           </article>
         ))}
       </div>
-    </div>
+    </CakeProvider>
   )
 }

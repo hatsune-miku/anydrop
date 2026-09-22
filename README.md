@@ -2,15 +2,34 @@
 
 AnyDrop is a LAN-first text, clipboard, and file sharing app.
 
-This repository merges the old AirX core, Windows client, and macOS client into one new codebase. The old WinUI and SwiftUI projects are kept under `reference/` only as migration material. New desktop development targets a shared Rust core plus a Tauri 2 application built with TypeScript, React, Vite, and Yarn.
+AnyDrop evolved from AirX. Desktop development now targets a shared Rust core plus a Tauri 2 application built with TypeScript, React, Vite, and Yarn. Former Windows and macOS clients are retained under `reference/` as historical source only; retired projects and their external documentation are not required for current development.
 
 ## Layout
 
 - `core/`: Rust LAN discovery and data-transfer library, renamed to `anydrop`.
 - `apps/desktop-tauri/`: Tauri 2 desktop shell.
+- `apps/mobile/`: React Native Android / iOS application in development.
 - `reference/windows-winui/`: old Windows client, not part of the build.
 - `reference/macos-swiftui/`: old macOS client, not part of the build.
 - `docs/`: refactor and migration notes.
+
+## Design Guidance
+
+UI and UX follow [CakeDesign (CD)](https://raw.githubusercontent.com/hatsune-miku/cakedesign-skill/refs/heads/main/SKILL.md), alongside the existing application implementation.
+
+The current AnyDrop project has never used Figma for preliminary design. Figma references in legacy records are not design sources for this project.
+
+AnyDrop is the visual source of truth for CakeUI. The desktop app uses CakeUI 0.3.0 from npm with its calibrated pink / compact theme; visual conflicts are resolved in CakeUI itself. The exact package version and integrity are recorded in `yarn.lock`.
+
+## Current integration notes
+
+- [CakeUI integration and visual verification](docs/cakeui-integration.md)
+- [Mobile development and build instructions](apps/mobile/README.md)
+- [Confirmed mobile scope: React Native, Android APK, and iOS Simulator](docs/mobile-plan.md)
+- [Mobile implementation checklist: confirmed decisions and remaining engineering work](docs/mobile-implementation-questions.md)
+- [Desktop autostart, global shortcut and updater configuration](docs/desktop-integration.md)
+
+Desktop updates use independent AnyDrop signatures and the RC endpoint at https://anydrop-api.vanillacake.cn/rc/latest.json. GitHub builds signed installers; the server verifies and mirrors complete releases before publishing the manifest. See [updater deployment](deploy/updater/README.md).
 
 ## Build
 
@@ -25,6 +44,8 @@ Install the Tauri frontend dependencies:
 ```powershell
 yarn install
 ```
+
+With Node 25.8.1+ (25.x), use `yarn install --frozen-lockfile --ignore-engines`: the pinned React Native / Metro dependencies exclude Node 25 in their engine declarations. This project provides a tested compatibility path; other commands stay the same. See the [mobile development instructions](apps/mobile/README.md) for details.
 
 Run the Tauri app in development:
 

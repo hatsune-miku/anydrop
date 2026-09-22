@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 
+import { Button, CakeProvider, Card, CheckBox, HoverTips, LogView, ProgressBar, TextBox } from '@a1knla/cakeui'
 import { getVersion } from '@tauri-apps/api/app'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
@@ -27,6 +28,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
+import { DesktopSettings } from './components/DesktopSettings'
 import {
   type PeerGroup,
   type SettingsModel,
@@ -54,39 +56,13 @@ function Surface({ children, className = '' }: { children: ReactNode; className?
   return <div className={`surface-shell ${className}`}>{children}</div>
 }
 
-/**
- * A "?" badge with a custom hover/focus tooltip. The tooltip is portaled to
- * document.body and positioned `fixed` over the badge so it can't be clipped by
- * the scrolling settings pane (and escapes inherited text colors).
- */
 function Hint({ text }: { text: string }) {
-  const ref = useRef<HTMLSpanElement>(null)
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
-  const show = () => {
-    const rect = ref.current?.getBoundingClientRect()
-    if (rect) setPos({ x: rect.left + rect.width / 2, y: rect.top })
-  }
-  const hide = () => setPos(null)
   return (
-    <span
-      ref={ref}
-      className="field-hint"
-      tabIndex={0}
-      onMouseEnter={show}
-      onMouseLeave={hide}
-      onFocus={show}
-      onBlur={hide}
-    >
-      ?
-      {pos
-        ? createPortal(
-            <span className="field-tooltip" role="tooltip" style={{ left: pos.x, top: pos.y }}>
-              {text}
-            </span>,
-            document.body
-          )
-        : null}
-    </span>
+    <HoverTips className="hint-anchor" content={text} delay={0}>
+      <span className="field-hint" tabIndex={0}>
+        ?
+      </span>
+    </HoverTips>
   )
 }
 
@@ -141,7 +117,7 @@ function TransferDetail({ transfer, x, y }: { transfer: Transfer; x: number; y: 
         <Line k={incoming ? '保存位置' : '来源位置'} v={transfer.localPath || '—'} />
       </div>
     </div>,
-    document.body
+    document.getElementById('app-theme') ?? document.body
   )
 }
 
@@ -171,7 +147,6 @@ function App() {
   const [dragOver, setDragOver] = useState(false)
   // Hovered transfer row → its detail tooltip (portaled, positioned over the row).
   const [detail, setDetail] = useState<{ transfer: Transfer; x: number; y: number } | null>(null)
-  const logListRef = useRef<HTMLDivElement>(null)
   // Latest selected peer, read inside the drag-drop handler without re-subscribing.
   const selectedPeerRef = useRef<PeerGroup | undefined>(undefined)
 
@@ -208,12 +183,13 @@ function App() {
     }
   }, [snapshot.transfers, detail])
 
-  // Auto-scroll the log panel to the newest entry whenever logs change.
   useEffect(() => {
-    if (logListRef.current) {
-      logListRef.current.scrollTop = logListRef.current.scrollHeight
+    if (!isTauriRuntime()) return
+    const stop = listen<string>('desktop-notice', (event) => setNotice(event.payload))
+    return () => {
+      void stop.then((unlisten) => unlisten())
     }
-  }, [snapshot.logs])
+  }, [])
 
   useEffect(() => {
     const suppressContextMenu = (event: MouseEvent) => event.preventDefault()
@@ -482,629 +458,650 @@ function App() {
   const selectedPeerHosts = selectedPeer?.hosts.join(' / ') ?? '等待设备发现'
 
   return (
-    <main className="app-shell">
-      {detail
-        ? (() => {
-            const live = transfers.find((t) => t.key === detail.transfer.key) ?? detail.transfer
-            return <TransferDetail transfer={live} x={detail.x} y={detail.y} />
-          })()
-        : null}
-      {dragOver ? (
-        <div className="drop-overlay" aria-hidden="true">
-          <div className="drop-overlay-card">
-            <Upload size={28} />
-            <strong>
-              {selectedPeer ? `拖放以发送到 ${selectedPeer.remark ?? selectedPeer.label}` : '请先选择左侧设备'}
-            </strong>
-          </div>
-        </div>
-      ) : null}
-      {isMac ? (
-        // macOS: fullSizeContentView via titleBarStyle=Overlay.  Native traffic
-        // lights float over the top-left of the webview; we just need a thin
-        // drag region that clears them. No title text, no border — keep it
-        // visually invisible so the webview content meets the window edge.
-        <header
-          className="window-titlebar window-titlebar--mac"
-          data-tauri-drag-region
-          onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
-        />
-      ) : (
-        <header
-          className="window-titlebar"
-          data-tauri-drag-region
-          onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
-          onContextMenu={(e) => {
-            // Surface the native window system menu (frameless windows have none
-            // by default). The global contextmenu suppressor blocks the web menu.
-            e.preventDefault()
-            if (isTauriRuntime()) void invoke('show_window_menu')
-          }}
-        >
-          <div className="window-title" data-tauri-drag-region />
-          <div className="window-controls">
-            <button
-              aria-label="最小化"
-              className="window-control"
-              type="button"
-              onClick={(e) => void runWindowAction(e, 'minimize')}
-            >
-              <Minus size={13} strokeWidth={1.5} />
-            </button>
-            <button
-              aria-label="最大化或还原"
-              className="window-control"
-              type="button"
-              onClick={(e) => void runWindowAction(e, 'toggleMaximize')}
-            >
-              <Square size={11} strokeWidth={1.5} />
-            </button>
-            <button
-              aria-label="关闭"
-              className="window-control close"
-              type="button"
-              onClick={(e) => void runWindowAction(e, 'close')}
-            >
-              <X size={13} strokeWidth={1.5} />
-            </button>
-          </div>
-        </header>
-      )}
-
-      {notice ? (
-        <div className="notice" role="status">
-          {notice}
-        </div>
-      ) : null}
-
-      {pendingSend ? (
-        <section className="dialog-backdrop" aria-live="polite">
-          <div className="dialog">
-            <div className="section-heading">
-              <span>确认发送</span>
-              <small>{pendingSend.paths.length} 个项目</small>
+    <CakeProvider
+      id="app-theme"
+      className="app-theme"
+      theme="pink"
+      density="compact"
+      mode={darkMode ? 'dark' : 'light'}
+    >
+      <main className="app-shell">
+        {detail
+          ? (() => {
+              const live = transfers.find((t) => t.key === detail.transfer.key) ?? detail.transfer
+              return <TransferDetail transfer={live} x={detail.x} y={detail.y} />
+            })()
+          : null}
+        {dragOver ? (
+          <div className="drop-overlay" aria-hidden="true">
+            <div className="drop-overlay-card">
+              <Upload size={28} />
+              <strong>
+                {selectedPeer ? `拖放以发送到 ${selectedPeer.remark ?? selectedPeer.label}` : '请先选择左侧设备'}
+              </strong>
             </div>
-            <div className="dialog-list">
-              <article className="request-row">
-                <div className="row-main">
-                  <strong>发送到 {pendingSend.peerLabel}</strong>
-                  <span>共 {pendingSend.paths.length} 个项目</span>
-                </div>
-              </article>
-              {pendingSend.paths.slice(0, 8).map((path) => (
-                <div className="confirm-path" key={path} title={path}>
-                  {baseName(path)}
-                </div>
-              ))}
-              {pendingSend.paths.length > 8 ? (
-                <div className="confirm-path confirm-path--more">… 等 {pendingSend.paths.length} 个</div>
-              ) : null}
-            </div>
-            <div className="card-footer">
-              <button className="button" type="button" onClick={() => setPendingSend(null)}>
-                取消
+          </div>
+        ) : null}
+        {isMac ? (
+          // macOS: fullSizeContentView via titleBarStyle=Overlay.  Native traffic
+          // lights float over the top-left of the webview; we just need a thin
+          // drag region that clears them. No title text, no border — keep it
+          // visually invisible so the webview content meets the window edge.
+          <header
+            className="window-titlebar window-titlebar--mac"
+            data-tauri-drag-region
+            onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+          />
+        ) : (
+          <header
+            className="window-titlebar"
+            data-tauri-drag-region
+            onDoubleClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+            onContextMenu={(e) => {
+              // Surface the native window system menu (frameless windows have none
+              // by default). The global contextmenu suppressor blocks the web menu.
+              e.preventDefault()
+              if (isTauriRuntime()) void invoke('show_window_menu')
+            }}
+          >
+            <div className="window-title" data-tauri-drag-region />
+            <div className="window-controls">
+              <button
+                aria-label="最小化"
+                className="window-control"
+                type="button"
+                onClick={(e) => void runWindowAction(e, 'minimize')}
+              >
+                <Minus size={13} strokeWidth={1.5} />
               </button>
-              <button className="button primary" type="button" disabled={busy} onClick={() => void confirmSend()}>
-                <Upload size={15} />
-                确认发送
+              <button
+                aria-label="最大化或还原"
+                className="window-control"
+                type="button"
+                onClick={(e) => void runWindowAction(e, 'toggleMaximize')}
+              >
+                <Square size={11} strokeWidth={1.5} />
+              </button>
+              <button
+                aria-label="关闭"
+                className="window-control close"
+                type="button"
+                onClick={(e) => void runWindowAction(e, 'close')}
+              >
+                <X size={13} strokeWidth={1.5} />
               </button>
             </div>
-          </div>
-        </section>
-      ) : null}
+          </header>
+        )}
 
-      <section className="app-window">
-        <header className="content-header">
-          <div className="app-identity">
-            <span className={snapshot.running ? 'status-dot status-dot--on' : 'status-dot'} />
-            <div className="status-text">
-              <div className="status-title">{snapshot.running ? '服务运行中' : '服务未启动'}</div>
-              <p>{snapshot.statusText}</p>
-            </div>
+        {notice ? (
+          <div className="notice" role="status">
+            {notice}
           </div>
-          <div className="content-actions">
-            <button className="button" type="button" disabled={busy} onClick={toggleService}>
-              {snapshot.running ? <Square size={15} /> : <Play size={15} />}
-              {snapshot.running ? '停止服务' : '启动服务'}
-            </button>
-          </div>
-        </header>
+        ) : null}
 
-        <div className="content-grid">
-          <Surface className="device-pane">
-            <section className="card full-height">
+        {pendingSend ? (
+          <section className="dialog-backdrop" aria-live="polite">
+            <div className="dialog">
               <div className="section-heading">
-                <span>设备</span>
-                <button
-                  className="icon-button icon-button--ghost"
-                  type="button"
-                  aria-label="刷新"
-                  title="刷新设备列表"
-                  onClick={() => void refresh()}
-                >
-                  <RefreshCw size={14} className={refreshing ? 'spin' : undefined} />
-                </button>
+                <span>确认发送</span>
+                <small>{pendingSend.paths.length} 个项目</small>
               </div>
-              <div className="device-list">
-                {snapshot.peers.length === 0 ? (
-                  <p className="empty">暂无设备。开启服务后会自动发现同一网络中运行 AnyDrop 的设备。</p>
-                ) : (
-                  snapshot.peers.map((peer) => (
-                    <div
-                      className={peer.name === selectedPeerName ? 'device-row selected' : 'device-row'}
-                      key={peer.name}
-                      onClick={() => setSelectedPeerName(peer.name)}
-                    >
-                      <span className="device-dot" />
-                      <span className="row-main">
-                        {editingRemark === peer.name ? (
-                          <input
-                            className="remark-input"
-                            autoFocus
-                            value={remarkDraft}
-                            placeholder={peer.label}
-                            onClick={(e) => e.stopPropagation()}
-                            onChange={(e) => setRemarkDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') void commitRemark(peer.name)
-                              if (e.key === 'Escape') setEditingRemark(null)
-                            }}
-                            onBlur={() => void commitRemark(peer.name)}
-                          />
-                        ) : (
-                          <strong>{peer.remark ?? peer.label}</strong>
-                        )}
-                        <small>{peer.hosts.join(' / ')}</small>
-                      </span>
-                      <button
-                        className="icon-button icon-button--ghost device-remark-edit"
-                        type="button"
-                        aria-label="备注"
-                        title="设置本地备注名"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          beginEditRemark(peer.name, peer.remark ?? '')
-                        }}
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-          </Surface>
-
-          <div className={`main-stack main-stack--with-log${logsCollapsed ? ' main-stack--log-collapsed' : ''}`}>
-            <Surface>
-              <section className="card send-card">
-                <div className="target-row">
-                  <div className="target-icon">
-                    <Share2 size={18} />
-                  </div>
+              <div className="dialog-list">
+                <article className="request-row">
                   <div className="row-main">
-                    <strong>{selectedPeer?.label ?? '选择左侧设备'}</strong>
-                    <span>{selectedPeerHosts}</span>
+                    <strong>发送到 {pendingSend.peerLabel}</strong>
+                    <span>共 {pendingSend.paths.length} 个项目</span>
                   </div>
+                </article>
+                {pendingSend.paths.slice(0, 8).map((path) => (
+                  <div className="confirm-path" key={path} title={path}>
+                    {baseName(path)}
+                  </div>
+                ))}
+                {pendingSend.paths.length > 8 ? (
+                  <div className="confirm-path confirm-path--more">… 等 {pendingSend.paths.length} 个</div>
+                ) : null}
+              </div>
+              <div className="card-footer">
+                <Button className="button" type="button" onClick={() => setPendingSend(null)}>
+                  取消
+                </Button>
+                <Button
+                  variant="primary"
+                  className="button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void confirmSend()}
+                >
+                  <Upload size={15} />
+                  确认发送
+                </Button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <section className="app-window">
+          <header className="content-header">
+            <div className="app-identity">
+              <span className={snapshot.running ? 'status-dot status-dot--on' : 'status-dot'} />
+              <div className="status-text">
+                <div className="status-title">{snapshot.running ? '服务运行中' : '服务未启动'}</div>
+                <p>{snapshot.statusText}</p>
+              </div>
+            </div>
+            <div className="content-actions">
+              <Button className="button" type="button" disabled={busy} onClick={toggleService}>
+                {snapshot.running ? <Square size={15} /> : <Play size={15} />}
+                {snapshot.running ? '停止服务' : '启动服务'}
+              </Button>
+            </div>
+          </header>
+
+          <div className="content-grid">
+            <Surface className="device-pane">
+              <Card padding="none" className="card full-height">
+                <div className="section-heading">
+                  <span>设备</span>
+                  <Button
+                    variant="ghost"
+                    className="icon-button"
+                    type="button"
+                    aria-label="刷新"
+                    title="刷新设备列表"
+                    onClick={() => void refresh()}
+                  >
+                    <RefreshCw size={14} className={refreshing ? 'spin' : undefined} />
+                  </Button>
                 </div>
-                <div className="send-actions">
-                  <button
-                    className="button primary"
-                    type="button"
-                    disabled={!selectedPeer || busy}
-                    onClick={() => void stageSend(false)}
-                  >
-                    <Upload size={16} />
-                    选择文件
-                  </button>
-                  <button
-                    className="button"
-                    type="button"
-                    disabled={!selectedPeer || busy}
-                    onClick={() => void stageSend(true)}
-                  >
-                    <FolderOpen size={16} />
-                    选择文件夹
-                  </button>
-                  <button
-                    className="button hotkey-host"
-                    type="button"
-                    disabled={!snapshot.running || busy}
-                    onClick={() => void runCommand<Snapshot>('send_clipboard_now')}
-                  >
-                    <Clipboard size={16} />
-                    发送剪贴板
-                  </button>
+                <div className="device-list">
+                  {snapshot.peers.length === 0 ? (
+                    <p className="empty">暂无设备。开启服务后会自动发现同一网络中运行 AnyDrop 的设备。</p>
+                  ) : (
+                    snapshot.peers.map((peer) => (
+                      <div
+                        className={peer.name === selectedPeerName ? 'device-row selected' : 'device-row'}
+                        key={peer.name}
+                        onClick={() => setSelectedPeerName(peer.name)}
+                      >
+                        <span className="device-dot" />
+                        <span className="row-main">
+                          {editingRemark === peer.name ? (
+                            <TextBox
+                              className="remark-input"
+                              autoFocus
+                              value={remarkDraft}
+                              placeholder={peer.label}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setRemarkDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void commitRemark(peer.name)
+                                if (e.key === 'Escape') setEditingRemark(null)
+                              }}
+                              onBlur={() => void commitRemark(peer.name)}
+                            />
+                          ) : (
+                            <strong>{peer.remark ?? peer.label}</strong>
+                          )}
+                          <small>{peer.hosts.join(' / ')}</small>
+                        </span>
+                        <Button
+                          variant="ghost"
+                          className="icon-button device-remark-edit"
+                          type="button"
+                          aria-label="备注"
+                          title="设置本地备注名"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            beginEditRemark(peer.name, peer.remark ?? '')
+                          }}
+                        >
+                          <Pencil size={13} />
+                        </Button>
+                      </div>
+                    ))
+                  )}
                 </div>
-              </section>
+              </Card>
             </Surface>
 
-            <Surface>
-              <section className="card transfers-card">
-                <div className="section-heading">
-                  <span>
-                    最近传输
-                    <Hint text="时间降序排列" />
-                  </span>
-                  <div className="heading-actions">
-                    <button
-                      className="button quiet clear-on-hover"
-                      type="button"
-                      style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
-                      onClick={() => void runCommand<Snapshot>('clear_transfers')}
-                    >
-                      清空
-                    </button>
-                    <small>{transfers.length} 条记录</small>
+            <div className={`main-stack main-stack--with-log${logsCollapsed ? ' main-stack--log-collapsed' : ''}`}>
+              <Surface>
+                <Card padding="none" className="card send-card">
+                  <div className="target-row">
+                    <div className="target-icon">
+                      <Share2 size={18} />
+                    </div>
+                    <div className="row-main">
+                      <strong>{selectedPeer?.label ?? '选择左侧设备'}</strong>
+                      <span>{selectedPeerHosts}</span>
+                    </div>
                   </div>
-                </div>
-                {transfers.length === 0 ? (
-                  <p className="empty">暂无传输记录。</p>
-                ) : (
-                  <div className="transfer-list">
-                    {transfers.map((transfer) => (
-                      <article
-                        className={`transfer-row${transfer.error ? ' transfer-row--error' : ''}${
-                          transfer.status === 7 ? ' transfer-row--done' : ''
-                        }`}
-                        key={transfer.key}
-                        onMouseEnter={(e) => {
-                          const r = e.currentTarget.getBoundingClientRect()
-                          setDetail({ transfer, x: r.left, y: r.top })
-                        }}
-                        onMouseLeave={() => setDetail(null)}
+                  <div className="send-actions">
+                    <Button
+                      variant="primary"
+                      className="button"
+                      type="button"
+                      disabled={!selectedPeer || busy}
+                      onClick={() => void stageSend(false)}
+                    >
+                      <Upload size={16} />
+                      选择文件
+                    </Button>
+                    <Button
+                      className="button"
+                      type="button"
+                      disabled={!selectedPeer || busy}
+                      onClick={() => void stageSend(true)}
+                    >
+                      <FolderOpen size={16} />
+                      选择文件夹
+                    </Button>
+                    <Button
+                      className="button hotkey-host"
+                      type="button"
+                      disabled={!snapshot.running || busy}
+                      onClick={() => void runCommand<Snapshot>('send_clipboard_now')}
+                    >
+                      <Clipboard size={16} />
+                      发送剪贴板
+                    </Button>
+                  </div>
+                </Card>
+              </Surface>
+
+              <Surface>
+                <Card padding="none" className="card transfers-card">
+                  <div className="section-heading">
+                    <span>
+                      最近传输
+                      <Hint text="时间降序排列" />
+                    </span>
+                    <div className="heading-actions">
+                      <Button
+                        variant="ghost"
+                        className="button clear-on-hover"
+                        type="button"
+                        style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
+                        onClick={() => void runCommand<Snapshot>('clear_transfers')}
                       >
-                        <div className="row-main">
-                          <strong>{transfer.fileName}</strong>
-                          <span>
-                            {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)}
-                            {/* Transferred-bytes counter only while active (in-progress /
+                        清空
+                      </Button>
+                      <small>{transfers.length} 条记录</small>
+                    </div>
+                  </div>
+                  {transfers.length === 0 ? (
+                    <p className="empty">暂无传输记录。</p>
+                  ) : (
+                    <div className="transfer-list">
+                      {transfers.map((transfer) => (
+                        <article
+                          className={`transfer-row${transfer.error ? ' transfer-row--error' : ''}${
+                            transfer.status === 7 ? ' transfer-row--done' : ''
+                          }`}
+                          key={transfer.key}
+                          onMouseEnter={(e) => {
+                            const r = e.currentTarget.getBoundingClientRect()
+                            setDetail({ transfer, x: r.left, y: r.top })
+                          }}
+                          onMouseLeave={() => setDetail(null)}
+                        >
+                          <div className="row-main">
+                            <strong>{transfer.fileName}</strong>
+                            <span>
+                              {transfer.direction === 'incoming' ? '接收' : '发送'} · {transferStatus(transfer.status)}
+                              {/* Transferred-bytes counter only while active (in-progress /
                                 paused); otherwise just the total size. */}
-                            {transfer.status === 4 || transfer.status === 9
-                              ? ` · ${formatBytes(transfer.progress)} / ${formatBytes(transfer.total)}`
-                              : transfer.total > 0
-                                ? ` · ${formatBytes(transfer.total)}`
+                              {transfer.status === 4 || transfer.status === 9
+                                ? ` · ${formatBytes(transfer.progress)} / ${formatBytes(transfer.total)}`
+                                : transfer.total > 0
+                                  ? ` · ${formatBytes(transfer.total)}`
+                                  : ''}
+                              {transfer.status === 4 && transfer.speedBps > 0
+                                ? ` · ${formatSpeed(transfer.speedBps)}`
                                 : ''}
-                            {transfer.status === 4 && transfer.speedBps > 0
-                              ? ` · ${formatSpeed(transfer.speedBps)}`
-                              : ''}
-                          </span>
-                          {transfer.error ? (
-                            <span className="transfer-error" title={transfer.error}>
-                              <TriangleAlert size={12} />
-                              {transfer.error}
                             </span>
-                          ) : null}
-                        </div>
-                        {/* Progress bar only while active (in-progress / paused); an
-                            empty spacer otherwise keeps the grid column aligned. */}
-                        {transfer.status === 4 || transfer.status === 9 ? (
-                          <div className="progress-track">
-                            <span style={{ width: `${percent(transfer)}%` }} />
+                            {transfer.error ? (
+                              <span className="transfer-error" title={transfer.error}>
+                                <TriangleAlert size={12} />
+                                {transfer.error}
+                              </span>
+                            ) : null}
                           </div>
-                        ) : (
-                          <div className="progress-track progress-track--empty" />
-                        )}
-                        <div className="row-actions">
-                          {/* Awaiting accept (status=10): Cancel only.
+                          {/* Progress bar only while active (in-progress / paused); an
+                            empty spacer otherwise keeps the grid column aligned. */}
+                          {transfer.status === 4 || transfer.status === 9 ? (
+                            <ProgressBar
+                              className="progress-track"
+                              value={percent(transfer)}
+                              max={100}
+                              aria-label="传输进度"
+                            />
+                          ) : (
+                            <div className="progress-track progress-track--empty" />
+                          )}
+                          <div className="row-actions">
+                            {/* Awaiting accept (status=10): Cancel only.
                               In-flight (status=4): Pause + Cancel.
                               Paused (status=9): Resume + Cancel.
                               Terminal (5/6/7/2): Open folder + Dismiss. */}
-                          {transfer.status === 10 ? (
-                            <button
-                              className="icon-button icon-button--ghost"
-                              type="button"
-                              aria-label="取消"
-                              title="取消发送"
-                              onClick={() =>
-                                void runCommand<Snapshot>('cancel_transfer', {
-                                  transferKey: transfer.key,
-                                })
-                              }
-                            >
-                              <X size={15} />
-                            </button>
-                          ) : transfer.status === 4 ? (
-                            <>
-                              <button
-                                className="icon-button icon-button--ghost"
-                                type="button"
-                                aria-label="暂停"
-                                title="暂停"
-                                onClick={() =>
-                                  void runCommand<Snapshot>('pause_transfer', {
-                                    transferKey: transfer.key,
-                                  })
-                                }
-                              >
-                                <Pause size={15} />
-                              </button>
-                              <button
-                                className="icon-button icon-button--ghost"
-                                type="button"
-                                aria-label="取消"
-                                title="取消传输"
-                                onClick={() =>
-                                  void runCommand<Snapshot>('cancel_transfer', {
-                                    transferKey: transfer.key,
-                                  })
-                                }
-                              >
-                                <X size={15} />
-                              </button>
-                            </>
-                          ) : transfer.status === 9 ? (
-                            <>
-                              <button
-                                className="icon-button icon-button--ghost"
-                                type="button"
-                                aria-label="继续"
-                                title="继续传输"
-                                onClick={() =>
-                                  void runCommand<Snapshot>('resume_transfer', {
-                                    transferKey: transfer.key,
-                                  })
-                                }
-                              >
-                                <Play size={15} />
-                              </button>
-                              <button
-                                className="icon-button icon-button--ghost"
-                                type="button"
-                                aria-label="取消"
-                                title="取消传输"
-                                onClick={() =>
-                                  void runCommand<Snapshot>('cancel_transfer', {
-                                    transferKey: transfer.key,
-                                  })
-                                }
-                              >
-                                <X size={15} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {transfer.status === 7 && previewKind(transfer.fileName) !== 'other' ? (
-                                <button
-                                  className="icon-button"
-                                  type="button"
-                                  aria-label="速览"
-                                  title="速览此文件"
-                                  onClick={() =>
-                                    void runCommand<void>('preview_file', {
-                                      transferKey: transfer.key,
-                                    })
-                                  }
-                                >
-                                  <Eye size={15} />
-                                </button>
-                              ) : null}
-                              {transfer.localPath ? (
-                                <button
-                                  className="icon-button"
-                                  type="button"
-                                  aria-label="打开所在目录"
-                                  title="打开所在目录并选中"
-                                  onClick={() =>
-                                    void runCommand<void>('open_transfer_folder', {
-                                      transferKey: transfer.key,
-                                    })
-                                  }
-                                >
-                                  <FolderOpen size={15} />
-                                </button>
-                              ) : null}
-                              <button
+                            {transfer.status === 10 ? (
+                              <Button
+                                variant="ghost"
                                 className="icon-button"
                                 type="button"
-                                aria-label="从列表移除"
-                                title="从列表移除"
+                                aria-label="取消"
+                                title="取消发送"
                                 onClick={() =>
-                                  void runCommand<Snapshot>('dismiss_transfer', {
+                                  void runCommand<Snapshot>('cancel_transfer', {
                                     transferKey: transfer.key,
                                   })
                                 }
                               >
                                 <X size={15} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </section>
-            </Surface>
-            <Surface>
-              <section className="card log-card">
-                <div className="section-heading">
-                  <span>日志</span>
-                  <div className="heading-actions">
-                    {!logsCollapsed ? (
-                      <button
-                        className="button quiet clear-on-hover"
+                              </Button>
+                            ) : transfer.status === 4 ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="暂停"
+                                  title="暂停"
+                                  onClick={() =>
+                                    void runCommand<Snapshot>('pause_transfer', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <Pause size={15} />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="取消"
+                                  title="取消传输"
+                                  onClick={() =>
+                                    void runCommand<Snapshot>('cancel_transfer', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <X size={15} />
+                                </Button>
+                              </>
+                            ) : transfer.status === 9 ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="继续"
+                                  title="继续传输"
+                                  onClick={() =>
+                                    void runCommand<Snapshot>('resume_transfer', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <Play size={15} />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="取消"
+                                  title="取消传输"
+                                  onClick={() =>
+                                    void runCommand<Snapshot>('cancel_transfer', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <X size={15} />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                {transfer.status === 7 && previewKind(transfer.fileName) !== 'other' ? (
+                                  <Button
+                                    className="icon-button"
+                                    type="button"
+                                    aria-label="速览"
+                                    title="速览此文件"
+                                    onClick={() =>
+                                      void runCommand<void>('preview_file', {
+                                        transferKey: transfer.key,
+                                      })
+                                    }
+                                  >
+                                    <Eye size={15} />
+                                  </Button>
+                                ) : null}
+                                {transfer.localPath ? (
+                                  <Button
+                                    className="icon-button"
+                                    type="button"
+                                    aria-label="打开所在目录"
+                                    title="打开所在目录并选中"
+                                    onClick={() =>
+                                      void runCommand<void>('open_transfer_folder', {
+                                        transferKey: transfer.key,
+                                      })
+                                    }
+                                  >
+                                    <FolderOpen size={15} />
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  className="icon-button"
+                                  type="button"
+                                  aria-label="从列表移除"
+                                  title="从列表移除"
+                                  onClick={() =>
+                                    void runCommand<Snapshot>('dismiss_transfer', {
+                                      transferKey: transfer.key,
+                                    })
+                                  }
+                                >
+                                  <X size={15} />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </Surface>
+              <Surface>
+                <Card padding="none" className="card log-card">
+                  <div className="section-heading">
+                    <span>日志</span>
+                    <div className="heading-actions">
+                      {!logsCollapsed ? (
+                        <Button
+                          variant="ghost"
+                          className="button clear-on-hover"
+                          type="button"
+                          style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
+                          onClick={() => void runCommand<Snapshot>('clear_logs')}
+                        >
+                          清空
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="ghost"
+                        className="icon-button"
                         type="button"
-                        style={{ fontSize: 12, minHeight: 26, padding: '0 8px' }}
-                        onClick={() => void runCommand<Snapshot>('clear_logs')}
+                        aria-label={logsCollapsed ? '展开日志' : '收起日志'}
+                        title={logsCollapsed ? '展开' : '收起'}
+                        onClick={() => setLogsCollapsed((v) => !v)}
                       >
-                        清空
-                      </button>
-                    ) : null}
-                    <button
-                      className="icon-button icon-button--ghost"
-                      type="button"
-                      aria-label={logsCollapsed ? '展开日志' : '收起日志'}
-                      title={logsCollapsed ? '展开' : '收起'}
-                      onClick={() => setLogsCollapsed((v) => !v)}
-                    >
-                      {logsCollapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                    </button>
+                        {logsCollapsed ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                {!logsCollapsed ? (
-                  <div className="log-list" ref={logListRef}>
-                    {snapshot.logs.length === 0 ? (
-                      <p className="empty">暂无日志。</p>
-                    ) : (
-                      snapshot.logs.map((entry, i) => (
-                        <div className="log-entry" key={i}>
-                          {entry}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </section>
-            </Surface>
-          </div>
+                  {!logsCollapsed ? (
+                    <LogView className="log-list" aria-label="运行日志">
+                      {snapshot.logs.length === 0 ? (
+                        <p className="empty">暂无日志。</p>
+                      ) : (
+                        snapshot.logs.map((entry, i) => (
+                          <div className="log-entry" key={i}>
+                            {entry}
+                          </div>
+                        ))
+                      )}
+                    </LogView>
+                  ) : null}
+                </Card>
+              </Surface>
+            </div>
 
-          {/* settings-pane--busy: dims and disables interaction during any
+            {/* settings-pane--busy: dims and disables interaction during any
               in-flight backend call.  Saving a setting that requires a
               service restart (most of the toggles do) takes a couple of
               seconds — disable everything until it's done so the user
               doesn't queue up a second change while the first is mid-flight. */}
-          <Surface className={`settings-pane${busy ? ' settings-pane--busy' : ''}`}>
-            <section className="card full-height">
-              <div className="settings-scroll">
-                <label className="toggle-row">
-                  <input
+            <Surface className={`settings-pane${busy ? ' settings-pane--busy' : ''}`}>
+              <Card padding="none" className="card full-height">
+                <div className="settings-scroll">
+                  <CheckBox
+                    className="toggle-row"
                     checked={darkMode}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('darkMode', event.target.checked)}
-                  />
-                  <span>深色模式</span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  >
+                    深色模式
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.sendClipboardEnabled}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('sendClipboardEnabled', event.target.checked)}
-                  />
-                  <span>发送本机剪贴板</span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  >
+                    发送本机剪贴板
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.receiveClipboardEnabled}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('receiveClipboardEnabled', event.target.checked)}
-                  />
-                  <span>接收远端剪贴板</span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  >
+                    接收远端剪贴板
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.sendOnlyOnDoubleCopy}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('sendOnlyOnDoubleCopy', event.target.checked)}
-                  />
-                  <span>仅双击复制时发送</span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  >
+                    仅双击复制时发送
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.syncImageEnabled}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('syncImageEnabled', event.target.checked)}
-                  />
-                  <span>
+                  >
                     同步剪贴板图片
                     <Hint text="最大 64MB" />
-                  </span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.clipboardPopupEnabled}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('clipboardPopupEnabled', event.target.checked)}
-                  />
-                  <span>收到剪贴板时弹窗提示</span>
-                </label>
-                <label className="toggle-row">
-                  <input
+                  >
+                    收到剪贴板时弹窗提示
+                  </CheckBox>
+                  <CheckBox
+                    className="toggle-row"
                     checked={snapshot.settings.suppressPopupInGame}
-                    type="checkbox"
                     onChange={(event) => void setBoolSetting('suppressPopupInGame', event.target.checked)}
-                  />
-                  <span>
+                  >
                     全屏游戏时不弹窗
                     <Hint text="包含无边框全屏、独占全屏" />
-                  </span>
-                </label>
-                <label className="field">
-                  <span>默认保存目录</span>
-                  <div className="field-row">
-                    <input
+                  </CheckBox>
+                  <label className="field">
+                    <span>默认保存目录</span>
+                    <div className="field-row">
+                      <TextBox
+                        type="text"
+                        readOnly
+                        value={snapshot.settings.defaultSaveDir}
+                        title={snapshot.settings.defaultSaveDir}
+                      />
+                      <Button
+                        className="icon-button"
+                        type="button"
+                        aria-label="打开目录"
+                        title="打开所在目录"
+                        onClick={() =>
+                          void runCommand<void>('open_directory', { path: snapshot.settings.defaultSaveDir })
+                        }
+                      >
+                        <FolderOpen size={15} />
+                      </Button>
+                      <Button className="button" type="button" disabled={busy} onClick={() => void setDefaultSaveDir()}>
+                        更改
+                      </Button>
+                    </div>
+                  </label>
+                  <label className="field">
+                    <span>本机外显名</span>
+                    <TextBox
                       type="text"
-                      readOnly
-                      value={snapshot.settings.defaultSaveDir}
-                      title={snapshot.settings.defaultSaveDir}
+                      placeholder={snapshot.settings.displayName || '（系统主机名）'}
+                      value={settingsDraft.displayName}
+                      onChange={(event) => setSettingsDraft({ ...settingsDraft, displayName: event.target.value })}
                     />
-                    <button
-                      className="icon-button"
-                      type="button"
-                      aria-label="打开目录"
-                      title="打开所在目录"
-                      onClick={() =>
-                        void runCommand<void>('open_directory', { path: snapshot.settings.defaultSaveDir })
-                      }
-                    >
-                      <FolderOpen size={15} />
-                    </button>
-                    <button className="button" type="button" disabled={busy} onClick={() => void setDefaultSaveDir()}>
-                      更改
-                    </button>
-                  </div>
-                </label>
-                <label className="field">
-                  <span>本机外显名</span>
-                  <input
-                    type="text"
-                    placeholder={snapshot.settings.displayName || '（系统主机名）'}
-                    value={settingsDraft.displayName}
-                    onChange={(event) => setSettingsDraft({ ...settingsDraft, displayName: event.target.value })}
-                  />
-                </label>
-                {/* 频段（旧称组 ID，0-255）+ 只读端口（双端必须对齐，写死不可改），
+                  </label>
+                  {/* 频段（旧称组 ID，0-255）+ 只读端口（双端必须对齐，写死不可改），
                     各占一格。 */}
-                <div className="port-grid">
-                  <label className="field">
-                    <span>
-                      频段
-                      <Hint text="只有频段相同，才能互相发现" />
-                    </span>
-                    <input
-                      className="band-input"
-                      type="text"
-                      inputMode="numeric"
-                      // Always show three digits, zero-padded (e.g. 007).
-                      value={String(settingsDraft.groupIdentity).padStart(3, '0')}
-                      onChange={(event) => {
-                        // Keep the last three digits typed; clamp to 0-255.
-                        const digits = event.target.value.replace(/\D/g, '').slice(-3)
-                        const value = Math.min(255, Number(digits || 0))
-                        setSettingsDraft({ ...settingsDraft, groupIdentity: value })
-                      }}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>发现端口</span>
-                    <div className="static-value">{snapshot.settings.discoveryPort}</div>
-                  </label>
-                  <label className="field">
-                    <span>数据端口</span>
-                    <div className="static-value">{snapshot.settings.dataPort}</div>
-                  </label>
+                  <div className="port-grid">
+                    <label className="field">
+                      <span>
+                        频段
+                        <Hint text="只有频段相同，才能互相发现" />
+                      </span>
+                      <TextBox
+                        className="band-input"
+                        type="text"
+                        inputMode="numeric"
+                        // Always show three digits, zero-padded (e.g. 007).
+                        value={String(settingsDraft.groupIdentity).padStart(3, '0')}
+                        onChange={(event) => {
+                          // Keep the last three digits typed; clamp to 0-255.
+                          const digits = event.target.value.replace(/\D/g, '').slice(-3)
+                          const value = Math.min(255, Number(digits || 0))
+                          setSettingsDraft({ ...settingsDraft, groupIdentity: value })
+                        }}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>发现端口</span>
+                      <div className="static-value">{snapshot.settings.discoveryPort}</div>
+                    </label>
+                    <label className="field">
+                      <span>数据端口</span>
+                      <div className="static-value">{snapshot.settings.dataPort}</div>
+                    </label>
+                  </div>
                 </div>
-              </div>
-              <div className="settings-footer">
-                <button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
-                  保存设置
-                </button>
-              </div>
-            </section>
-          </Surface>
-        </div>
-      </section>
-    </main>
+                <div className="settings-footer">
+                  <DesktopSettings
+                    disabled={busy}
+                    hasTransfers={snapshot.transfers.some((transfer) => [1, 3, 4, 9, 10].includes(transfer.status))}
+                  />
+                  <Button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>
+                    保存设置
+                  </Button>
+                </div>
+              </Card>
+            </Surface>
+          </div>
+        </section>
+      </main>
+    </CakeProvider>
   )
 }
 

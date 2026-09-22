@@ -8,7 +8,7 @@ on:
     # an arch-specific one. Push builds always produce a universal binary.
     inputs:
       macos_target:
-        description: "macOS target arch"
+        description: 'macOS target arch'
         required: false
         default: universal
         type: choice
@@ -21,11 +21,23 @@ permissions:
   contents: write
 
 jobs:
+  validate-updater:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/updater.test.mjs
+      - run: python3 -m unittest discover -s tests -p updater_mirror_test.py
+
   # ── Windows ────────────────────────────────────────────────────────────────
   build-windows:
+    needs: validate-updater
     runs-on: windows-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
+      updater: ${{ steps.updater.outputs.enabled }}
 
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +46,7 @@ jobs:
         id: meta
         shell: bash
         run: |
-          VERSION=$(grep '^version' apps/desktop-tauri/src-tauri/Cargo.toml \
-            | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          node -e 'const fs = require("fs"); const app = require("./apps/desktop-tauri/src-tauri/tauri.conf.json"); fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${app.version}-rc.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}\n`)'
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -60,11 +70,23 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Prepare updater configuration
+        id: updater
+        env:
+          ANYDROP_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+          ANYDROP_UPDATER_PUBLIC_KEY: ${{ vars.ANYDROP_UPDATER_PUBLIC_KEY }}
+          ANYDROP_UPDATER_ENDPOINT: ${{ vars.ANYDROP_UPDATER_ENDPOINT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
+        run: node scripts/prepare-updater.mjs
+
       - name: Build core (anydrop.dll)
         run: cargo build -p anydrop --release
 
       - name: Build Tauri Windows installer
-        run: yarn workspace @anydrop/desktop-tauri tauri build --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD }}
+        run: yarn workspace @anydrop/desktop-tauri tauri build --config src-tauri/.generated/updater.json --bundles nsis
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,14 +96,23 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: target/release/bundle/nsis/*.exe
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
 
   # ── macOS ──────────────────────────────────────────────────────────────────
   build-macos:
+    needs: validate-updater
     runs-on: macos-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: meta
+        shell: bash
+        run: |
+          node -e 'const fs = require("fs"); const app = require("./apps/desktop-tauri/src-tauri/tauri.conf.json"); fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${app.version}-rc.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}\n`)'
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -103,6 +134,15 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Prepare updater configuration
+        id: updater
+        env:
+          ANYDROP_RELEASE_VERSION: ${{ steps.meta.outputs.version }}
+          ANYDROP_UPDATER_PUBLIC_KEY: ${{ vars.ANYDROP_UPDATER_PUBLIC_KEY }}
+          ANYDROP_UPDATER_ENDPOINT: ${{ vars.ANYDROP_UPDATER_ENDPOINT }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
+        run: node scripts/prepare-updater.mjs
 
       # Resolve the chosen architecture. Push events have no input → fall back
       # to "universal".  `target` is the full rustc/Tauri triple; `slug` is the
@@ -148,7 +188,10 @@ jobs:
           fi
 
       - name: Build Tauri macOS app
-        run: yarn workspace @anydrop/desktop-tauri tauri build --target ${{ steps.target.outputs.triple }} --bundles app,dmg
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD }}
+        run: yarn workspace @anydrop/desktop-tauri tauri build --config src-tauri/.generated/updater.json --target ${{ steps.target.outputs.triple }} --bundles app,dmg
 
       - uses: actions/upload-artifact@v4
         with:
@@ -166,6 +209,8 @@ jobs:
           path: |
             target/${{ steps.target.outputs.triple }}/release/bundle/macos/AnyDrop-${{ steps.target.outputs.slug }}.app.zip
             target/${{ steps.target.outputs.triple }}/release/bundle/dmg/*.dmg
+            target/${{ steps.target.outputs.triple }}/release/bundle/macos/*.app.tar.gz
+            target/${{ steps.target.outputs.triple }}/release/bundle/macos/*.app.tar.gz.sig
 
   # ── Release candidate ──────────────────────────────────────────────────────
   # Only push events (which always produce a universal macOS build) and manual
@@ -181,20 +226,35 @@ jobs:
         github.event.inputs.macos_target == ''))
 
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
+      - name: Generate signed updater manifest
+        if: needs.build-windows.outputs.updater == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.build-windows.outputs.version }}
+          RELEASE_BASE: https://github.com/${{ github.repository }}/releases/download/rc-v${{ needs.build-windows.outputs.version }}/
+        run: node scripts/updater-manifest.mjs artifacts "$RELEASE_VERSION" "$RELEASE_BASE" latest.json
+
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: rc-v${{ needs.build-windows.outputs.version }}-${{ github.run_number }}
-          name: "RC v${{ needs.build-windows.outputs.version }} #${{ github.run_number }}"
+          tag_name: rc-v${{ needs.build-windows.outputs.version }}
+          name: 'RC v${{ needs.build-windows.outputs.version }} #${{ github.run_number }}'
           prerelease: true
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
             artifacts/anydrop-dll/anydrop.dll
             artifacts/libanydrop-dylib-universal/libanydrop.dylib
+            latest.json
             artifacts/windows-installer/*.exe
+            artifacts/windows-installer/*.exe.sig
+            artifacts/macos-app-universal/**/*.app.tar.gz
+            artifacts/macos-app-universal/**/*.app.tar.gz.sig
             artifacts/macos-app-universal/**/AnyDrop-universal.app.zip
             artifacts/macos-app-universal/**/*.dmg

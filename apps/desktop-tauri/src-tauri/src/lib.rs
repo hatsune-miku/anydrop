@@ -1,4 +1,11 @@
-use anydrop::lib_util::{shared_anydrop_broadcast_text, shared_anydrop_init, CONNECTION_TIMEOUT_MILLIS};
+#[cfg(desktop)]
+mod desktop;
+#[cfg(desktop)]
+mod updates;
+
+use anydrop::lib_util::{
+    shared_anydrop_broadcast_text, shared_anydrop_init, CONNECTION_TIMEOUT_MILLIS,
+};
 use anydrop::network::peer::Peer;
 use anydrop::packet::data::magic_numbers::MagicNumbers;
 use anydrop::packet::data::text_packet::TextPacket;
@@ -395,6 +402,8 @@ impl ServiceRuntime {
 
 #[derive(Default)]
 struct Backend {
+    lifecycle: Mutex<()>,
+    installing: AtomicBool,
     runtime: Mutex<Option<ServiceRuntime>>,
     settings: Mutex<AppSettings>,
     peers: Arc<Mutex<Vec<PeerGroup>>>,
@@ -462,15 +471,13 @@ fn apply_progress(
     let entry = map.entry(key.clone()).or_insert_with(|| Transfer {
         key: key.clone(),
         file_id: 0,
-        file_name: initial_label
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                if p.rel_path.is_empty() {
-                    format!("传输 #{}", p.transfer_id)
-                } else {
-                    file_name(&p.rel_path)
-                }
-            }),
+        file_name: initial_label.map(|s| s.to_string()).unwrap_or_else(|| {
+            if p.rel_path.is_empty() {
+                format!("传输 #{}", p.transfer_id)
+            } else {
+                file_name(&p.rel_path)
+            }
+        }),
         remote_path: format!("transfer_id:{}", p.transfer_id),
         local_path: String::new(),
         peer: format!("{}@{}", p.display_name, p.remote_addr),
@@ -541,8 +548,10 @@ fn apply_progress(
     }
     // Zero the speed at terminal states so the UI doesn't keep showing the
     // last instant rate after completion.
-    if matches!(p.status, TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected)
-    {
+    if matches!(
+        p.status,
+        TransferStatus::AllDone | TransferStatus::Error | TransferStatus::Rejected
+    ) {
         entry.speed_bps = 0.0;
     }
     // Sticky: once we've recorded an error, surface it for the rest of the
@@ -731,12 +740,8 @@ fn parse_ipv4_list(hosts: &[String]) -> Vec<std::net::Ipv4Addr> {
 /// best-ranked candidate as a last-resort hand-off third.
 fn best_reachable_host(hosts: &[String], data_port: u16) -> Option<String> {
     let candidates = parse_ipv4_list(hosts);
-    anydrop::util::network::pick_best_peer(
-        &candidates,
-        data_port,
-        Duration::from_millis(500),
-    )
-    .map(|sa| sa.ip().to_string())
+    anydrop::util::network::pick_best_peer(&candidates, data_port, Duration::from_millis(500))
+        .map(|sa| sa.ip().to_string())
 }
 
 fn group_peers(peers: impl Iterator<Item = Peer>) -> Vec<PeerGroup> {
@@ -1001,6 +1006,10 @@ impl ClipboardListener {
 }
 
 fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> Result<(), String> {
+    let _lifecycle = backend.lifecycle.lock().unwrap();
+    if backend.installing.load(Ordering::SeqCst) {
+        return Err("正在安装更新，请稍候".into());
+    }
     stop_runtime(backend);
     *backend.peers.lock().unwrap() = Vec::new();
     port_available(settings.discovery_port, settings.data_port)?;
@@ -1380,11 +1389,17 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
 
     // Spin up the QUIC transfer server on the same port number as the legacy
     // TCP text data service (UDP/TCP namespaces don't collide).
-    let transfer_bind: SocketAddr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.data_port);
+    let transfer_bind: SocketAddr =
+        SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.data_port);
     let offer_app = app.clone();
     let offer_transfers = backend.transfers.clone();
     let offer_log = backend.log_entries.clone();
     let on_offer = move |offer: TransferOffer| {
+        let backend = offer_app.state::<Backend>();
+        let _lifecycle = backend.lifecycle.lock().unwrap();
+        if backend.installing.load(Ordering::SeqCst) {
+            return;
+        }
         add_log(
             &offer_log,
             format!(
@@ -1504,11 +1519,19 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             }
         }
     };
-    match transfer::start_server(transfer_bind, display_name, on_offer, on_progress, on_resume_request)
-    {
+    match transfer::start_server(
+        transfer_bind,
+        display_name,
+        on_offer,
+        on_progress,
+        on_resume_request,
+    ) {
         Ok(handle) => {
             *backend.transfer_handle.lock().unwrap() = Some(Arc::new(handle));
-            backend.log(format!("transfer server listening on udp/{}", settings.data_port));
+            backend.log(format!(
+                "transfer server listening on udp/{}",
+                settings.data_port
+            ));
         }
         Err(err) => {
             backend.log(format!("transfer server failed: {}", err));
@@ -1631,22 +1654,59 @@ fn save_settings(
     Ok(backend.snapshot())
 }
 
+/// Explicit sends bypass the automatic/double-copy switches, as the existing button did.
+/// The image opt-in still applies, and file clipboard formats are not treated as file offers.
+fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<(), String> {
+    if backend.installing.load(Ordering::SeqCst) {
+        return Err("正在安装更新".into());
+    }
+    let service = backend.service().ok_or("服务未启动")?;
+    let config = backend.config().ok_or("服务未启动")?;
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("无法读取剪贴板：{e}"))?;
+    if let Ok(text) = clipboard.get_text() {
+        if !text.is_empty() {
+            shared_anydrop_broadcast_text(text.clone(), service.discovery_service(), &config);
+            backend.clipboard.lock().unwrap().last_text = text;
+            backend.set_status("Clipboard sent to LAN peers");
+            emit_snapshot(app);
+            return Ok(());
+        }
+    }
+    let img = clipboard
+        .get_image()
+        .map_err(|_| "剪贴板没有可发送的文本或图片")?;
+    if !backend.settings.lock().unwrap().sync_image_enabled {
+        return Err("请先开启同步剪贴板图片".into());
+    }
+    if img.width == 0 || img.height == 0 || img.bytes.len() > 64 * 1024 * 1024 {
+        return Err("剪贴板图片为空或超过 64MB 像素数据限制".into());
+    }
+    let width = u32::try_from(img.width).map_err(|_| "图片尺寸无效")?;
+    let height = u32::try_from(img.height).map_err(|_| "图片尺寸无效")?;
+    let mut png = Vec::new();
+    use image::ImageEncoder;
+    image::codecs::png::PngEncoder::new(&mut png)
+        .write_image(&img.bytes, width, height, image::ExtendedColorType::Rgba8)
+        .map_err(|e| format!("图片编码失败：{e}"))?;
+    if png.len() > 64 * 1024 * 1024 {
+        return Err("剪贴板 PNG 超过 64MB".into());
+    }
+    backend.clipboard.lock().unwrap().last_image_digest = Some(sha256_short(&img.bytes));
+    anydrop::lib_util::shared_anydrop_broadcast_image(png, service.discovery_service(), &config);
+    backend.set_status("Clipboard image sent to LAN peers");
+    emit_snapshot(app);
+    Ok(())
+}
+
 #[tauri::command]
-fn send_clipboard_now(app: AppHandle, backend: State<'_, Backend>) -> Result<Snapshot, String> {
-    let text = arboard::Clipboard::new()
-        .and_then(|mut clipboard| clipboard.get_text())
-        .map_err(|err| err.to_string())?;
-    let Some(service) = backend.service() else {
-        return Err("Service is offline".to_string());
-    };
-    let Some(config) = backend.config() else {
-        return Err("Service is offline".to_string());
-    };
-    shared_anydrop_broadcast_text(text.clone(), service.discovery_service(), &config);
-    backend.clipboard.lock().unwrap().last_text = text;
-    backend.set_status("Clipboard sent to LAN peers");
-    emit_snapshot(&app);
-    Ok(backend.snapshot())
+async fn send_clipboard_now(app: AppHandle) -> Result<Snapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let backend = app.state::<Backend>();
+        send_current_clipboard(&app, &backend)?;
+        Ok(backend.snapshot())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1683,6 +1743,10 @@ fn send_paths(
     hosts: Vec<String>,
     paths: Vec<String>,
 ) -> Result<Snapshot, String> {
+    let _lifecycle = backend.lifecycle.lock().unwrap();
+    if backend.installing.load(Ordering::SeqCst) {
+        return Err("正在安装更新".into());
+    }
     let handle = backend
         .transfer_handle
         .lock()
@@ -1697,12 +1761,9 @@ fn send_paths(
         return Err("no host".to_string());
     }
     let candidates = parse_ipv4_list(&hosts);
-    let target = anydrop::util::network::pick_best_peer(
-        &candidates,
-        port,
-        Duration::from_millis(500),
-    )
-    .ok_or_else(|| "no resolvable host".to_string())?;
+    let target =
+        anydrop::util::network::pick_best_peer(&candidates, port, Duration::from_millis(500))
+            .ok_or_else(|| "no resolvable host".to_string())?;
     let path_bufs: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
     backend.log(format!(
         "send: target={} (from {} candidate(s)) paths={}",
@@ -1726,7 +1787,9 @@ fn send_paths(
             if p.is_dir() {
                 p.clone()
             } else {
-                p.parent().map(|x| x.to_path_buf()).unwrap_or_else(|| p.clone())
+                p.parent()
+                    .map(|x| x.to_path_buf())
+                    .unwrap_or_else(|| p.clone())
             }
         })
         .map(|p| p.to_string_lossy().to_string())
@@ -1878,9 +1941,7 @@ fn cancel_transfer(
         .clone()
         .ok_or_else(|| "transfer server not running".to_string())?;
     let signalled = handle.cancel_transfer(transfer_id);
-    backend.log(format!(
-        "cancel: id={transfer_id} signalled={signalled}"
-    ));
+    backend.log(format!("cancel: id={transfer_id} signalled={signalled}"));
     // Optimistically mark the row Cancelled in case the backend hasn't yet
     // emitted its terminal Cancelled progress event — UI feedback is instant.
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
@@ -1927,7 +1988,12 @@ fn resume_transfer(
         .unwrap()
         .clone()
         .ok_or_else(|| "transfer server not running".to_string())?;
-    let transfer = backend.transfers.lock().unwrap().get(&transfer_key).cloned();
+    let transfer = backend
+        .transfers
+        .lock()
+        .unwrap()
+        .get(&transfer_key)
+        .cloned();
     let is_incoming = transfer
         .as_ref()
         .map(|t| t.direction == "incoming")
@@ -1941,18 +2007,25 @@ fn resume_transfer(
             .config()
             .map(|c| c.data_service_listen_port)
             .unwrap_or(DEFAULT_DATA_PORT);
-        let host = transfer.as_ref().map(|t| t.host.clone()).unwrap_or_default();
+        let host = transfer
+            .as_ref()
+            .map(|t| t.host.clone())
+            .unwrap_or_default();
         match host.parse::<Ipv4Addr>() {
             Ok(ip) => {
                 handle.request_remote_resume(SocketAddr::new(ip.into(), port), transfer_id);
-                backend.log(format!("resume: id={transfer_id} (incoming → signalled {host})"));
+                backend.log(format!(
+                    "resume: id={transfer_id} (incoming → signalled {host})"
+                ));
                 if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
                     t.status = 4;
                     t.error = None;
                 }
             }
             Err(_) => {
-                backend.log(format!("resume: id={transfer_id} no sender address ({host})"));
+                backend.log(format!(
+                    "resume: id={transfer_id} no sender address ({host})"
+                ));
             }
         }
     } else {
@@ -2503,6 +2576,21 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main_window(app);
         }));
+        builder = builder
+            .plugin(
+                tauri_plugin_autostart::Builder::new()
+                    .app_name("AnyDrop")
+                    .arg("--autostart")
+                    .build(),
+            )
+            .plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(desktop::on_shortcut)
+                    .build(),
+            )
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .manage(desktop::DesktopState::default())
+            .manage(updates::UpdateState::default());
     }
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -2510,6 +2598,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Backend::new(load_settings()))
         .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    WindowEvent::Focused(false) | WindowEvent::CloseRequested { .. }
+                )
+            {
+                desktop::end_recording(window.app_handle());
+            }
             // Keep the main window and the persistent receive popup alive across
             // "close" — hide instead of destroy so they reopen instantly.
             if matches!(window.label(), "main" | RECEIVE_WINDOW_LABEL) {
@@ -2531,10 +2628,22 @@ pub fn run() {
             // Pre-create the receive popup (hidden) so the first offer / clipboard
             // receipt shows instantly without an open-then-vanish flash.
             preinit_receive_window(&handle);
+            #[cfg(desktop)]
+            desktop::initialize(handle.clone());
+            if !std::env::args().any(|arg| arg == "--autostart") {
+                show_main_window(&handle);
+            }
             auto_start_service(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            desktop::get_desktop_preferences,
+            desktop::set_autostart,
+            desktop::set_clipboard_shortcut,
+            desktop::set_shortcut_recording,
+            updates::check_app_update,
+            updates::download_app_update,
+            updates::install_app_update,
             get_snapshot,
             refresh_peers,
             start_service,

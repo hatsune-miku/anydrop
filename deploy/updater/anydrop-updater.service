@@ -1,0 +1,19 @@
+[Unit]
+Description=Mirror and verify AnyDrop signed RC updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=miku
+Group=miku
+ExecStart=/usr/bin/python3 /opt/anydrop-updater/mirror.py
+Environment=GH_PROMPT_DISABLED=1
+EnvironmentFile=-/etc/anydrop-updater/mirror.env
+TimeoutStartSec=45min
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/www/html/anydrop-api

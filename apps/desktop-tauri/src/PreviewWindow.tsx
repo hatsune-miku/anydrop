@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { FileText, X } from 'lucide-react'
 
+import { CakeProvider } from '@a1knla/cakeui'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -70,7 +71,7 @@ export default function PreviewWindow() {
   const src = payload ? convertFileSrc(payload.path) : ''
 
   return (
-    <div className="preview-shell">
+    <CakeProvider className="app-theme preview-shell" theme="pink" density="compact" mode="system">
       <header className="preview-titlebar" data-tauri-drag-region>
         <span data-tauri-drag-region>{payload?.name ?? '速览'}</span>
         <button className="popup-close" type="button" aria-label="关闭" onClick={close}>
@@ -105,6 +106,6 @@ export default function PreviewWindow() {
         <span title={payload?.path}>{payload?.path ?? ''}</span>
         <small>Esc 关闭</small>
       </footer>
-    </div>
+    </CakeProvider>
   )
 }

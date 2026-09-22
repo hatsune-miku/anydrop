@@ -1,0 +1,58 @@
+.desktop-settings {
+  min-width: 0;
+}
+.desktop-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  .desktop-autostart {
+    min-height: 32px;
+    margin: 0;
+  }
+  .desktop-field {
+    display: grid;
+    gap: 6px;
+  }
+  .desktop-shortcut-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 4px;
+  }
+  .desktop-update-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .desktop-update-message {
+    margin: 0;
+    color: var(--cake-muted);
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+}
+.desktop-setting-title {
+  color: var(--cake-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.desktop-label {
+  color: var(--cake-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.desktop-error {
+  color: var(--cake-danger);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.desktop-update-notes {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
