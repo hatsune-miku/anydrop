@@ -130,7 +130,7 @@ pub async fn set_file_context_menu(
         save_preferences(&next)?;
         *state.preferences.lock().unwrap() = next;
         *state.context_menu_error.lock().unwrap() =
-            super::context_menu::register(&app, enabled).err();
+            super::context_menu::register(&app, enabled, true).err();
         get_desktop_preferences(app.clone(), app.state::<DesktopState>())
     })
     .await
@@ -152,7 +152,7 @@ pub fn initialize(app: AppHandle) {
                 serde_json::from_slice(&raw).map_err(|e| format!("桌面设置无法读取：{e}"))?;
             *state.preferences.lock().unwrap() = saved.clone();
             *state.context_menu_error.lock().unwrap() =
-                super::context_menu::register(&app, saved.file_context_menu_enabled).err();
+                super::context_menu::register(&app, saved.file_context_menu_enabled, false).err();
             state.binding.lock().unwrap().configured = saved.clipboard_shortcut.clone();
             if let Some(shortcut) = parse_shortcut(&saved.clipboard_shortcut)? {
                 app.global_shortcut()

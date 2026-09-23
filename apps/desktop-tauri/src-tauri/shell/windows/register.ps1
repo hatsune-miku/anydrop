@@ -1,5 +1,6 @@
 param([Parameter(Mandatory=$true)][string]$InstallRoot,
       [string]$Executable,
+      [ValidateSet('Normal','Repair')][string]$Registration = 'Normal',
       [ValidateSet('Register','Unregister')][string]$Mode = 'Register')
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -20,7 +21,8 @@ if ($Mode -eq 'Unregister') {
     Get-AppxPackage -Name 'AnyDrop.FileActions' | Remove-AppxPackage
     if (Test-Path 'HKCU:\Software\AnyDrop\Shell') { Remove-Item 'HKCU:\Software\AnyDrop\Shell' -Recurse -Force }
 } else {
-    $dll = Join-Path $InstallRoot 'shell\AnyDropShell.dll'
+    $integration = Get-Content (Join-Path $InstallRoot 'shell\integration.json') -Raw | ConvertFrom-Json
+    $dll = Join-Path $InstallRoot "shell\$($integration.dll)"
     if (!(Test-Path -LiteralPath $dll)) { throw "缺少菜单扩展，请重新安装 AnyDrop：$dll" }
     if (!$Executable) { $Executable = Join-Path $InstallRoot 'anydrop-desktop-tauri.exe' }
     if (!(Test-Path -LiteralPath $Executable)) { throw "找不到 AnyDrop：$Executable" }
@@ -43,12 +45,23 @@ if ($Mode -eq 'Unregister') {
     }
     # Classic registration above works without package identity. Modern menus are
     # installed through the signed sparse package; never change system menu policy.
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
+    [AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
     $package = Join-Path $InstallRoot 'shell\AnyDrop.FileActions.msix'
     if ([Environment]::OSVersion.Version.Build -ge 22000) {
         if (!(Test-Path -LiteralPath $package)) { throw '传统菜单已注册；此构建缺少已签名的 Windows 11 菜单身份包。' }
-        try { Add-AppxPackage -Path $package -ExternalLocation $InstallRoot -ForceUpdateFromAnyVersion }
+        try {
+            $installed = Get-AppxPackage -Name 'AnyDrop.FileActions'
+            $previousRoot = (Get-ItemProperty 'HKCU:\Software\AnyDrop\Shell' -Name PackageRoot -ErrorAction SilentlyContinue).PackageRoot
+            if ($Registration -eq 'Repair' -or !$installed -or $installed.Version -ne $integration.version -or $previousRoot -ne $InstallRoot) {
+                Add-AppxPackage -Path $package -ExternalLocation $InstallRoot -ForceUpdateFromAnyVersion
+                Set-ItemProperty 'HKCU:\Software\AnyDrop\Shell' -Name PackageRoot -Value $InstallRoot
+            }
+        }
         catch { throw "传统菜单已注册；Windows 11 新菜单注册失败：$($_.Exception.Message)" }
     }
 }
-Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
-[AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+if ($Mode -eq 'Unregister') {
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
+    [AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+}

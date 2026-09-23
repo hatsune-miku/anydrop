@@ -14,7 +14,7 @@
 
 macOS 在当前用户 `~/Library/Services` 安装 `AnyDrop-Send.workflow`、`AnyDrop-CopyPaths.workflow`，显示在 Finder 的「服务」中。启动时刷新应用路径，关闭开关删除这两个工作流并刷新服务缓存。支持文件、文件夹和多选；选择的文件名作为独立参数传递。
 
-Windows 传统菜单在当前用户注册两个 `IExplorerCommand`，原生扩展位于安装目录 `shell/AnyDropShell.dll`。Windows 11 新菜单使用相同扩展与稀疏身份包；Windows 可将同一应用的两个动作收在 AnyDrop 子菜单中。不会修改系统的菜单策略。卸载钩子负责注销当前用户的菜单与身份包。
+Windows 传统菜单在当前用户注册两个 `IExplorerCommand`，扩展按版本保留独立文件，避免升级覆盖被 Explorer 占用的 DLL；原生扩展位于安装目录 `shell/AnyDropShell-版本号.dll`。Windows 11 新菜单使用相同扩展与稀疏身份包；Windows 可将同一应用的两个动作收在 AnyDrop 子菜单中。不会修改系统的菜单策略。卸载钩子负责注销当前用户的菜单与身份包。
 
 ### Windows 11 发布前所需材料
 

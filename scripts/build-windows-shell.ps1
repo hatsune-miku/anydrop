@@ -11,7 +11,9 @@ cmake -S $source -B $build -A x64
 if ($LASTEXITCODE) { throw 'CMake configuration failed' }
 cmake --build $build --config Release
 if ($LASTEXITCODE) { throw 'Shell extension compilation failed' }
-Copy-Item "$build\Release\AnyDropShell.dll" $output -Force
+$dllName = "AnyDropShell-$Version.dll"
+Copy-Item "$build\Release\AnyDropShell.dll" "$output\$dllName" -Force
+@{ dll = $dllName; version = $Version } | ConvertTo-Json | Set-Content "$output\integration.json" -Encoding UTF8
 # Windows PowerShell 5.1 requires a BOM to decode the Chinese menu labels.
 $register = Get-Content "$source\register.ps1" -Raw -Encoding UTF8
 [IO.File]::WriteAllText("$output\register.ps1", $register, [Text.UTF8Encoding]::new($true))
@@ -26,6 +28,7 @@ $stage = Join-Path $build 'package'
 New-Item $stage -ItemType Directory -Force | Out-Null
 [xml]$manifest = Get-Content "$source\AppxManifest.xml" -Raw
 $manifest.Package.Identity.Version = $Version
+foreach ($class in $manifest.SelectNodes("//*[local-name()='Class']")) { $class.Path = "shell\$dllName" }
 $certificateFile = Join-Path $build 'signing.pfx'
 $certificate = $null
 try {
@@ -43,7 +46,7 @@ try {
     & $makeappx pack /d $stage /p "$output\AnyDrop.FileActions.msix" /nv /o
     if ($LASTEXITCODE) { throw 'Sparse identity packaging failed' }
     if ($certificate) {
-        foreach ($file in @("$output\AnyDropShell.dll", "$output\AnyDrop.FileActions.msix")) {
+        foreach ($file in @("$output\$dllName", "$output\AnyDrop.FileActions.msix")) {
             & $signtool sign /fd SHA256 /f $certificateFile /p $env:ANYDROP_WINDOWS_CERTIFICATE_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $file
             if ($LASTEXITCODE) { throw 'Windows shell signing failed' }
         }

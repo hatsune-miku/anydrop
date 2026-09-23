@@ -31,23 +31,23 @@ pub fn handle_arguments(app: &AppHandle, args: &[String], cwd: &str) -> bool {
     true
 }
 
-pub fn register(app: &AppHandle, enabled: bool) -> Result<(), String> {
+pub fn register(app: &AppHandle, enabled: bool, repair: bool) -> Result<(), String> {
     #[cfg(debug_assertions)]
     if std::env::var_os("ANYDROP_TEST_CONFIG_DIR").is_some() {
         return Ok(());
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = app;
+        let _ = (app, repair);
         return macos::register(enabled);
     }
     #[cfg(windows)]
     {
-        return windows::register(app, enabled);
+        return windows::register(app, enabled, repair);
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        let _ = (app, enabled);
+        let _ = (app, enabled, repair);
         Err("当前系统尚不支持文件右键菜单".into())
     }
 }
@@ -199,7 +199,7 @@ mod macos {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    pub fn register(app: &AppHandle, enabled: bool) -> Result<(), String> {
+    pub fn register(app: &AppHandle, enabled: bool, repair: bool) -> Result<(), String> {
         #[cfg(debug_assertions)]
         if std::env::var_os("ANYDROP_TEST_CONFIG_DIR").is_some() {
             return Ok(());
@@ -224,6 +224,8 @@ mod windows {
             .arg(exe.parent().ok_or("无法定位安装目录")?)
             .arg("-Executable")
             .arg(&exe)
+            .arg("-Registration")
+            .arg(if repair { "Repair" } else { "Normal" })
             .arg("-Mode")
             .arg(if enabled { "Register" } else { "Unregister" })
             .creation_flags(0x08000000)

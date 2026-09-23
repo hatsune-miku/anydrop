@@ -13,7 +13,7 @@
  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0"/></Dependencies>
  <Applications>
   <Application Id="AnyDrop" Executable="anydrop-desktop-tauri.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
-   <uap:VisualElements DisplayName="AnyDrop" Description="AnyDrop file actions" Square150x150Logo="shell\Logo.png" Square44x44Logo="shell\SmallLogo.png" BackgroundColor="transparent" uap:AppListEntry="none"/>
+   <uap:VisualElements DisplayName="AnyDrop" Description="AnyDrop file actions" Square150x150Logo="shell\Logo.png" Square44x44Logo="shell\SmallLogo.png" BackgroundColor="transparent" AppListEntry="none"/>
    <Extensions>
     <com:Extension Category="windows.comServer"><com:ComServer><com:SurrogateServer DisplayName="AnyDrop file actions">
      <com:Class Id="2F531697-41BE-4EC5-9402-1BBB96F238A0" Path="shell\AnyDropShell.dll" ThreadingModel="STA"/>

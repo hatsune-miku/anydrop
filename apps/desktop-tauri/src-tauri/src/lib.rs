@@ -1753,8 +1753,8 @@ fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<bool, St
     if !backend.settings.lock().unwrap().sync_image_enabled {
         return Err("请先开启同步剪贴板图片".into());
     }
-    if img.width == 0 || img.height == 0 || img.bytes.len() > 64 * 1024 * 1024 {
-        return Err("剪贴板图片为空或超过 64MB 像素数据限制".into());
+    if img.width == 0 || img.height == 0 || img.bytes.is_empty() {
+        return Err("剪贴板图片为空".into());
     }
     let width = u32::try_from(img.width).map_err(|_| "图片尺寸无效")?;
     let height = u32::try_from(img.height).map_err(|_| "图片尺寸无效")?;
