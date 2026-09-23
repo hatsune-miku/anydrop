@@ -1,0 +1,51 @@
+{
+  "date": "2026-09-23",
+  "windowsFullVerification": {
+    "commit": "68d99d6ff5e09e6d0bc8f3dff51d1878ae1fa1eb",
+    "url": "https://github.com/hatsune-miku/anydrop/actions/runs/35835214835",
+    "result": "success",
+    "checks": [
+      "frontend build",
+      "MSVC native shell DLL",
+      "sparse MSIX generation",
+      "COM titles/state/argument quoting/unload",
+      "4 MiB protocol tests",
+      "desktop Rust unit tests"
+    ]
+  },
+  "windowsRegistrationVerification": {
+    "commit": "fae798d3e0e27be8320983351028edbe982ba3a8",
+    "url": "https://github.com/hatsune-miku/anydrop/actions/runs/35836157084",
+    "result": "success",
+    "checks": [
+      "PowerShell 5.1 registration of file and directory verbs",
+      "Unicode labels and valid COM DLL paths",
+      "unregister removes owned keys"
+    ]
+  },
+  "local": {
+    "platform": "macOS arm64",
+    "results": [
+      "desktop production frontend build passed",
+      "desktop Rust unit tests passed, including actual Automator invocation with special filenames",
+      "core clipboard boundary, corrupt frame, EOF and legacy packet tests passed",
+      "Android :app:testDevUnitTest passed",
+      "Swift wire fixtures and 4 MiB boundary tests passed",
+      "Chromium and WebKit popup interactions passed",
+      "Chromium and WebKit more-settings interactions passed",
+      "native macOS receive popup inspected",
+      "loopback native file offer auto-accepted and saved with switch on",
+      "loopback native file offer remained pending without body transfer with switch off"
+    ]
+  },
+  "remaining": [
+    "Windows trusted code-signing certificate or signing service required for modern-menu distribution",
+    "Physical Windows 11 Explorer modern-menu and native transparency acceptance test after signing"
+  ],
+  "release": "No new release published; previous RC remains current",
+  "screenshots": [
+    "test-results/desktop/popup-chromium-light.png",
+    "test-results/desktop/popup-webkit-dark.png",
+    "test-results/desktop/webkit-more-settings-dark.png"
+  ]
+}

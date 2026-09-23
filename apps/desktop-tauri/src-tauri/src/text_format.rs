@@ -1,7 +1,7 @@
 //! Receipt classification runs on the network worker, never in the webview.
 //! Parsers consume the entire document; no YAML (plain prose is valid YAML).
 pub fn detect(text: &str) -> Option<&'static str> {
-    let input = text.trim();
+    let input = text.strip_prefix('\u{feff}').unwrap_or(text).trim();
     if input.is_empty() || text.len() > anydrop::MAX_CLIPBOARD_BYTES {
         return None;
     }
@@ -67,6 +67,7 @@ mod tests {
         }
         for text in [
             "<a/>",
+            "\u{feff}<a/>",
             "<?xml version=\"1.0\"?><a>好</a>",
             "<!DOCTYPE a [<!ENTITY x 'ok'>]><a>&x;</a>",
         ] {
