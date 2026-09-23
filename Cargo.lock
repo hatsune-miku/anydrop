@@ -75,6 +75,7 @@ dependencies = [
  "clipboard-master",
  "dirs 5.0.1",
  "image",
+ "objc2",
  "open",
  "plist",
  "rand 0.8.6",

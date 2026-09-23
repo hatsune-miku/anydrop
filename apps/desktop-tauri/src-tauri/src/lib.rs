@@ -2,6 +2,8 @@ mod context_menu;
 #[cfg(desktop)]
 mod desktop;
 mod outgoing;
+#[cfg(target_os = "macos")]
+mod receive_window_macos;
 mod text_format;
 #[cfg(desktop)]
 mod updates;
@@ -2483,10 +2485,17 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     // macOS otherwise consumes the first click to activate this inactive
     // window instead of delivering it to the receipt's buttons.
     .accept_first_mouse(true)
+    .focused(false)
     .visible(false)
     .build()
     {
         Ok(window) => {
+            #[cfg(target_os = "macos")]
+            if let Err(err) = receive_window_macos::configure(&window) {
+                eprintln!("receive window activation setup failed: {err}");
+                let _ = window.destroy();
+                return None;
+            }
             position_bottom_right(&window);
             make_no_activate(&window);
             Some(window)
@@ -2501,7 +2510,7 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
 /// Mark the popup as a no-activate window so clicking its buttons (e.g. "已读")
 /// never steals foreground activation. Without this, hiding the popup after the
 /// last item is dismissed hands activation to the next app window — spuriously
-/// raising the main window. Windows-only; harmless no-op elsewhere.
+/// raising the main window. macOS uses receive_window_macos for the same purpose.
 #[cfg(windows)]
 fn make_no_activate(window: &tauri::WebviewWindow) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{

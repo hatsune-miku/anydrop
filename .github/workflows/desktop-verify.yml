@@ -38,4 +38,3 @@ jobs:
           include-hidden-files: true
           path: |
             apps/desktop-tauri/src-tauri/.generated/shell/
-            target/windows-shell/AnyDrop.FileActions.unsigned.msix

@@ -18,7 +18,6 @@ if ($Mode -eq 'Unregister') {
         $path = "$classes\CLSID\$($command.Id)"
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
     }
-    Get-AppxPackage -Name 'AnyDrop.FileActions' | Remove-AppxPackage
     if (Test-Path 'HKCU:\Software\AnyDrop\Shell') { Remove-Item 'HKCU:\Software\AnyDrop\Shell' -Recurse -Force }
 } else {
     $integration = Get-Content (Join-Path $InstallRoot 'shell\integration.json') -Raw | ConvertFrom-Json
@@ -43,25 +42,9 @@ if ($Mode -eq 'Unregister') {
             New-ItemProperty -LiteralPath $verb -Name Icon -Value "`"$Executable`",0" -Force | Out-Null
         }
     }
-    # Classic registration above works without package identity. Modern menus are
-    # installed through the signed sparse package; never change system menu policy.
-    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
-    [AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
-    $package = Join-Path $InstallRoot 'shell\AnyDrop.FileActions.msix'
-    if ([Environment]::OSVersion.Version.Build -ge 22000) {
-        if (!(Test-Path -LiteralPath $package)) { throw '传统菜单已注册；此构建缺少已签名的 Windows 11 菜单身份包。' }
-        try {
-            $installed = Get-AppxPackage -Name 'AnyDrop.FileActions'
-            $previousRoot = (Get-ItemProperty 'HKCU:\Software\AnyDrop\Shell' -Name PackageRoot -ErrorAction SilentlyContinue).PackageRoot
-            if ($Registration -eq 'Repair' -or !$installed -or $installed.Version -ne $integration.version -or $previousRoot -ne $InstallRoot) {
-                Add-AppxPackage -Path $package -ExternalLocation $InstallRoot -ForceUpdateFromAnyVersion
-                Set-ItemProperty 'HKCU:\Software\AnyDrop\Shell' -Name PackageRoot -Value $InstallRoot
-            }
-        }
-        catch { throw "传统菜单已注册；Windows 11 新菜单注册失败：$($_.Exception.Message)" }
-    }
 }
-if ($Mode -eq 'Unregister') {
-    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
-    [AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
-}
+# Normal registration, repair and unregister only touch the classic menu.
+# Modern package identity registration is intentionally disabled.
+
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class AnyDropShellNotify { [DllImport("shell32.dll")] public static extern void SHChangeNotify(uint e, uint flags, IntPtr a, IntPtr b); }'
+[AnyDropShellNotify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)

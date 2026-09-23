@@ -79,11 +79,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
         run: node scripts/prepare-updater.mjs
 
-      - name: Build Windows file context menus
-        env:
-          ANYDROP_WINDOWS_CERTIFICATE: ${{ secrets.ANYDROP_WINDOWS_CERTIFICATE }}
-          ANYDROP_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.ANYDROP_WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Build Windows classic file context menus
         run: ./scripts/build-windows-shell.ps1 -Version "1.0.${{ github.run_number }}.${{ github.run_attempt }}"
+
+      - name: Verify Windows classic file context menus
+        run: |
+          ctest --test-dir target/windows-shell -C Release --output-on-failure
+          if ($LASTEXITCODE) { throw "Shell extension tests failed" }
+          ./tests/windows-shell-registration.ps1
 
       - name: Build core (anydrop.dll)
         run: cargo build -p anydrop --release
