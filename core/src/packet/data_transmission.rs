@@ -16,6 +16,9 @@ pub struct DataTransmit {
 
 impl DataTransmit {
     pub fn from(stream: TcpStream) -> Self {
+        // Bound idle clipboard connections, including malicious length-only peers.
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
         Self { stream }
     }
     pub fn close(&mut self) -> Result<(), io::Error> {
@@ -34,6 +37,12 @@ impl DataTransmit {
     where
         F: FnMut(u64),
     {
+        if data.len() > crate::MAX_CLIPBOARD_FRAME_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "clipboard frame exceeds 4 MB",
+            ));
+        }
         // Strings are already utf8 encoded.
         let data_len = data.len() as u32;
         let mut buf = vec![0u8; SIZE_SIZE + data_len as usize];
@@ -47,9 +56,19 @@ impl DataTransmit {
 
         while remaining_tries > 0 {
             let bytes_written = match self.stream.write(&buf[bytes_written_total..]) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "peer closed during send",
+                    ))
+                }
                 Ok(n) => n,
                 Err(e) => {
-                    if e.kind() != io::ErrorKind::WouldBlock {
+                    if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
+                    {
+                        return Err(e);
+                    }
+                    if e.kind() != io::ErrorKind::Interrupted {
                         error = e;
                         remaining_tries -= 1;
                         warn!(
@@ -76,44 +95,40 @@ impl DataTransmit {
     where
         F: Fn(f32),
     {
-        let mut remaining_tries = PACKET_TRY_TIMES;
         let mut last_error: io::Error =
             io::Error::new(io::ErrorKind::Other, "Failed to read data.");
         let mut size_buf: [u8; SIZE_SIZE] = [0u8; SIZE_SIZE];
-        let mut packet_size = 0;
         let mut bytes_read_total = 0;
-
-        // Read size.
-        while remaining_tries > 0 {
-            packet_size = match self.stream.read_exact(&mut size_buf) {
-                Ok(_) => u32::from_bytes(size_buf),
-                Err(e) => {
-                    if e.kind() != io::ErrorKind::WouldBlock {
-                        last_error = e;
-                        remaining_tries -= 1;
-                    }
-                    sleep(Duration::from_millis(TCP_ACCEPT_TRY_WAIT_MILLISECONDS));
-                    continue;
-                }
-            };
-            break;
-        }
-
-        // Failed to read size?
-        if packet_size == 0 {
-            return Err(last_error);
+        // A partial header must never be retried from offset zero.
+        self.stream.read_exact(&mut size_buf)?;
+        let packet_size = u32::from_bytes(size_buf) as usize;
+        if packet_size < 8 || packet_size > crate::MAX_CLIPBOARD_FRAME_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid clipboard frame length",
+            ));
         }
 
         // Allocate buffer.
-        remaining_tries = PACKET_TRY_TIMES;
+        let mut remaining_tries = PACKET_TRY_TIMES;
         let mut data_buf = vec![0u8; packet_size as usize];
 
         // Read data.
         while remaining_tries > 0 {
             let bytes_read = match self.stream.read(&mut data_buf[bytes_read_total..]) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "peer closed during receive",
+                    ))
+                }
                 Ok(n) => n,
                 Err(e) => {
-                    if e.kind() != io::ErrorKind::WouldBlock {
+                    if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut
+                    {
+                        return Err(e);
+                    }
+                    if e.kind() != io::ErrorKind::Interrupted {
                         last_error = e;
                         remaining_tries -= 1;
                         warn!(

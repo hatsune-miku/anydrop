@@ -28,10 +28,10 @@ import Foundation
     var invalidUTF8 = try TextWire.encode("a")
     invalidUTF8[14] = 255
     rejected { _ = try TextWire.decode(invalidUTF8) }
-    let large = String(repeating: "a", count: 65535)
+    let large = String(repeating: "a", count: TextWire.maxBytes)
     let decodedLarge = try TextWire.decode(TextWire.encode(large))
     precondition(decodedLarge == large)
-    rejected { _ = try TextWire.encode(String(repeating: "a", count: 65536)) }
+    rejected { _ = try TextWire.encode(String(repeating: "a", count: TextWire.maxBytes + 1)) }
     rejected { _ = try TextWire.encode("") }
     print(
       "Swift text protocol: desktop fixtures, truncated frames, corrupt headers, Unicode and limits passed"

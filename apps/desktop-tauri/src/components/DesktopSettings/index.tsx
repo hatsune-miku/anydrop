@@ -14,6 +14,9 @@ interface Preferences {
   clipboardShortcut: string
   shortcutRegistered: boolean
   shortcutError: string | null
+  autoReceiveFiles: boolean
+  fileContextMenuEnabled: boolean
+  fileContextMenuError: string | null
   updaterConfigured: boolean
 }
 interface UpdateInfo {
@@ -89,11 +92,11 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
     return () => clearTimeout(timer)
   }, [preferences?.updaterConfigured])
 
-  async function setAutostart(enabled: boolean) {
+  async function setPreference(command: string, enabled: boolean) {
     setBusy(true)
     setError('')
     try {
-      setPreferences(await invoke<Preferences>('set_autostart', { enabled }))
+      setPreferences(await invoke<Preferences>(command, { enabled }))
     } catch (e) {
       setError(String(e))
     } finally {
@@ -289,10 +292,40 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
             className="desktop-autostart"
             checked={preferences?.autostart ?? false}
             disabled={!preferences || busy}
-            onChange={(e) => void setAutostart(e.currentTarget.checked)}
+            onChange={(e) => void setPreference('set_autostart', e.currentTarget.checked)}
           >
             开机自启
           </CheckBox>
+          <CheckBox
+            className="desktop-autostart"
+            checked={preferences?.autoReceiveFiles ?? false}
+            disabled={!preferences || busy}
+            onChange={(e) => void setPreference('set_auto_receive_files', e.currentTarget.checked)}
+          >
+            自动接收文件
+          </CheckBox>
+          <div className="desktop-field">
+            <div className="desktop-update-row">
+              <CheckBox
+                className="desktop-autostart"
+                checked={preferences?.fileContextMenuEnabled ?? true}
+                disabled={!preferences || busy}
+                onChange={(e) => void setPreference('set_file_context_menu', e.currentTarget.checked)}
+              >
+                注册文件右键菜单
+              </CheckBox>
+              {preferences?.fileContextMenuEnabled && (
+                <Button disabled={busy} onClick={() => void setPreference('set_file_context_menu', true)}>
+                  重新注册
+                </Button>
+              )}
+            </div>
+            {preferences?.fileContextMenuError && (
+              <span className="desktop-error" role="alert">
+                {preferences.fileContextMenuError}
+              </span>
+            )}
+          </div>
           <div className="desktop-field">
             <span className="desktop-setting-title">键位绑定</span>
             <label className="desktop-label" htmlFor="clipboard-shortcut">

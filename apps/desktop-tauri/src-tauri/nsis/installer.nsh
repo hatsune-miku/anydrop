@@ -29,3 +29,8 @@
   DetailPrint "Removing AnyDrop Windows Defender Firewall rule..."
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="AnyDrop"'
 !macroend
+
+; Per-user shell registrations must be removed before deleting the extension.
+!macro NSIS_HOOK_PREUNINSTALL
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\shell\register.ps1" -InstallRoot "$INSTDIR" -Mode Unregister'
+!macroend

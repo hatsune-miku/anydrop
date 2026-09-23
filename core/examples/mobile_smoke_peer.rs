@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut header = [0u8; 4];
             stream.read_exact(&mut header)?;
             let size = u32::from_le_bytes(header) as usize;
-            if !(14..=65549).contains(&size) {
+            if !(14..=anydrop::MAX_CLIPBOARD_FRAME_BYTES).contains(&size) {
                 continue;
             }
             let mut bytes = vec![0; size];

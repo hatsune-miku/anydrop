@@ -272,17 +272,17 @@ import UIKit
       connection.cancel()
     }
     func read() {
-      connection.receive(minimumIncompleteLength: 1, maximumLength: 65553) {
+      connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
         [weak self] data, _, complete, error in
         guard let self, !ended else { return }
         if let data { buffer.append(data) }
-        if buffer.count > 65553 {
+        if buffer.count > TextWire.maxBytes + 18 {
           finish()
           return
         }
         if buffer.count >= 4 {
           let length = TextWire.u32(buffer, 0)
-          if length < 14 || length > 65549 {
+          if length < 14 || length > TextWire.maxBytes + 14 {
             finish()
             return
           }

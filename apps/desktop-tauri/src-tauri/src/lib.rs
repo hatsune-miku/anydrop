@@ -1,5 +1,8 @@
+mod context_menu;
 #[cfg(desktop)]
 mod desktop;
+mod outgoing;
+mod text_format;
 #[cfg(desktop)]
 mod updates;
 
@@ -44,16 +47,19 @@ const DEFAULT_DATA_PORT: u16 = 9819;
 /// Bottom-right native popup that surfaces incoming offers / receive progress
 /// (and optionally clipboard receipts). Created lazily, reused across events.
 const RECEIVE_WINDOW_LABEL: &str = "receive";
-// Sized to fit ~340px-wide bubbles plus a 26px gutter on every side so the
-// large-blur atmosphere shadow renders fully instead of being clipped.
-const RECEIVE_WINDOW_WIDTH: f64 = 400.0;
-const RECEIVE_WINDOW_HEIGHT: f64 = 500.0;
+// Preserve the 348px card width and clear the full strongest hover shadow.
+const RECEIVE_WINDOW_WIDTH: f64 = 540.0;
+const RECEIVE_WINDOW_HEIGHT: f64 = 400.0;
 /// Quick-Look style preview window for received media.
 const PREVIEW_WINDOW_LABEL: &str = "preview";
 /// Gap from the screen edges when docking the receive popup bottom-right.
 const POPUP_MARGIN: f64 = 16.0;
 
 fn config_base() -> PathBuf {
+    #[cfg(debug_assertions)]
+    if let Some(path) = std::env::var_os("ANYDROP_TEST_CONFIG_DIR") {
+        return PathBuf::from(path);
+    }
     dirs::config_dir()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
         .join("AnyDrop")
@@ -343,6 +349,7 @@ struct Snapshot {
 
 struct ClipboardState {
     last_text: String,
+    oversized_text_digest: Option<(usize, u64)>,
     last_received_text: String,
     suppressed_text: Option<String>,
     /// 8-byte FNV-1a digest of the most recently set raw RGBA image we
@@ -363,6 +370,7 @@ impl Default for ClipboardState {
     fn default() -> Self {
         Self {
             last_text: String::new(),
+            oversized_text_digest: None,
             last_received_text: String::new(),
             suppressed_text: None,
             suppressed_image_digest: None,
@@ -402,6 +410,7 @@ impl ServiceRuntime {
 
 #[derive(Default)]
 struct Backend {
+    outgoing: outgoing::OutgoingState,
     lifecycle: Mutex<()>,
     installing: AtomicBool,
     runtime: Mutex<Option<ServiceRuntime>>,
@@ -606,8 +615,8 @@ impl Backend {
             .try_lock()
             .map(|clipboard| {
                 (
-                    clipboard.last_text.clone(),
-                    clipboard.last_received_text.clone(),
+                    clipboard.last_text.chars().take(200).collect(),
+                    clipboard.last_received_text.chars().take(200).collect(),
                 )
             })
             .unwrap_or_default();
@@ -877,15 +886,19 @@ impl ClipboardHandler for ClipboardListener {
 
         // Suppression catches our own loopback: when a peer's text arrives,
         // we write it to the local clipboard which fires this very event.
+        let oversized = text.len() > anydrop::MAX_CLIPBOARD_BYTES;
+        let oversized_digest = oversized.then(|| (text.len(), sha256_short(text.as_bytes())));
         let mut state = self.state.lock().unwrap();
         if state.suppressed_text.as_deref() == Some(text.as_str()) {
             state.suppressed_text = None;
-            state.last_text = text;
+            state.last_text = if oversized { String::new() } else { text };
+            state.oversized_text_digest = oversized_digest;
             return CallbackResult::Next;
         }
 
         if !settings.send_clipboard_enabled {
-            state.last_text = text;
+            state.last_text = if oversized { String::new() } else { text };
+            state.oversized_text_digest = oversized_digest;
             return CallbackResult::Next;
         }
 
@@ -896,16 +909,25 @@ impl ClipboardHandler for ClipboardListener {
         } else {
             // Default mode: send on every distinct content change. (Two
             // consecutive copies of the same text won't broadcast twice.)
-            state.last_text != text
+            if oversized {
+                state.oversized_text_digest != oversized_digest
+            } else {
+                state.last_text != text
+            }
         };
 
-        state.last_text = text.clone();
+        state.last_text = if oversized {
+            String::new()
+        } else {
+            text.clone()
+        };
+        state.oversized_text_digest = oversized_digest;
         if !should_send {
             return CallbackResult::Next;
         }
 
         // Suppress the broadcast's own loopback before we send.
-        state.suppressed_text = Some(text.clone());
+        state.suppressed_text = if oversized { None } else { Some(text.clone()) };
         drop(state);
 
         // Re-arm: require a fresh pair of taps for the next double-copy send.
@@ -913,7 +935,14 @@ impl ClipboardHandler for ClipboardListener {
             self.last_event_at = None;
         }
 
-        shared_anydrop_broadcast_text(text, self.service.clone(), &self.config);
+        if text.len() > anydrop::MAX_CLIPBOARD_BYTES {
+            if let Err(error) = outgoing::clipboard(&self.app, text.as_bytes(), "txt") {
+                backend.set_status(&error);
+                backend.log(error);
+            }
+        } else {
+            shared_anydrop_broadcast_text(text, self.service.clone(), &self.config);
+        }
         emit_snapshot(&self.app);
         CallbackResult::Next
     }
@@ -995,6 +1024,13 @@ impl ClipboardListener {
             return CallbackResult::Next;
         }
 
+        if png_bytes.len() > anydrop::MAX_CLIPBOARD_BYTES {
+            if let Err(error) = outgoing::clipboard(&self.app, &png_bytes, "png") {
+                backend.set_status(&error);
+                backend.log(error);
+            }
+            return CallbackResult::Next;
+        }
         anydrop::lib_util::shared_anydrop_broadcast_image(
             png_bytes,
             self.service.clone(),
@@ -1245,6 +1281,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                     serde_json::json!({
                         "kind": "text",
                         "preview": preview,
+                        "title": text_format::receipt_title(&text),
                         "text": text,
                         "peer": peer_text(peer),
                     }),
@@ -1442,6 +1479,26 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         offer_transfers.lock().unwrap().insert(key, t.clone());
         save_transfers(&offer_transfers.lock().unwrap());
         let _ = offer_app.emit("incoming-file", t);
+        #[cfg(desktop)]
+        if desktop::auto_receive_files(&offer_app) {
+            match accept_transfer_inner(
+                &offer_app,
+                &backend,
+                make_transfer_key(offer.transfer_id),
+                None,
+            ) {
+                Ok(_) => {
+                    if !popup_suppressed_by_game(&offer_app) {
+                        ensure_receive_window(&offer_app);
+                    }
+                    return;
+                }
+                Err(error) => {
+                    backend.log(format!("自动接收失败：{error}"));
+                    backend.set_status(format!("自动接收失败：{error}"));
+                }
+            }
+        }
         // Surface the offer natively: bottom-right popup + dock bounce / taskbar
         // flash + a system notification banner. Skipped while a fullscreen game
         // is in front (if the user kept that option on).
@@ -1487,6 +1544,15 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             );
         }
         let t = apply_progress(&prog_transfers, &p, None);
+        if matches!(
+            p.status,
+            TransferStatus::AllDone | TransferStatus::Rejected | TransferStatus::Cancelled
+        ) {
+            prog_app
+                .state::<Backend>()
+                .outgoing
+                .finish(&make_transfer_key(p.transfer_id));
+        }
         let _ = prog_app.emit("transfer-updated", t);
         // Only re-emit the full snapshot on terminal states (or when a log
         // line was added). The high-frequency progress updates already flow
@@ -1656,7 +1722,7 @@ fn save_settings(
 
 /// Explicit sends bypass the automatic/double-copy switches, as the existing button did.
 /// The image opt-in still applies, and file clipboard formats are not treated as file offers.
-fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<(), String> {
+fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<bool, String> {
     if backend.installing.load(Ordering::SeqCst) {
         return Err("正在安装更新".into());
     }
@@ -1665,11 +1731,20 @@ fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<(), Stri
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("无法读取剪贴板：{e}"))?;
     if let Ok(text) = clipboard.get_text() {
         if !text.is_empty() {
+            if text.len() > anydrop::MAX_CLIPBOARD_BYTES {
+                {
+                    let mut state = backend.clipboard.lock().unwrap();
+                    state.last_text.clear();
+                    state.oversized_text_digest = Some((text.len(), sha256_short(text.as_bytes())));
+                }
+                outgoing::clipboard(app, text.as_bytes(), "txt")?;
+                return Ok(false);
+            }
             shared_anydrop_broadcast_text(text.clone(), service.discovery_service(), &config);
             backend.clipboard.lock().unwrap().last_text = text;
             backend.set_status("Clipboard sent to LAN peers");
             emit_snapshot(app);
-            return Ok(());
+            return Ok(true);
         }
     }
     let img = clipboard
@@ -1688,14 +1763,15 @@ fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<(), Stri
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(&img.bytes, width, height, image::ExtendedColorType::Rgba8)
         .map_err(|e| format!("图片编码失败：{e}"))?;
-    if png.len() > 64 * 1024 * 1024 {
-        return Err("剪贴板 PNG 超过 64MB".into());
+    if png.len() > anydrop::MAX_CLIPBOARD_BYTES {
+        outgoing::clipboard(app, &png, "png")?;
+        return Ok(false);
     }
     backend.clipboard.lock().unwrap().last_image_digest = Some(sha256_short(&img.bytes));
     anydrop::lib_util::shared_anydrop_broadcast_image(png, service.discovery_service(), &config);
     backend.set_status("Clipboard image sent to LAN peers");
     emit_snapshot(app);
-    Ok(())
+    Ok(true)
 }
 
 #[tauri::command]
@@ -1743,6 +1819,21 @@ fn send_paths(
     hosts: Vec<String>,
     paths: Vec<String>,
 ) -> Result<Snapshot, String> {
+    send_paths_inner(&app, &backend, hosts, paths).map(|(snapshot, _)| snapshot)
+}
+
+fn send_paths_inner(
+    app: &AppHandle,
+    backend: &Backend,
+    hosts: Vec<String>,
+    paths: Vec<String>,
+) -> Result<(Snapshot, String), String> {
+    if paths.is_empty() {
+        return Err("没有选择文件".into());
+    }
+    for path in &paths {
+        fs::metadata(path).map_err(|e| format!("无法读取 {path}：{e}"))?;
+    }
     let _lifecycle = backend.lifecycle.lock().unwrap();
     if backend.installing.load(Ordering::SeqCst) {
         return Err("正在安装更新".into());
@@ -1838,7 +1929,7 @@ fn send_paths(
     backend.persist_transfers();
     backend.set_status(format!("Sending {} item(s) via QUIC", paths.len()));
     emit_snapshot(&app);
-    Ok(backend.snapshot())
+    Ok((backend.snapshot(), make_transfer_key(transfer_id)))
 }
 
 fn parse_transfer_key(key: &str) -> Result<u64, String> {
@@ -1853,6 +1944,15 @@ fn accept_transfer(
     transfer_key: String,
     save_dir: Option<String>,
 ) -> Result<Snapshot, String> {
+    accept_transfer_inner(&app, &backend, transfer_key, save_dir)
+}
+
+fn accept_transfer_inner(
+    app: &AppHandle,
+    backend: &Backend,
+    transfer_key: String,
+    save_dir: Option<String>,
+) -> Result<Snapshot, String> {
     let transfer_id = parse_transfer_key(&transfer_key)?;
     let handle = backend
         .transfer_handle
@@ -1860,6 +1960,15 @@ fn accept_transfer(
         .unwrap()
         .clone()
         .ok_or_else(|| "transfer server not running".to_string())?;
+    if !backend
+        .transfers
+        .lock()
+        .unwrap()
+        .get(&transfer_key)
+        .is_some_and(|t| t.status == 1 && t.direction == "incoming")
+    {
+        return Err("此文件请求已处理".into());
+    }
     // Per-transfer override wins; otherwise the configured default; otherwise
     // the hard fallback. Never an empty path.
     let save_root = save_dir
@@ -1880,6 +1989,9 @@ fn accept_transfer(
         save_root.display()
     ));
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
+        if t.status != 1 {
+            return Err("此文件请求已处理".into());
+        }
         t.status = 4;
         t.local_path = save_root.to_string_lossy().to_string();
         // Reveal target = the top-level entry under the save root. Falls back
@@ -2364,6 +2476,7 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     .resizable(false)
     .decorations(false)
     .transparent(true)
+    .background_color(tauri::window::Color(0, 0, 0, 0))
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
@@ -2425,6 +2538,8 @@ fn ensure_receive_window(app: &AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
+            let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            position_bottom_right(&window);
             let _ = window.show();
             return;
         }
@@ -2447,15 +2562,41 @@ fn position_bottom_right(window: &tauri::WebviewWindow) {
         return;
     };
     let scale = monitor.scale_factor();
-    let m_pos = monitor.position();
-    let m_size = monitor.size();
+    let area = monitor.work_area();
     let margin = (POPUP_MARGIN * scale) as i32;
-    let taskbar = (48.0 * scale) as i32; // clear a typical taskbar / dock
-    let win_w = (RECEIVE_WINDOW_WIDTH * scale) as i32;
-    let win_h = (RECEIVE_WINDOW_HEIGHT * scale) as i32;
-    let x = m_pos.x + m_size.width as i32 - win_w - margin;
-    let y = m_pos.y + m_size.height as i32 - win_h - margin - taskbar;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
+    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+    let _ = window.set_position(PhysicalPosition::new(
+        x.max(area.position.x),
+        y.max(area.position.y),
+    ));
+}
+
+#[tauri::command]
+fn resize_receive_window(window: tauri::WebviewWindow, height: f64) -> Result<(), String> {
+    if window.label() != RECEIVE_WINDOW_LABEL || !height.is_finite() {
+        return Err("无效浮窗尺寸".into());
+    }
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or(window.primary_monitor().map_err(|e| e.to_string())?);
+    let max_height = monitor
+        .as_ref()
+        .map(|m| m.work_area().size.height as f64 / m.scale_factor() - 2.0 * POPUP_MARGIN)
+        .unwrap_or(720.0)
+        .max(240.0);
+    window
+        .set_size(tauri::LogicalSize::new(
+            RECEIVE_WINDOW_WIDTH,
+            height.clamp(240.0, max_height),
+        ))
+        .map_err(|e| e.to_string())?;
+    position_bottom_right(&window);
+    Ok(())
 }
 
 /// Classify a file for the preview window by extension. Archives intentionally
@@ -2573,8 +2714,10 @@ pub fn run() {
     // which also stops the duplicate tray icons that multiple processes bred.
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_main_window(app);
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            if !context_menu::handle_arguments(app, &argv, &cwd) {
+                show_main_window(app);
+            }
         }));
         builder = builder
             .plugin(
@@ -2630,7 +2773,14 @@ pub fn run() {
             preinit_receive_window(&handle);
             #[cfg(desktop)]
             desktop::initialize(handle.clone());
-            if !std::env::args().any(|arg| arg == "--autostart") {
+            let shell_request = context_menu::handle_arguments(
+                &handle,
+                &std::env::args().collect::<Vec<_>>(),
+                &std::env::current_dir()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+            );
+            if !shell_request && !std::env::args().any(|arg| arg == "--autostart") {
                 show_main_window(&handle);
             }
             auto_start_service(handle);
@@ -2639,11 +2789,17 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             desktop::get_desktop_preferences,
             desktop::set_autostart,
+            desktop::set_auto_receive_files,
+            desktop::set_file_context_menu,
             desktop::set_clipboard_shortcut,
             desktop::set_shortcut_recording,
             updates::check_app_update,
             updates::download_app_update,
             updates::install_app_update,
+            outgoing::get_outgoing_requests,
+            outgoing::confirm_outgoing_request,
+            outgoing::dismiss_outgoing_request,
+            resize_receive_window,
             get_snapshot,
             refresh_peers,
             start_service,

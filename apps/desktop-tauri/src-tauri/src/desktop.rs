@@ -14,10 +14,21 @@ use tauri_plugin_global_shortcut::{
     GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
 };
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 struct SavedPreferences {
     clipboard_shortcut: String,
+    auto_receive_files: bool,
+    file_context_menu_enabled: bool,
+}
+impl Default for SavedPreferences {
+    fn default() -> Self {
+        Self {
+            clipboard_shortcut: String::new(),
+            auto_receive_files: false,
+            file_context_menu_enabled: true,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -29,6 +40,8 @@ struct Binding {
 
 #[derive(Default)]
 pub struct DesktopState {
+    preferences: Mutex<SavedPreferences>,
+    context_menu_error: Mutex<Option<String>>,
     binding: Mutex<Binding>,
     // Serialize changes without holding the binding lock while dispatching to the main thread.
     change: Mutex<()>,
@@ -45,6 +58,9 @@ pub struct DesktopPreferences {
     shortcut_registered: bool,
     shortcut_error: Option<String>,
     updater_configured: bool,
+    auto_receive_files: bool,
+    file_context_menu_enabled: bool,
+    file_context_menu_error: Option<String>,
 }
 
 pub fn parse_shortcut(value: &str) -> Result<Option<Shortcut>, String> {
@@ -64,16 +80,61 @@ pub fn parse_shortcut(value: &str) -> Result<Option<Shortcut>, String> {
     Ok(Some(shortcut))
 }
 
-fn save_binding(value: &str) -> Result<(), String> {
+fn save_preferences(saved: &SavedPreferences) -> Result<(), String> {
     let base = config_base();
     fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    let bytes = serde_json::to_vec_pretty(&SavedPreferences {
-        clipboard_shortcut: value.into(),
-    })
-    .map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(saved).map_err(|e| e.to_string())?;
     let temp = base.join("desktop-settings.json.tmp");
     fs::write(&temp, bytes).map_err(|e| e.to_string())?;
     fs::rename(&temp, base.join("desktop-settings.json")).map_err(|e| e.to_string())
+}
+
+pub fn auto_receive_files(app: &AppHandle) -> bool {
+    app.state::<DesktopState>()
+        .preferences
+        .lock()
+        .unwrap()
+        .auto_receive_files
+}
+
+#[tauri::command]
+pub async fn set_auto_receive_files(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<DesktopPreferences, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        let _change = state.change.lock().unwrap();
+        let mut next = state.preferences.lock().unwrap().clone();
+        next.auto_receive_files = enabled;
+        save_preferences(&next)?;
+        *state.preferences.lock().unwrap() = next;
+        get_desktop_preferences(app.clone(), app.state::<DesktopState>())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn set_file_context_menu(
+    app: AppHandle,
+    enabled: bool,
+) -> Result<DesktopPreferences, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DesktopState>();
+        let _change = state.change.lock().unwrap();
+        let mut next = state.preferences.lock().unwrap().clone();
+        next.file_context_menu_enabled = enabled;
+        // Preserve the requested preference even if the OS registration needs
+        // repair. The error is visible beside the repair button.
+        save_preferences(&next)?;
+        *state.preferences.lock().unwrap() = next;
+        *state.context_menu_error.lock().unwrap() =
+            super::context_menu::register(&app, enabled).err();
+        get_desktop_preferences(app.clone(), app.state::<DesktopState>())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn initialize(app: AppHandle) {
@@ -84,11 +145,14 @@ pub fn initialize(app: AppHandle) {
         let result = (|| {
             let raw = match fs::read(config_base().join("desktop-settings.json")) {
                 Ok(raw) => raw,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => b"{}".to_vec(),
                 Err(e) => return Err(e.to_string()),
             };
             let saved: SavedPreferences =
-                serde_json::from_slice(&raw).map_err(|e| format!("快捷键设置无法读取：{e}"))?;
+                serde_json::from_slice(&raw).map_err(|e| format!("桌面设置无法读取：{e}"))?;
+            *state.preferences.lock().unwrap() = saved.clone();
+            *state.context_menu_error.lock().unwrap() =
+                super::context_menu::register(&app, saved.file_context_menu_enabled).err();
             state.binding.lock().unwrap().configured = saved.clipboard_shortcut.clone();
             if let Some(shortcut) = parse_shortcut(&saved.clipboard_shortcut)? {
                 app.global_shortcut()
@@ -136,7 +200,8 @@ pub fn on_shortcut(app: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent) {
         let backend = app.state::<Backend>();
         let result = send_current_clipboard(&app, &backend);
         let message = match result {
-            Ok(()) => "已发送当前剪贴板到局域网设备".to_string(),
+            Ok(true) => "已发送当前剪贴板到局域网设备".to_string(),
+            Ok(false) => "等待确认以文件形式发送".to_string(),
             Err(error) => format!("快捷键发送失败：{error}"),
         };
         backend.log(&message);
@@ -155,12 +220,16 @@ pub fn get_desktop_preferences(
     state: State<'_, DesktopState>,
 ) -> Result<DesktopPreferences, String> {
     let binding = state.binding.lock().unwrap();
+    let saved = state.preferences.lock().unwrap();
     Ok(DesktopPreferences {
         autostart: app.autolaunch().is_enabled().map_err(|e| e.to_string())?,
         clipboard_shortcut: binding.configured.clone(),
         shortcut_registered: binding.active.is_some(),
         shortcut_error: binding.error.clone(),
         updater_configured: super::updates::configured(&app),
+        auto_receive_files: saved.auto_receive_files,
+        file_context_menu_enabled: saved.file_context_menu_enabled,
+        file_context_menu_error: state.context_menu_error.lock().unwrap().clone(),
     })
 }
 
@@ -206,7 +275,9 @@ pub async fn set_clipboard_shortcut(
                 }
             }
         }
-        if let Err(error) = save_binding(&normalized) {
+        let mut next_preferences = state.preferences.lock().unwrap().clone();
+        next_preferences.clipboard_shortcut = normalized.clone();
+        if let Err(error) = save_preferences(&next_preferences) {
             if next != old {
                 if let Some(key) = next {
                     let _ = app.global_shortcut().unregister(key);
@@ -222,6 +293,7 @@ pub async fn set_clipboard_shortcut(
             }
             return Err(format!("快捷键未保存：{error}"));
         }
+        *state.preferences.lock().unwrap() = next_preferences;
         *state.binding.lock().unwrap() = Binding {
             configured: normalized,
             active: next,
@@ -248,6 +320,9 @@ mod tests {
     }
     #[test]
     fn legacy_missing_preferences_are_optional() {
+        let defaults = SavedPreferences::default();
+        assert!(!defaults.auto_receive_files);
+        assert!(defaults.file_context_menu_enabled);
         assert!(serde_json::from_str::<SavedPreferences>("{}")
             .unwrap()
             .clipboard_shortcut

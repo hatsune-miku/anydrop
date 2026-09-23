@@ -1,6 +1,7 @@
 import Foundation
 
 enum TextWire {
+  static let maxBytes = 4 * 1024 * 1024
   static func u16(_ bytes: Data, _ start: Int) -> Int {
     Int(bytes[start]) | (Int(bytes[start + 1]) << 8)
   }
@@ -14,9 +15,9 @@ enum TextWire {
   }
   static func encode(_ text: String) throws -> Data {
     let bytes = Data(text.utf8)
-    guard !bytes.isEmpty, bytes.count <= 65535 else {
+    guard !bytes.isEmpty, bytes.count <= maxBytes else {
       throw NSError(
-        domain: "AnyDrop", code: 2, userInfo: [NSLocalizedDescriptionKey: "文本必须为 1 到 65535 字节"])
+        domain: "AnyDrop", code: 2, userInfo: [NSLocalizedDescriptionKey: "文本必须为 1 字节到 4 MB"])
     }
     func little(_ value: Int, _ count: Int) -> Data {
       Data((0..<count).map { UInt8((value >> ($0 * 8)) & 255) })
@@ -34,7 +35,7 @@ enum TextWire {
     }
     let length = u32(bytes, 6)
     let textSize = u32(bytes, 10)
-    guard length == textSize + 6, bytes.count == length + 12, textSize <= 65535,
+    guard length == textSize + 6, bytes.count == length + 12, textSize <= maxBytes,
       u16(bytes, bytes.count - 2) == (length / 2) & 65535,
       let text = String(data: bytes.subdata(in: 14..<(14 + textSize)), encoding: .utf8),
       u16(bytes, 14 + textSize) == hash(text)

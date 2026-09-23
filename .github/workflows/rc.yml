@@ -79,6 +79,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
         run: node scripts/prepare-updater.mjs
 
+      - name: Build Windows file context menus
+        env:
+          ANYDROP_WINDOWS_CERTIFICATE: ${{ secrets.ANYDROP_WINDOWS_CERTIFICATE }}
+          ANYDROP_WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.ANYDROP_WINDOWS_CERTIFICATE_PASSWORD }}
+        run: ./scripts/build-windows-shell.ps1 -Version "1.0.${{ github.run_number }}.${{ github.run_attempt }}"
+
       - name: Build core (anydrop.dll)
         run: cargo build -p anydrop --release
 

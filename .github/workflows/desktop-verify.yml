@@ -1,0 +1,27 @@
+name: Desktop verification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: yarn install --frozen-lockfile
+      - run: yarn workspace @anydrop/desktop-tauri build
+      - run: ./scripts/build-windows-shell.ps1
+      - run: ctest --test-dir target/windows-shell -C Release --output-on-failure
+      - run: cargo test -p anydrop --test test_clipboard_limits
+      - run: cargo test -p anydrop-desktop-tauri --lib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-shell-verification
+          path: |
+            apps/desktop-tauri/src-tauri/.generated/shell/
+            target/windows-shell/AnyDrop.FileActions.unsigned.msix

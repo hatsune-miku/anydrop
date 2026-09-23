@@ -111,7 +111,7 @@ class AnyDropRuntime private constructor(private val context: Context) {
               val header = input.readNBytes(4)
               require(header.size == 4)
               val count = TextWire.intLE(header, 0)
-              require(count in 14..65549)
+              require(count in 14..(TextWire.MAX_BYTES + 14))
               val body = input.readNBytes(count)
               require(body.size == count)
               val text = TextWire.decode(header + body)

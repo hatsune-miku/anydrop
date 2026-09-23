@@ -76,7 +76,9 @@ dependencies = [
  "dirs 5.0.1",
  "image",
  "open",
+ "plist",
  "rand 0.8.6",
+ "roxmltree",
  "serde",
  "serde_json",
  "tauri",
@@ -88,6 +90,8 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
+ "toml_edit 0.20.2",
  "windows-sys 0.59.0",
 ]
 
@@ -3614,6 +3618,15 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]

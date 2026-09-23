@@ -92,6 +92,9 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
   Date.now = () => now
   let preferences = {
     autostart: false,
+    autoReceiveFiles: false,
+    fileContextMenuEnabled: true,
+    fileContextMenuError: null,
     clipboardShortcut: '',
     shortcutRegistered: false,
     shortcutError: null,
@@ -134,6 +137,23 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
         window.__emit('snapshot', snap)
       }
       if (cmd === 'get_desktop_preferences') return structuredClone(preferences)
+      if (cmd === 'resize_receive_window') return
+      if (cmd === 'get_outgoing_requests') return window.__outgoingRequests ?? []
+      if (cmd === 'dismiss_outgoing_request' || cmd === 'confirm_outgoing_request') {
+        if (cmd === 'confirm_outgoing_request' && window.__outgoingFailure)
+          throw new Error('所选设备已离线，请重新选择')
+        window.__outgoingRequests = (window.__outgoingRequests ?? []).filter((request) => request.id !== args.id)
+        window.__emit('outgoing-requests', window.__outgoingRequests)
+        return
+      }
+      if (cmd === 'set_auto_receive_files') {
+        preferences.autoReceiveFiles = args.enabled
+        return structuredClone(preferences)
+      }
+      if (cmd === 'set_file_context_menu') {
+        preferences.fileContextMenuEnabled = args.enabled
+        return structuredClone(preferences)
+      }
       if (cmd === 'set_autostart') {
         preferences.autostart = args.enabled
         return structuredClone(preferences)

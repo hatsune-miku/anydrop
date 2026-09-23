@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AnyDrop</title>
+    <script>
+      // Clear the canvas before styles, React, or an OS dark-theme update can paint it.
+      if (new URLSearchParams(location.search).get('window') === 'receive') {
+        document.documentElement.classList.add('receive-window')
+      }
+    </script>
+    <style>
+      html.receive-window, html.receive-window body, html.receive-window #root {
+        background: transparent !important;
+        color-scheme: light !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

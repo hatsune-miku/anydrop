@@ -5,7 +5,7 @@ use core::fmt;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
-const STRING_LENGTH_MAX: usize = 0xffff;
+const STRING_LENGTH_MAX: usize = crate::MAX_CLIPBOARD_BYTES;
 
 // Serialized as:
 // 4 bytes: text length (UTF-8)
@@ -54,7 +54,7 @@ type HashType = u16;
 fn text_hash(text: &String) -> HashType {
     let mut ret: HashType = HashType::MAX ^ 0x12 ^ 0x13 ^ 0x8;
     for (i, c) in text.chars().enumerate() {
-        ret = ret.wrapping_add((i * c as usize) as HashType);
+        ret = ret.wrapping_add(i.wrapping_mul(c as usize) as HashType);
     }
     ret
 }
@@ -83,12 +83,18 @@ impl Serialize<Vec<u8>, TextPacketError> for TextPacket {
         }
 
         let text_len = u32::from_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        if text_len > STRING_LENGTH_MAX {
+            return Err(TextPacketError::StringTooLong);
+        }
+        if text_len + BASE_PACKET_SIZE != data_len {
+            return Err(TextPacketError::InvalidData);
+        }
         let text = String::from_utf8(data[4..4 + text_len].to_vec())
             .map_err(|_| TextPacketError::InvalidData)?;
         let hash = u16::from_bytes([data[4 + text_len], data[4 + text_len + 1]]);
 
         if text_hash(&text) == hash {
-            match TextPacket::new(text.clone()) {
+            match TextPacket::new(text) {
                 Ok(x) => Ok(x),
                 Err(_) => Err(TextPacketError::InvalidData),
             }

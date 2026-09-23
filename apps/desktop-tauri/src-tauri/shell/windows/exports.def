@@ -1,0 +1,4 @@
+LIBRARY AnyDropShell
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

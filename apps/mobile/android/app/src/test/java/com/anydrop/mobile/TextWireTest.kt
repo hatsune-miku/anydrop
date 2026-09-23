@@ -23,9 +23,9 @@ class TextWireTest {
   @Test fun unicodeAndSizeLimit() {
     val invalidUTF8 = TextWire.encode("a"); invalidUTF8[14] = 0xff.toByte()
     assertThrows(Exception::class.java) { TextWire.decode(invalidUTF8) }
-    val samples = listOf("你好\n同频段文本", "e\u0301 👩‍💻 😀", "\u0000\t\r\n", "a".repeat(65535))
+    val samples = listOf("你好\n同频段文本", "e\u0301 👩‍💻 😀", "\u0000\t\r\n", "a".repeat(TextWire.MAX_BYTES))
     for (text in samples) assertEquals(text, TextWire.decode(TextWire.encode(text)))
-    assertThrows(Exception::class.java) { TextWire.encode("a".repeat(65536)) }
+    assertThrows(Exception::class.java) { TextWire.encode("a".repeat(TextWire.MAX_BYTES + 1)) }
     assertThrows(Exception::class.java) { TextWire.encode("") }
   }
 }

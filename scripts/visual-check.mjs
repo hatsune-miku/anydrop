@@ -46,7 +46,7 @@ try {
         })
       const viewport =
         label === 'receive'
-          ? { width: 400, height: 500 }
+          ? { width: 540, height: 690 }
           : label === 'preview'
             ? { width: 760, height: 580 }
             : scenario === 'compact'

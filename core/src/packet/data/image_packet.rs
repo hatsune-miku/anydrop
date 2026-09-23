@@ -19,7 +19,7 @@ use std::fmt::{Debug, Display, Formatter};
 
 const HEADER_SIZE: usize = 4;
 /// Cap defensive — refuse images above this to avoid one peer flooding others.
-const MAX_PNG_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PNG_BYTES: usize = crate::MAX_CLIPBOARD_BYTES;
 const PNG_MAGIC: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
 pub enum ImagePacketError {
@@ -93,7 +93,7 @@ impl Serialize<Vec<u8>, ImagePacketError> for ImagePacket {
         if len > MAX_PNG_BYTES {
             return Err(ImagePacketError::TooLarge);
         }
-        if HEADER_SIZE + len > data.len() {
+        if HEADER_SIZE + len != data.len() {
             return Err(ImagePacketError::InvalidData);
         }
         let png = data[HEADER_SIZE..HEADER_SIZE + len].to_vec();
