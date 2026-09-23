@@ -85,11 +85,17 @@ export default function ReceivePopup() {
       })
       .catch(() => {})
 
-    const requestsListener = listen<OutgoingRequest[]>('outgoing-requests', ({ payload }) => setRequests(payload))
+    let requestsChanged = false
+    const requestsListener = listen<OutgoingRequest[]>('outgoing-requests', ({ payload }) => {
+      requestsChanged = true
+      setRequests(payload)
+    })
     // Subscribe first, then read pending state: startup never drops a file-menu request.
     void requestsListener
       .then(() => invoke<OutgoingRequest[]>('get_outgoing_requests'))
-      .then(setRequests)
+      .then((initial) => {
+        if (!requestsChanged) setRequests(initial)
+      })
       .catch(() => {})
     const unlisteners = [
       requestsListener,
@@ -166,6 +172,13 @@ export default function ReceivePopup() {
     if (rows.length === 0 && cards.length === 0 && requests.length === 0) {
       const timer = setTimeout(() => void getCurrentWindow().hide(), 400)
       return () => clearTimeout(timer)
+    }
+    // Restore delayed send confirmations/receipts after first hydration. Incoming
+    // file rows alone must still respect the backend's fullscreen-game suppression.
+    if (requests.length > 0 || cards.length > 0) {
+      void getCurrentWindow()
+        .show()
+        .catch(() => {})
     }
   }, [rows.length, cards.length, requests.length])
 

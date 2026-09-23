@@ -138,7 +138,14 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       }
       if (cmd === 'get_desktop_preferences') return structuredClone(preferences)
       if (cmd === 'resize_receive_window') return
-      if (cmd === 'get_outgoing_requests') return window.__outgoingRequests ?? []
+      if (cmd === 'get_outgoing_requests') {
+        const initial = structuredClone(window.__outgoingRequests ?? [])
+        if (window.__holdOutgoingRead)
+          await new Promise((resolve) => {
+            window.__finishOutgoingRead = resolve
+          })
+        return initial
+      }
       if (cmd === 'dismiss_outgoing_request' || cmd === 'confirm_outgoing_request') {
         if (cmd === 'confirm_outgoing_request' && window.__outgoingFailure)
           throw new Error('所选设备已离线，请重新选择')

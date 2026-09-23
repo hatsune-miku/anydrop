@@ -1,6 +1,11 @@
 name: Desktop verification
 on:
   workflow_dispatch:
+    inputs:
+      shell_only:
+        type: boolean
+        default: false
+        description: 'Only verify native shell packaging and registration'
 permissions:
   contents: read
 jobs:
@@ -9,19 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        if: inputs.shell_only != true
       - uses: Swatinem/rust-cache@v2
+        if: inputs.shell_only != true
       - uses: actions/setup-node@v4
+        if: inputs.shell_only != true
         with:
           node-version: 22
       - run: yarn install --frozen-lockfile
+        if: inputs.shell_only != true
       - run: yarn workspace @anydrop/desktop-tauri build
+        if: inputs.shell_only != true
       - run: ./scripts/build-windows-shell.ps1
       - run: ctest --test-dir target/windows-shell -C Release --output-on-failure
+      - run: ./tests/windows-shell-registration.ps1
       - run: cargo test -p anydrop --test test_clipboard_limits
+        if: inputs.shell_only != true
       - run: cargo test -p anydrop-desktop-tauri --lib
+        if: inputs.shell_only != true
       - uses: actions/upload-artifact@v4
         with:
           name: windows-shell-verification
+          include-hidden-files: true
           path: |
             apps/desktop-tauri/src-tauri/.generated/shell/
             target/windows-shell/AnyDrop.FileActions.unsigned.msix

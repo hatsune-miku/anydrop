@@ -88,6 +88,32 @@ try {
     assert.deepEqual(errors, [])
     await page.close()
   }
+  // Slow first hydration plus a newer event must neither hide nor erase the request.
+  const late = await browser.newPage({ viewport: { width: 540, height: 500 } })
+  const lateSnapshot = snapshot(false)
+  lateSnapshot.transfers = []
+  await late.addInitScript(installMock, { snap: lateSnapshot, label: 'receive', platform: 'Win32', now: epoch })
+  await late.addInitScript(() => {
+    window.__holdOutgoingRead = true
+  })
+  await late.goto('http://127.0.0.1:1420/?window=receive')
+  await late.waitForFunction(
+    () =>
+      typeof window.__finishOutgoingRead === 'function' &&
+      window.__testCalls.some((c) => c.cmd === 'plugin:window|hide')
+  )
+  await late.evaluate(() => {
+    window.__outgoingRequests = [{ id: 'late', clipboard: true, fileName: 'late.txt', bytes: 5000000 }]
+    window.__emit('outgoing-requests', window.__outgoingRequests)
+    window.__finishOutgoingRead()
+  })
+  await late.getByText('确认以文件形式发送', { exact: true }).waitFor()
+  await late.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'plugin:window|show'))
+  assert(
+    await late.getByText('late.txt', { exact: false }).isVisible(),
+    'Stale initial state cannot overwrite a newer request'
+  )
+  await late.close()
   console.log(
     `${engine}: popup transparency, shadow gutters, receipt title, multiple/single/no peer, error and cancellation passed`
   )
