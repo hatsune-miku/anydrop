@@ -45,7 +45,7 @@ Install the Tauri frontend dependencies:
 yarn install
 ```
 
-With Node 25.8.1+ (25.x), use `yarn install --frozen-lockfile --ignore-engines`: the pinned React Native / Metro dependencies exclude Node 25 in their engine declarations. This project provides a tested compatibility path; other commands stay the same. See the [mobile development instructions](apps/mobile/README.md) for details.
+Node 25.8.1+ (25.x) uses the same install command. The repository's `.yarnrc` automatically skips engine checks during `yarn install` because the pinned React Native / Metro dependencies exclude Node 25 in their declarations. This project provides a tested compatibility path; CI remains on Node 22. See the [mobile development instructions](apps/mobile/README.md) for details.
 
 Run the Tauri app in development:
 

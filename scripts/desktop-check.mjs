@@ -27,7 +27,7 @@ try {
     const moreButton = page.getByRole('button', { name: '更多设置', exact: true })
     const moreDialog = page.getByRole('dialog', { name: '更多设置', exact: true })
     const updateDialog = page.getByRole('dialog', { name: '更新到 0.1.3', exact: true })
-    const autostart = page.getByRole('checkbox', { name: '开机自启', exact: true })
+    const autostart = page.getByRole('switch', { name: '开机自启', exact: true })
     assert(!(await autostart.isVisible()), 'Desktop extras stay out of the primary settings pane')
     await moreButton.click()
     await moreDialog.waitFor()
@@ -38,8 +38,8 @@ try {
     await autostart.check()
     assert(await autostart.isChecked())
     assert((await page.evaluate(() => window.__testCalls)).some((c) => c.cmd === 'set_autostart' && c.args.enabled))
-    const autoReceive = page.getByRole('checkbox', { name: '自动接收文件', exact: true })
-    const contextMenu = page.getByRole('checkbox', { name: '注册文件右键菜单', exact: true })
+    const autoReceive = page.getByRole('switch', { name: '自动接收文件', exact: true })
+    const contextMenu = page.getByRole('switch', { name: '注册文件右键菜单', exact: true })
     assert(!(await autoReceive.isChecked()), 'File auto-accept defaults off')
     assert(await contextMenu.isChecked(), 'Context menus default on')
     await autoReceive.check()
@@ -52,7 +52,17 @@ try {
     const shortcut = page.getByLabel('发送当前剪贴板', { exact: true })
     await shortcut.press('Control+Alt+KeyV')
     await page.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'set_clipboard_shortcut'))
-    assert.equal(await shortcut.inputValue(), 'Control+Alt+KeyV')
+    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V')
+    assert.equal(
+      (await page.evaluate(() => window.__testCalls.filter((c) => c.cmd === 'set_clipboard_shortcut').at(-1))).args
+        .shortcut,
+      'Control+Alt+KeyV',
+      'Readable shortcut labels preserve the native binding format'
+    )
+    await page.getByRole('button', { name: '录制', exact: true }).click()
+    await moreDialog.getByRole('button', { name: '取消', exact: true }).click()
+    await page.getByRole('button', { name: '录制', exact: true }).waitFor()
+    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Cancelling capture keeps the previous binding')
     await page.getByRole('button', { name: '录制', exact: true }).click()
     await shortcut.press('Escape')
     assert(await moreDialog.isVisible(), 'Escape cancels shortcut capture before closing settings')
@@ -65,7 +75,7 @@ try {
     )
     await moreButton.click()
     assert(await autostart.isChecked(), 'Autostart persists across dialog reopening')
-    assert.equal(await shortcut.inputValue(), 'Control+Alt+KeyV', 'Shortcut persists across dialog reopening')
+    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Shortcut persists across dialog reopening')
     assert(
       !(await page.evaluate(() => window.__testCalls)).some((c) => c.cmd === 'send_clipboard_now'),
       'Recording must never transmit clipboard data'
@@ -76,7 +86,7 @@ try {
     await page.getByRole('button', { name: '录制', exact: true }).click()
     await shortcut.press('Control+Alt+KeyB')
     await page.getByRole('alert').filter({ hasText: '快捷键已被占用' }).waitFor()
-    assert.equal(await shortcut.inputValue(), 'Control+Alt+KeyV', 'Failed registration preserves previous binding')
+    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Failed registration preserves previous binding')
     await page.evaluate(() => {
       window.__shortcutFailure = false
     })

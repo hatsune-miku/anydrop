@@ -2480,6 +2480,9 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
+    // macOS otherwise consumes the first click to activate this inactive
+    // window instead of delivering it to the receipt's buttons.
+    .accept_first_mouse(true)
     .visible(false)
     .build()
     {

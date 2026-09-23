@@ -2,6 +2,31 @@
   min-width: 0;
 }
 .desktop-more-settings-dialog {
+  width: min(584px, calc(100vw - 32px));
+  padding: 0;
+  overflow: hidden;
+
+  &[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  > .cake-dialog-header {
+    flex: none;
+    padding: 24px 26px 18px;
+  }
+  > .cake-dialog-body {
+    min-height: 0;
+    margin: 0;
+    padding: 0 26px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  > .cake-dialog-footer {
+    flex: none;
+    margin: 0;
+    padding: 20px 26px 22px;
+  }
   &[open],
   &[open]::backdrop {
     animation: desktop-more-settings-enter var(--cake-normal) cubic-bezier(0.29, 0, 0, 1) both;
@@ -31,38 +56,128 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  .desktop-autostart {
-    min-height: 32px;
-    margin: 0;
-  }
-  .desktop-field {
-    display: grid;
-    gap: 6px;
-  }
-  .desktop-shortcut-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: 4px;
-  }
-  .desktop-update-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .desktop-update-message {
-    margin: 0;
-    color: var(--cake-muted);
-    font-size: 11px;
-    line-height: 1.45;
-    overflow-wrap: anywhere;
-  }
+  padding: 0 2px 2px;
+}
+.desktop-settings-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.desktop-setting-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 0;
+}
+.desktop-setting-icon {
+  flex: none;
+  color: var(--cake-accent);
+}
+.desktop-setting-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
 }
 .desktop-setting-title {
+  margin: 0;
   color: var(--cake-text);
   font-size: 13px;
-  line-height: 1.45;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.desktop-setting-description {
+  margin: 0;
+  color: var(--cake-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.desktop-setting-followup {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.desktop-reregister {
+  min-height: 26px;
+  padding: 3px 0;
+}
+.desktop-setting-detail {
+  grid-column: 2 / -1;
+}
+.desktop-shortcut-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  box-shadow: inset 0 1px 0 var(--cake-line);
+}
+.desktop-shortcut-field {
+  display: grid;
+  gap: 8px;
+  margin-left: 34px;
+}
+.desktop-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+.desktop-shortcut-input {
+  font-family: var(--cake-mono);
+  font-size: 12px;
+}
+.desktop-shortcut-hint {
+  font-size: 11px;
+  transition: color var(--cake-fast) var(--cake-ease);
+}
+.desktop-shortcut-field[data-recording] .desktop-shortcut-hint {
+  color: var(--cake-accent);
+}
+.desktop-update-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: var(--cake-radius-medium);
+  background: var(--cake-accent-subtle);
+}
+.desktop-update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.desktop-update-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 14px;
+}
+.desktop-update-message {
+  margin: 0;
+  color: var(--cake-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.desktop-settings-footer {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.desktop-settings-save-state {
+  color: var(--cake-muted);
+  font-size: 11px;
+}
+.desktop-settings-done {
+  min-width: 80px;
 }
 .desktop-label {
   color: var(--cake-muted);

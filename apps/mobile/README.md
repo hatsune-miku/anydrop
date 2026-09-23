@@ -12,21 +12,15 @@ React Native 0.87.1 / React 19.2.3 / TypeScript，Android 15+、iOS 18+，仅手
 
 ```sh
 # 仓库根目录
-YARN_WORKSPACES_EXPERIMENTAL=true yarn install --frozen-lockfile
+yarn install --frozen-lockfile
 yarn mobile:start
 # 另开终端，连接 Android 15+ 设备或模拟器
 yarn mobile:android
 ```
 
-Node 25 的安装命令：
+Node 25.8.1+ 使用相同的安装命令，不需要额外参数。React Native 0.87.1 及当前锁定的 Metro 依赖在 `engines.node` 中排除了整个 25.x，因此仓库根目录的 `.yarnrc` 已设置 `--install.ignore-engines true`。Yarn 1 会读取父目录配置，直接运行 `yarn` 或 `yarn install` 都会自动应用；只修改项目的 Node 声明不足以解除依赖包的限制。
 
-```sh
-# 仓库根目录；此参数也适用于后续重新安装依赖
-yarn install --frozen-lockfile --ignore-engines
-yarn mobile:start
-```
-
-项目允许 Node 25.8.1+，但当前锁定的 React Native / Metro 0.87.1 依赖仍在 `engines.node` 中排除了整个 25.x，因此只修改项目声明不足以让 Yarn 1 安装通过。`--ignore-engines` 仅用于这次安装，不修改全局配置；启动、检查和构建命令保持不变。这是项目的兼容路径，不代表上游对 Node 25 的支持承诺；CI 继续使用 Node 22。普通安装继续保留引擎检查。
+此设置仅作用于本仓库的安装命令，不修改全局 Yarn 配置；安装时会跳过所有依赖的引擎声明检查，因此仍需使用上方列出的 Node 版本。启动、检查和构建命令保持不变。这是项目的兼容路径，不代表上游对 Node 25 的支持承诺；CI 继续使用 Node 22。
 
 Android SDK 位置通过 ANDROID_HOME 或未入库的 android/local.properties 指定；构建要求见 android/build.gradle。iOS 首次安装依赖：
 

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 
-import { Button, CheckBox, Dialog, ProgressBar, TextBox } from '@a1knla/cakeui'
+import { ArrowDownToLine, Keyboard, MousePointer2, Power, RefreshCw } from 'lucide-react'
+
+import { Button, Dialog, ProgressBar, Switch, TextBox } from '@a1knla/cakeui'
+import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
@@ -25,12 +28,28 @@ interface UpdateInfo {
 }
 type UpdatePhase = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing'
 
+function displayShortcut(shortcut: string) {
+  const mac = /Mac/i.test(navigator.platform)
+  const names: Record<string, string> = {
+    Control: 'Ctrl',
+    Alt: mac ? 'Option' : 'Alt',
+    Super: mac ? 'Command' : 'Win',
+    Meta: mac ? 'Command' : 'Win',
+    Space: 'Space',
+  }
+  return shortcut
+    .split('+')
+    .map((key) => names[key] ?? key.replace(/^(?:Key|Digit)(\w)$/, '$1'))
+    .join(' + ')
+}
+
 export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfers: boolean; disabled?: boolean }) {
   const [showMore, setShowMore] = useState(false)
   const [closingMore, setClosingMore] = useState(false)
   const settingsElement = useRef<HTMLDivElement>(null)
   const closeMoreTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<Preferences | null>(null)
+  const [version, setVersion] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -55,6 +74,9 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
   useEffect(() => {
     if (!isTauriRuntime()) return
     void refresh()
+    void getVersion()
+      .then(setVersion)
+      .catch(() => {})
     const preferencesChanged = listen('desktop-preferences-changed', () => void refresh())
     const progressChanged = listen<{ downloaded: number; total?: number }>('app-update-progress', ({ payload }) => {
       setProgress({ downloaded: payload.downloaded, total: payload.total })
@@ -264,17 +286,176 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
         title="更多设置"
         closeLabel="关闭更多设置"
         footer={
-          <Button disabled={phase === 'installing'} onClick={() => setMoreOpen(false)}>
-            完成
-          </Button>
+          <div className="desktop-settings-footer">
+            <span className="desktop-settings-save-state" role="status">
+              {busy ? '正在保存…' : '更改即时生效'}
+            </span>
+            <Button
+              className="desktop-settings-done"
+              variant="primary"
+              disabled={phase === 'installing'}
+              onClick={() => setMoreOpen(false)}
+            >
+              完成
+            </Button>
+          </div>
         }
       >
         <div className="desktop-settings-content">
-          <div className="desktop-field">
+          <div className="desktop-settings-options">
+            <div className="desktop-setting-row">
+              <Power className="desktop-setting-icon" size={19} aria-hidden="true" />
+              <div className="desktop-setting-copy">
+                <label className="desktop-setting-title" htmlFor="desktop-autostart">
+                  开机自启
+                </label>
+                <p className="desktop-setting-description" id="desktop-autostart-hint">
+                  登录系统后在后台运行
+                </p>
+              </div>
+              <Switch
+                id="desktop-autostart"
+                aria-describedby="desktop-autostart-hint"
+                checked={preferences?.autostart ?? false}
+                disabled={!preferences || busy}
+                onChange={(e) => void setPreference('set_autostart', e.currentTarget.checked)}
+              />
+            </div>
+            <div className="desktop-setting-row">
+              <ArrowDownToLine className="desktop-setting-icon" size={19} aria-hidden="true" />
+              <div className="desktop-setting-copy">
+                <label className="desktop-setting-title" htmlFor="desktop-auto-receive">
+                  自动接收文件
+                </label>
+                <p className="desktop-setting-description" id="desktop-auto-receive-hint">
+                  接收同频段设备的文件，无需逐次确认
+                </p>
+              </div>
+              <Switch
+                id="desktop-auto-receive"
+                aria-describedby="desktop-auto-receive-hint"
+                checked={preferences?.autoReceiveFiles ?? false}
+                disabled={!preferences || busy}
+                onChange={(e) => void setPreference('set_auto_receive_files', e.currentTarget.checked)}
+              />
+            </div>
+            <div className="desktop-setting-row">
+              <MousePointer2 className="desktop-setting-icon" size={19} aria-hidden="true" />
+              <div className="desktop-setting-copy">
+                <label className="desktop-setting-title" htmlFor="desktop-file-menu">
+                  注册文件右键菜单
+                </label>
+                <p className="desktop-setting-description" id="desktop-file-menu-hint">
+                  快速发送文件，或复制文件的绝对路径
+                </p>
+              </div>
+              <Switch
+                id="desktop-file-menu"
+                aria-describedby="desktop-file-menu-hint"
+                checked={preferences?.fileContextMenuEnabled ?? true}
+                disabled={!preferences || busy}
+                onChange={(e) => void setPreference('set_file_context_menu', e.currentTarget.checked)}
+              />
+              {preferences?.fileContextMenuEnabled && (
+                <div className="desktop-setting-followup">
+                  <Button
+                    className="desktop-reregister"
+                    variant="ghost"
+                    size="small"
+                    disabled={busy}
+                    onClick={() => void setPreference('set_file_context_menu', true)}
+                  >
+                    <RefreshCw size={13} aria-hidden="true" />
+                    重新注册
+                  </Button>
+                  <span className="desktop-setting-description">菜单未出现时可重新注册</span>
+                </div>
+              )}
+              {preferences?.fileContextMenuError && (
+                <span className="desktop-error desktop-setting-detail" role="alert">
+                  {preferences.fileContextMenuError}
+                </span>
+              )}
+            </div>
+          </div>
+          <section className="desktop-shortcut-section" aria-labelledby="desktop-shortcut-title">
+            <div className="desktop-setting-row">
+              <Keyboard className="desktop-setting-icon" size={19} aria-hidden="true" />
+              <div className="desktop-setting-copy">
+                <h3 className="desktop-setting-title" id="desktop-shortcut-title">
+                  键位绑定
+                </h3>
+                <p className="desktop-setting-description">在其他应用中也能发送到当前频段</p>
+              </div>
+            </div>
+            <div className="desktop-shortcut-field" data-recording={recording || undefined}>
+              <label className="desktop-label" htmlFor="clipboard-shortcut">
+                发送当前剪贴板
+              </label>
+              <div className="desktop-shortcut-row">
+                <TextBox
+                  id="clipboard-shortcut"
+                  className="desktop-shortcut-input"
+                  ref={input}
+                  readOnly
+                  aria-describedby="desktop-shortcut-hint"
+                  value={recording ? '请按快捷键…' : displayShortcut(preferences?.clipboardShortcut ?? '')}
+                  placeholder="未设置快捷键"
+                  onKeyDown={recordKey}
+                  onBlur={() => {
+                    if (recording) void stopRecording()
+                  }}
+                />
+                <Button
+                  variant={recording ? 'primary' : 'default'}
+                  disabled={!preferences || busy}
+                  onPointerDown={(event) => {
+                    // Cancel must run before input blur changes this button
+                    // back to Record. WebKit doesn't focus buttons on click.
+                    if (recording && event.button === 0) event.preventDefault()
+                  }}
+                  onClick={() => void (recording ? stopRecording() : startRecording())}
+                >
+                  {recording ? '取消' : '录制'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={!preferences?.clipboardShortcut || busy}
+                  onClick={() => void saveShortcut('')}
+                >
+                  清除
+                </Button>
+              </div>
+              <p className="desktop-setting-description desktop-shortcut-hint" id="desktop-shortcut-hint" role="status">
+                {recording
+                  ? '按下组合键，Esc 取消录制'
+                  : /Mac/i.test(navigator.platform)
+                    ? '使用 Ctrl、Option 或 Command 组合键'
+                    : '使用 Ctrl、Alt 或 Win 组合键'}
+              </p>
+              {preferences?.shortcutError && (
+                <span className="desktop-error" role="alert">
+                  {preferences.shortcutError}
+                </span>
+              )}
+            </div>
+          </section>
+          <section className="desktop-update-section" aria-labelledby="desktop-update-title">
             <div className="desktop-update-row">
-              <span className="desktop-setting-title">软件更新</span>
+              <div className="desktop-update-heading">
+                <RefreshCw className="desktop-setting-icon" size={19} aria-hidden="true" />
+                <div className="desktop-setting-copy">
+                  <h3 className="desktop-setting-title" id="desktop-update-title">
+                    软件更新
+                  </h3>
+                  <span className="desktop-setting-description">
+                    {version ? `当前版本 ${version}` : '检查可用的新版本'}
+                  </span>
+                </div>
+              </div>
               <Button
                 disabled={!preferences?.updaterConfigured || phase === 'checking' || phase === 'installing'}
+                loading={phase === 'checking'}
                 onClick={(event) => {
                   event.currentTarget.focus()
                   if (update) setShowUpdate(true)
@@ -284,85 +465,12 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
                 {phase === 'checking' ? '检查中…' : update ? `新版本 ${update.version}` : '检查更新'}
               </Button>
             </div>
-            <p className="desktop-update-message" role="status">
-              {message || (preferences && !preferences.updaterConfigured ? '此版本暂未提供在线更新' : '')}
-            </p>
-          </div>
-          <CheckBox
-            className="desktop-autostart"
-            checked={preferences?.autostart ?? false}
-            disabled={!preferences || busy}
-            onChange={(e) => void setPreference('set_autostart', e.currentTarget.checked)}
-          >
-            开机自启
-          </CheckBox>
-          <CheckBox
-            className="desktop-autostart"
-            checked={preferences?.autoReceiveFiles ?? false}
-            disabled={!preferences || busy}
-            onChange={(e) => void setPreference('set_auto_receive_files', e.currentTarget.checked)}
-          >
-            自动接收文件
-          </CheckBox>
-          <div className="desktop-field">
-            <div className="desktop-update-row">
-              <CheckBox
-                className="desktop-autostart"
-                checked={preferences?.fileContextMenuEnabled ?? true}
-                disabled={!preferences || busy}
-                onChange={(e) => void setPreference('set_file_context_menu', e.currentTarget.checked)}
-              >
-                注册文件右键菜单
-              </CheckBox>
-              {preferences?.fileContextMenuEnabled && (
-                <Button disabled={busy} onClick={() => void setPreference('set_file_context_menu', true)}>
-                  重新注册
-                </Button>
-              )}
-            </div>
-            {preferences?.fileContextMenuError && (
-              <span className="desktop-error" role="alert">
-                {preferences.fileContextMenuError}
-              </span>
+            {(message || (preferences && !preferences.updaterConfigured)) && (
+              <p className="desktop-update-message" role="status">
+                {message || '此版本暂未提供在线更新'}
+              </p>
             )}
-          </div>
-          <div className="desktop-field">
-            <span className="desktop-setting-title">键位绑定</span>
-            <label className="desktop-label" htmlFor="clipboard-shortcut">
-              发送当前剪贴板
-            </label>
-            <div className="desktop-shortcut-row">
-              <TextBox
-                id="clipboard-shortcut"
-                ref={input}
-                readOnly
-                value={recording ? '请按快捷键…' : (preferences?.clipboardShortcut ?? '')}
-                placeholder="未设置快捷键"
-                onKeyDown={recordKey}
-                onBlur={() => {
-                  if (recording) void stopRecording()
-                }}
-              />
-              <Button
-                disabled={!preferences || busy}
-                onClick={() => void (recording ? stopRecording() : startRecording())}
-              >
-                {recording ? '取消' : '录制'}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={!preferences?.clipboardShortcut || busy}
-                onClick={() => void saveShortcut('')}
-              >
-                清除
-              </Button>
-            </div>
-            {preferences?.shortcutError && (
-              <span className="desktop-error" role="alert">
-                {preferences.shortcutError}
-              </span>
-            )}
-          </div>
+          </section>
           {error && (
             <div className="desktop-error" role="alert">
               {error}

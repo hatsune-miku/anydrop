@@ -69,6 +69,10 @@ dns-sd -R 'Rust interoperability probe' _anydrop._udp local. PORT 'g=4294967200'
 
 这是当前锁定依赖的项目兼容验证，不代表上游承诺支持 Node 25。本次没有重跑完整 Xcode / Gradle 原生编译；上一节的安装包仍为首次交付时生成的产物。后续更新 RN / Metro 版本时需要重新核对引擎声明和工具链兼容性。
 
+2026-09-23：将安装兼容参数写入仓库根目录 `.yarnrc`（`--install.ignore-engines true`），现在普通 `yarn` / `yarn install` 自动生效，无需每次手动传参。此配置仅覆盖本仓库的安装命令；其作用范围包含所有依赖的引擎声明检查，依赖版本与锁文件未改变。配置方式见 [Yarn 的命令参数配置文档](https://classic.yarnpkg.com/lang/en/docs/yarnrc/#toc-cli-arguments)。
+
+使用 Node 25.8.1 / Yarn 1.22.22 复现原始错误后，应用配置并完成冻结锁文件安装、桌面 TypeScript / Vite 构建、移动端类型检查与 Jest 测试，以及 Android / iOS 生产 JS bundle 构建；均通过。本次未重跑 Xcode / Gradle 原生编译。
+
 ## 下一开发阶段
 
 1. 完成 P0 的 HTTP 文件拉取与 iOS 后台下载验证，锁定局域网 ATS / 网络配置。
