@@ -97,6 +97,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD }}
         run: yarn workspace @anydrop/desktop-tauri tauri build --config src-tauri/.generated/updater.json --bundles nsis
 
+      - name: Verify Windows launcher without PowerShell on PATH
+        run: cargo test --release -p anydrop-desktop-tauri --lib context_menu::windows::tests
+
       - uses: actions/upload-artifact@v4
         with:
           name: anydrop-dll

@@ -31,6 +31,13 @@
 !macroend
 
 ; Per-user shell registrations must be removed before deleting the extension.
+!include "LogicLib.nsh"
 !macro NSIS_HOOK_PREUNINSTALL
-  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\shell\register.ps1" -InstallRoot "$INSTDIR" -Mode Unregister'
+  ; NSIS is a 32-bit process. Use native PowerShell on 64-bit Windows so COM
+  ; registry cleanup uses the same view as the app, without relying on PATH.
+  ${If} ${FileExists} "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+    nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\shell\register.ps1" -InstallRoot "$INSTDIR" -Mode Unregister'
+  ${Else}
+    nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\shell\register.ps1" -InstallRoot "$INSTDIR" -Mode Unregister'
+  ${EndIf}
 !macroend

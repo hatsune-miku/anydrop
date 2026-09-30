@@ -4,12 +4,16 @@ $root = Split-Path $PSScriptRoot -Parent
 $install = Join-Path $root 'apps\desktop-tauri\src-tauri\.generated'
 $script = Join-Path $install 'shell\register.ps1'
 $exe = Join-Path $root 'target\windows-shell\Release\AnyDropShellTest.exe'
+$powershell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
 if (Get-ChildItem (Join-Path $install 'shell') -Filter '*.msix') { throw 'Modern-menu package must not be bundled' }
+$originalPath = $env:PATH
 try {
+    # Reproduce a GUI process inheriting PATH without PowerShell (or any tools).
+    $env:PATH = ''
     # Both startup and the repair button must succeed without package identity.
     # Repeat startup registration to cover upgrading/relaunching an installed app.
     foreach ($registration in @('Normal', 'Repair', 'Normal')) {
-        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -InstallRoot $install -Executable $exe -Registration $registration
+        & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -InstallRoot $install -Executable $exe -Registration $registration
         if ($LASTEXITCODE) { throw "$registration registration failed" }
     }
     foreach ($type in @('*','Directory')) {
@@ -25,12 +29,16 @@ try {
         }
     }
 } finally {
-    & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -InstallRoot $install -Mode Unregister
-    if ($LASTEXITCODE) { throw 'Unregister failed' }
+    try {
+        & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -InstallRoot $install -Mode Unregister
+        if ($LASTEXITCODE) { throw 'Unregister failed' }
+    } finally {
+        $env:PATH = $originalPath
+    }
 }
 foreach ($type in @('*','Directory')) {
     foreach ($name in @('AnyDrop.Send','AnyDrop.CopyPaths')) {
         if ([Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Software\Classes\$type\shell\$name")) { throw 'Registration was not removed' }
     }
 }
-Write-Output 'Windows classic menu registration, COM paths, Unicode labels and unregister passed'
+Write-Output 'Windows classic menu registration, repair, COM paths, Unicode labels and unregister passed with empty PATH'

@@ -199,26 +199,73 @@ mod macos {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    pub fn register(app: &AppHandle, enabled: bool, repair: bool) -> Result<(), String> {
-        #[cfg(debug_assertions)]
-        if std::env::var_os("ANYDROP_TEST_CONFIG_DIR").is_some() {
-            return Ok(());
+    use std::ffi::OsString;
+    use std::os::windows::{ffi::OsStringExt, process::CommandExt};
+    use std::process::Command;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+
+    fn powershell_command() -> Result<Command, String> {
+        // PowerShell lives below System32, which is not searched recursively.
+        // A GUI app may inherit a PATH without WindowsPowerShell\v1.0. Ask the
+        // OS for its real system directory instead of trusting PATH/SystemRoot
+        // or accidentally executing a powershell.exe from the working directory.
+        let mut buffer = vec![0u16; 260];
+        let system = loop {
+            // SAFETY: buffer is writable for the supplied number of UTF-16 units.
+            let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+            if length == 0 {
+                return Err(format!(
+                    "无法定位 Windows 系统目录：{}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            if (length as usize) < buffer.len() {
+                break PathBuf::from(OsString::from_wide(&buffer[..length as usize]));
+            }
+            // For an insufficient buffer Windows returns the required size,
+            // including the terminating null character.
+            buffer.resize(length as usize + 1, 0);
+        };
+        let program = system.join(r"WindowsPowerShell\v1.0\powershell.exe");
+        if !program.is_file() {
+            return Err(format!(
+                "未找到系统 Windows PowerShell（{}），请检查或修复该系统组件",
+                program.display()
+            ));
         }
-        use std::os::windows::process::CommandExt;
-        let script = app
-            .path()
-            .resource_dir()
-            .map_err(|e| e.to_string())?
-            .join("shell/register.ps1");
-        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let output = std::process::Command::new("powershell.exe")
+        let mut command = Command::new(program);
+        command
             .args([
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-File",
             ])
+            .creation_flags(0x08000000);
+        Ok(command)
+    }
+
+    pub fn register(app: &AppHandle, enabled: bool, repair: bool) -> Result<(), String> {
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ANYDROP_TEST_CONFIG_DIR").is_some() {
+            return Ok(());
+        }
+        let script = app
+            .path()
+            .resource_dir()
+            .map_err(|e| e.to_string())?
+            .join("shell/register.ps1");
+        if !script.is_file() {
+            return Err(format!(
+                "右键菜单注册失败：缺少注册脚本（{}），请重新安装 AnyDrop",
+                script.display()
+            ));
+        }
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let mut command = powershell_command().map_err(|e| format!("右键菜单注册失败：{e}"))?;
+        let program = PathBuf::from(command.get_program());
+        let output = command
+            .arg("-File")
             .arg(&script)
             .arg("-InstallRoot")
             .arg(exe.parent().ok_or("无法定位安装目录")?)
@@ -228,9 +275,8 @@ mod windows {
             .arg(if repair { "Repair" } else { "Normal" })
             .arg("-Mode")
             .arg(if enabled { "Register" } else { "Unregister" })
-            .creation_flags(0x08000000)
             .output()
-            .map_err(|e| format!("右键菜单注册失败：{e}"))?;
+            .map_err(|e| format!("右键菜单注册失败：无法启动 {}：{e}", program.display()))?;
         if !output.status.success() {
             return Err(format!(
                 "右键菜单注册失败：{}",
@@ -238,5 +284,80 @@ mod windows {
             ));
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn powershell_runs_without_path() {
+            // Rust also searches the parent's PATH on Windows. Run this case in
+            // a separate test process so neither PATH contains PowerShell, without
+            // racing other tests by changing the current process's environment.
+            if std::env::var("ANYDROP_POWERSHELL_TEST_CHILD")
+                .ok()
+                .as_deref()
+                != Some("1")
+            {
+                let directory = tempfile::tempdir().unwrap();
+                let output = Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "context_menu::windows::tests::powershell_runs_without_path",
+                        "--nocapture",
+                    ])
+                    .env("ANYDROP_POWERSHELL_TEST_CHILD", "1")
+                    .env("PATH", "")
+                    .current_dir(directory.path())
+                    .creation_flags(0x08000000)
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "{:?}", output);
+                return;
+            }
+            assert_eq!(
+                std::env::var_os("PATH").unwrap_or_default(),
+                OsString::new()
+            );
+            let directory = tempfile::tempdir().unwrap();
+            // Reproduce the old launcher failure in the same environment.
+            let error = Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+                .env("PATH", "")
+                .current_dir(directory.path())
+                .creation_flags(0x08000000)
+                .output()
+                .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+            let output = powershell_command()
+                .unwrap()
+                .env("PATH", "")
+                .current_dir(directory.path())
+                .args(["-Command", "[Console]::Write('anydrop-shell-ok')"])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{:?}", output);
+            assert_eq!(output.stdout, b"anydrop-shell-ok");
+        }
+
+        #[test]
+        fn powershell_ignores_working_directory_and_path_shadows() {
+            let directory = tempfile::Builder::new()
+                .prefix("AnyDrop 空格 ")
+                .tempdir()
+                .unwrap();
+            std::fs::write(directory.path().join("powershell.exe"), b"not a program").unwrap();
+            let mut command = powershell_command().unwrap();
+            assert!(std::path::Path::new(command.get_program()).is_absolute());
+            let output = command
+                .env("PATH", directory.path())
+                .current_dir(directory.path())
+                .args(["-Command", "[Console]::Write('system-powershell')"])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{:?}", output);
+            assert_eq!(output.stdout, b"system-powershell");
+        }
     }
 }

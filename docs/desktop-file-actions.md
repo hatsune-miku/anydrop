@@ -18,6 +18,8 @@ macOS 在当前用户 `~/Library/Services` 安装 `AnyDrop-Send.workflow`、`Any
 
 Windows 传统菜单在当前用户注册两个 `IExplorerCommand`，扩展按版本保留独立文件，避免升级覆盖被 Explorer 占用的 DLL；原生扩展位于安装目录 `shell/AnyDropShell-版本号.dll`。Windows 11 中通过「显示更多选项」使用传统菜单，不修改系统的菜单策略。卸载钩子负责注销当前用户的传统菜单。
 
+注册入口通过 `GetSystemDirectoryW` 定位系统的 `WindowsPowerShell/v1.0/powershell.exe`，不依赖启动进程继承的 `PATH`，不要求另装 PowerShell 7；卸载也使用系统 PowerShell 的绝对路径，并在 32 位 NSIS 进程中优先通过 Sysnative 启动原生版本。系统 PowerShell 或注册脚本确实缺失时，错误会明确显示缺失项与路径。原来的 `program not found` 表示注册脚本尚未启动，并非右键菜单签名错误。
+
 Windows 11 新式右键菜单暂时停用：不构建、签名或分发 MSIX 身份包，启动、重新注册与注销均不调用 Appx 注册链路，也不会再显示缺少签名身份包的错误。`shell/windows/AppxManifest.xml` 仅保留为未启用的历史源文件。发布不需要 `ANYDROP_WINDOWS_CERTIFICATE` 或其密码；Tauri Updater 的现有签名流程保持独立运行。
 
 本地 Windows 构建请先运行 `pwsh ./scripts/build-windows-shell.ps1`；RC workflow 已包含此步骤。`Desktop verification` workflow 可单独验证 Windows 编译、COM 类和协议测试，不创建 Release。
@@ -31,4 +33,5 @@ Windows 11 新式右键菜单暂时停用：不构建、签名或分发 MSIX 身
 - macOS 单测实际运行生成的 Automator 服务，检查空格、引号、中文和 shell 特殊字符在文件参数中被完整保留。
 - `cargo run -p anydrop-desktop-tauri --example receive_activation_probe` 在真实 macOS 桌面检查非激活标记、保留 Tao / KVO 类、连续 30 次显示和隐藏不激活应用或显示主窗口，以及应用已在前台时保留主窗口焦点。不启动局域网服务、不改系统设置；该探针不模拟物理鼠标点击。
 - Windows RC 发布前运行原生 COM 测试与 `tests/windows-shell-registration.ps1`，验证无 MSIX 时启动注册、重新注册、重复注册、中文菜单与注销均成功。
+- Windows Rust 回归测试在清空父、子进程 `PATH` 的独立进程中复现旧启动方式的 `program not found`，验证新入口成功；另覆盖工作目录 / `PATH` 中存在同名假程序。注册脚本测试也清空 `PATH`，验证普通注册、修复与注销完整通过。
 - 原生集成探针 `cargo run -p anydrop --example desktop_file_probe -- PORT FILE [pending]` 仅连接 loopback。在 debug 构建中可用 `ANYDROP_TEST_CONFIG_DIR` 指定独立设置目录；该模式不修改系统右键菜单。原生透明窗口仍需在各目标系统实测，浏览器截图不能替代原生合成器验证。
