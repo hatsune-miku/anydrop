@@ -93,10 +93,14 @@ fn broadcast_to_devices(
         let magic = kind.value();
         std::thread::spawn(move || {
             let mut last_error = String::from("no IPv4 address");
-            let ips: Vec<_> = candidates
+            let mut ips: Vec<_> = candidates
                 .iter()
                 .filter_map(|p| p.host().parse().ok())
                 .collect();
+            // HashSet iteration is random; keep equal-rank choices stable and
+            // avoid retrying one IP twice when discovery advertised two ports.
+            ips.sort_unstable();
+            ips.dedup();
             // Fresh ranking on every copy handles Wi-Fi/Ethernet changes. Send
             // once per device; try its other addresses only on failure.
             for ip in crate::util::network::rank_peer_ips(&ips) {

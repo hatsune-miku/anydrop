@@ -82,9 +82,13 @@ pub fn run(
         );
     }
 
-    let rx = daemon
-        .browse(SERVICE_TYPE)
-        .map_err(|e| format!("mdns browse: {}", e))?;
+    let rx = match daemon.browse(SERVICE_TYPE) {
+        Ok(rx) => rx,
+        Err(error) => {
+            let _ = daemon.shutdown();
+            return Err(format!("mdns browse: {error}"));
+        }
+    };
 
     // Drain events until we're told to stop. We use try_recv + a short sleep
     // so the loop stays responsive to shutdown without blocking on a channel
@@ -105,6 +109,10 @@ pub fn run(
                 }
                 _ => {}
             }
+        }
+        if rx.is_disconnected() {
+            let _ = daemon.shutdown();
+            return Err("mdns event channel disconnected".into());
         }
         if !drained {
             thread::sleep(Duration::from_millis(200));
@@ -146,7 +154,10 @@ fn handle_resolved(
     // Filter ourselves: if the announcement resolves to any of our own
     // interface IPs, it's our own broadcast bouncing back.
     let mine = local_ipv4_set();
-    if addrs.iter().any(|a| matches!(a, IpAddr::V4(v) if mine.contains(v))) {
+    if addrs
+        .iter()
+        .any(|a| matches!(a, IpAddr::V4(v) if mine.contains(v)))
+    {
         return;
     }
 

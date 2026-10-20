@@ -1161,6 +1161,9 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     threads.push(thread::spawn(move || {
         while !receipt_stop.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(500));
+            if receipt_stop.load(Ordering::SeqCst) {
+                break;
+            }
             receipts::recover_if_needed(&receipt_app);
         }
     }));

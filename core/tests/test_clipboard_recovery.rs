@@ -68,7 +68,10 @@ fn text_and_images_keep_working_across_repeated_receiver_restarts() {
         });
         let mut ready = None;
         for _ in 0..100 {
-            if let Ok(stream) = TcpStream::connect(("127.0.0.1", port)) {
+            if let Ok(stream) = TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+                Duration::from_millis(100),
+            ) {
                 ready = Some(stream);
                 break;
             }
