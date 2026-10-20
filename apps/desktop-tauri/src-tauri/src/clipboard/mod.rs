@@ -1,4 +1,6 @@
 mod io;
+#[cfg(test)]
+mod legacy_tests;
 
 use super::{emit_snapshot, outgoing, AppHandle, Backend};
 use anydrop::service::{

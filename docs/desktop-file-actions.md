@@ -4,6 +4,8 @@
 
 Windows / macOS 按系统剪贴板变更编号识别每次复制，复制相同文本或图片也会重新发送。只屏蔽 AnyDrop 写入远端内容时对应的那次系统变更；发送操作本身不设置屏蔽标记。双击复制模式要求 600 ms 内复制相同内容，远端写入不算一次点击。每台设备只发送一次，多个网卡地址按当前子网排序，失败后再尝试其他地址。
 
+防回弹不要求对端升级，不依赖消息 ID、来源字段或跳数；文本 / 图片继续使用旧协议。旧版多地址重复投递、延迟回传的每次本机写入都记录变更编号，不会被当作用户复制再广播。旧版本自身仍可能忽略相同内容的重新复制，需升级该发送端才能获得新的重复复制行为。
+
 自动与手动发送使用同一读取路径：支持 PNG、JPEG、TIFF、BMP、GIF、WebP；Windows 额外处理传统 CF_DIB、调色板、位掩码和 DIBV5，macOS 直接读取图片类型。支持剪贴板中的单个本地图片文件，以及 HTML 中单个内嵌 data 图片或本地 file 图片；不下载 HTTP 图片或网络共享路径。只有 HTML 的文本也可识别。动画图片同步第一帧，统一编码为 PNG。源文件上限 64 MiB，解码尺寸与内存也有上限；转换后的 PNG 超过 4 MiB 时仍需确认文件发送。
 
 监听每 100 ms 检查变更编号，不常驻读取图片，不依赖 Windows 隐藏消息窗口的通知订阅；每次读取重新取得剪贴板句柄。忙碌或延迟提供的数据会在同一变更下重试，接收写入也会重试。macOS 后台访问使用 autorelease pool。TCP / UDP / mDNS 工作线程异常退出后自动重启。读取失败日志仅记录错误和格式名称，不记录剪贴板内容。
@@ -36,7 +38,7 @@ Windows 11 新式右键菜单暂时停用：不构建、签名或分发 MSIX 身
 
 - `cargo test -p anydrop --lib --test test_clipboard_limits --test test_clipboard_recovery`：包含 12 次 TCP 接收服务重启、半截连接、重复文本、图片与双网卡去重。
 - `cargo test -p anydrop-desktop-tauri --lib`
-- RC 的 Windows / macOS runner 额外运行 `-- --include-ignored --test-threads=1`，在隔离桌面实际读写系统剪贴板，覆盖 30 轮重复复制与远端写入、原生图片格式、HTML 和本地图片文件。该测试会改写系统剪贴板，不应在日常桌面直接运行。
+- RC 的 Windows / macOS runner 额外运行 `-- --include-ignored --test-threads=1`，在隔离桌面实际读写系统剪贴板，覆盖 30 轮重复复制与远端写入、原生图片格式、HTML 和本地图片文件。旧协议测试通过真实 TCP 发送固定的旧格式文本 / 图片帧，覆盖多次重复投递、合并通知、超过原有屏蔽窗口的延迟回传，以及接收后再次手动复制；这是旧协议与本机防回弹测试，不是旧版 GUI 双机实测。该测试会改写系统剪贴板，不应在日常桌面直接运行。
 - `scripts/popup-check.mjs` 覆盖延迟加载、相同内容的新提示、同 ID 去重、隐藏后恢复、确认与自动消失。上述加速测试不等同于 11–17 天真实休眠运行，也未代替微信 / 飞书各版本的实机测试；不支持的私有格式可依据格式名称日志继续定位。
 - 启动前端后运行 `node scripts/popup-check.mjs` 与 `node scripts/desktop-check.mjs`，可加 `VISUAL_ENGINE=webkit`。
 - Swift 协议检查与 Android `:app:testDevUnitTest` 覆盖 4 MiB 往返、超限及损坏帧。
