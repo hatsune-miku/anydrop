@@ -20,7 +20,6 @@ pub type OnPacketReceivedFunctionType<T, R> =
     Arc<Box<dyn (Fn(&T, Option<&Peer>) -> R) + Send + Sync>>;
 
 const TCP_ACCEPT_WAIT_MILLIS: u64 = 10;
-const TCP_ACCEPT_TIMEOUT_COUNT: u64 = 100;
 
 pub struct DataService {}
 
@@ -153,11 +152,14 @@ impl DataService {
         should_interrupt: ShouldInterruptFunctionType,
     ) -> Result<(), io::Error> {
         let server_socket = TcpServer::create_and_listen(&context.host(), context.port())?;
-        let mut timeout_counter = 0;
 
         info!("Data service online and ready for connections.");
 
         for stream in server_socket.incoming() {
+            if should_interrupt() {
+                info!("Data service is interrupted by caller.");
+                break;
+            }
             match stream {
                 Ok(s) => {
                     let thread_context = context.clone();
@@ -166,23 +168,19 @@ impl DataService {
                     });
                 }
                 Err(ref e) if e.kind() == WouldBlock || e.kind() == TimedOut => {
-                    // Check if interrupted.
                     sleep(Duration::from_millis(TCP_ACCEPT_WAIT_MILLIS));
-
-                    // Check if timeout.
-                    if timeout_counter > TCP_ACCEPT_TIMEOUT_COUNT {
-                        timeout_counter = 0;
-                        if should_interrupt() {
-                            info!("Data service is interrupted by caller.");
-                            break;
-                        }
-                    }
-
-                    timeout_counter += 1;
                     continue;
                 }
-                Err(_) => {
-                    break;
+                Err(e)
+                    if e.kind() == io::ErrorKind::Interrupted
+                        || e.kind() == io::ErrorKind::ConnectionAborted =>
+                {
+                    continue
+                }
+                Err(e) => {
+                    // Let the host recreate a broken listener after a network
+                    // or session transition; don't silently stop receiving.
+                    return Err(e);
                 }
             }
         }

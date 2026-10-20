@@ -1,16 +1,16 @@
+mod clipboard;
 mod context_menu;
 #[cfg(desktop)]
 mod desktop;
 mod outgoing;
+mod receipts;
 #[cfg(target_os = "macos")]
 mod receive_window_macos;
 mod text_format;
 #[cfg(desktop)]
 mod updates;
 
-use anydrop::lib_util::{
-    shared_anydrop_broadcast_text, shared_anydrop_init, CONNECTION_TIMEOUT_MILLIS,
-};
+use anydrop::lib_util::{shared_anydrop_init, CONNECTION_TIMEOUT_MILLIS};
 use anydrop::network::peer::Peer;
 use anydrop::packet::data::magic_numbers::MagicNumbers;
 use anydrop::packet::data::text_packet::TextPacket;
@@ -24,7 +24,7 @@ use anydrop::transfer::{
     ServerHandle as TransferServerHandle, TransferOffer, TransferStatus,
 };
 use anydrop::util::os::OSUtil;
-use clipboard_master::{CallbackResult, ClipboardHandler, Master};
+use clipboard::ClipboardState;
 use serde::{Deserialize, Serialize as SerdeSerialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::fs;
@@ -349,51 +349,6 @@ struct Snapshot {
     logs: Vec<String>,
 }
 
-struct ClipboardState {
-    last_text: String,
-    oversized_text_digest: Option<(usize, u64)>,
-    last_received_text: String,
-    suppressed_text: Option<String>,
-    /// 8-byte FNV-1a digest of the most recently set raw RGBA image we
-    /// pushed to the local clipboard. Used to detect the OS clipboard
-    /// change event that comes back from our own set_image — without this
-    /// we'd ping-pong the same image around the network.
-    suppressed_image_digest: Option<u64>,
-    /// Digest of the last broadcast image; used to skip "same image
-    /// re-copied" events (mirror of `last_text` for images).
-    last_image_digest: Option<u64>,
-    /// When `last_received_text` was last accepted. Used to drop rapid network
-    /// duplicates: a sender broadcasts the same text to every address of each
-    /// peer, so a device known under two addresses receives it twice.
-    last_received_at: Option<std::time::Instant>,
-}
-
-impl Default for ClipboardState {
-    fn default() -> Self {
-        Self {
-            last_text: String::new(),
-            oversized_text_digest: None,
-            last_received_text: String::new(),
-            suppressed_text: None,
-            suppressed_image_digest: None,
-            last_image_digest: None,
-            last_received_at: None,
-        }
-    }
-}
-
-/// Cheap, non-cryptographic 64-bit FNV-1a digest. We only need
-/// "same/different" semantics for clipboard loopback suppression — not
-/// security — so we trade hash quality for zero deps.
-fn sha256_short(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in bytes {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
-}
-
 struct ServiceRuntime {
     service: Arc<AnyDropService>,
     config: AnyDropServiceConfig,
@@ -420,6 +375,7 @@ struct Backend {
     peers: Arc<Mutex<Vec<PeerGroup>>>,
     transfers: Arc<Mutex<HashMap<String, Transfer>>>,
     clipboard: Arc<Mutex<ClipboardState>>,
+    receipts: Mutex<receipts::Receipts>,
     status_text: Mutex<String>,
     log_entries: Arc<Mutex<VecDeque<String>>>,
     /// Local-only peer nicknames keyed by device id (the peer group key).
@@ -834,212 +790,31 @@ fn top_level_name(rel: &str) -> String {
         .to_string()
 }
 
-/// Window inside which two consecutive clipboard updates count as a "double
-/// copy" gesture (≈ user hammering Ctrl+C twice).  Long enough to forgive
-/// shaky fingers, short enough not to chain unrelated copies together.
-const DOUBLE_COPY_WINDOW_MS: u128 = 600;
-
-/// Adapter that turns clipboard-master's per-event callback into our existing
-/// send-text plumbing. Holds enough state to:
-///   * detect double-copy gestures (last_event_at)
-///   * suppress the echo when we just pasted text received from a peer
-///   * read the actual clipboard contents on demand (clipboard handle)
-struct ClipboardListener {
-    app: AppHandle,
-    state: Arc<Mutex<ClipboardState>>,
-    service: Arc<anydrop::service::discovery_service::DiscoveryService>,
-    config: AnyDropServiceConfig,
-    last_event_at: Option<std::time::Instant>,
-    clipboard: Option<arboard::Clipboard>,
-}
-
-impl ClipboardHandler for ClipboardListener {
-    fn on_clipboard_change(&mut self) -> CallbackResult {
-        let now = std::time::Instant::now();
-        let elapsed_ms = self
-            .last_event_at
-            .map(|t| now.duration_since(t).as_millis())
-            .unwrap_or(u128::MAX);
-        let is_double_tap = elapsed_ms <= DOUBLE_COPY_WINDOW_MS;
-        self.last_event_at = Some(now);
-
-        let clipboard = match self.clipboard.as_mut() {
-            Some(c) => c,
-            None => return CallbackResult::Next,
-        };
-
-        // Probe text first (more common), fall through to image when text is
-        // empty or unavailable. arboard returns Err on the wrong payload
-        // type; both branches are normal paths, not real errors.
-        let text = clipboard.get_text().ok().filter(|t| !t.is_empty());
-
-        if text.is_none() {
-            // No text → try image. If both fail, just bail; user copied
-            // something we can't sync (e.g., file URI list).
-            return self.try_broadcast_image(is_double_tap);
+/// A listener may fail during adapter/session changes. Keep retrying with a
+/// bounded delay instead of leaving the UI "running" with a dead worker.
+fn supervise_service(
+    app: &AppHandle,
+    name: &str,
+    stop: &AtomicBool,
+    mut run: impl FnMut() -> Result<(), String>,
+) {
+    while !stop.load(Ordering::SeqCst) {
+        let result = run();
+        if stop.load(Ordering::SeqCst) {
+            break;
         }
-        let text = text.unwrap();
-
-        let backend = match self.app.try_state::<Backend>() {
-            Some(b) => b,
-            None => return CallbackResult::Next,
-        };
-        let settings = backend.settings.lock().unwrap().clone();
-
-        // Suppression catches our own loopback: when a peer's text arrives,
-        // we write it to the local clipboard which fires this very event.
-        let oversized = text.len() > anydrop::MAX_CLIPBOARD_BYTES;
-        let oversized_digest = oversized.then(|| (text.len(), sha256_short(text.as_bytes())));
-        let mut state = self.state.lock().unwrap();
-        if state.suppressed_text.as_deref() == Some(text.as_str()) {
-            state.suppressed_text = None;
-            state.last_text = if oversized { String::new() } else { text };
-            state.oversized_text_digest = oversized_digest;
-            return CallbackResult::Next;
+        if let Some(backend) = app.try_state::<Backend>() {
+            backend.log(format!(
+                "{name} stopped ({}); restarting",
+                result.err().unwrap_or_else(|| "unexpected exit".into())
+            ));
         }
-
-        if !settings.send_clipboard_enabled {
-            state.last_text = if oversized { String::new() } else { text };
-            state.oversized_text_digest = oversized_digest;
-            return CallbackResult::Next;
-        }
-
-        let should_send = if settings.send_only_on_double_copy {
-            // The OS clipboard sequence ticks even when the user re-copies
-            // the same content, so this works for "select+Ctrl+C+Ctrl+C" too.
-            is_double_tap
-        } else {
-            // Default mode: send on every distinct content change. (Two
-            // consecutive copies of the same text won't broadcast twice.)
-            if oversized {
-                state.oversized_text_digest != oversized_digest
-            } else {
-                state.last_text != text
+        for _ in 0..10 {
+            if stop.load(Ordering::SeqCst) {
+                break;
             }
-        };
-
-        state.last_text = if oversized {
-            String::new()
-        } else {
-            text.clone()
-        };
-        state.oversized_text_digest = oversized_digest;
-        if !should_send {
-            return CallbackResult::Next;
+            thread::sleep(Duration::from_millis(100));
         }
-
-        // Suppress the broadcast's own loopback before we send.
-        state.suppressed_text = if oversized { None } else { Some(text.clone()) };
-        drop(state);
-
-        // Re-arm: require a fresh pair of taps for the next double-copy send.
-        if settings.send_only_on_double_copy {
-            self.last_event_at = None;
-        }
-
-        if text.len() > anydrop::MAX_CLIPBOARD_BYTES {
-            if let Err(error) = outgoing::clipboard(&self.app, text.as_bytes(), "txt") {
-                backend.set_status(&error);
-                backend.log(error);
-            }
-        } else {
-            shared_anydrop_broadcast_text(text, self.service.clone(), &self.config);
-        }
-        emit_snapshot(&self.app);
-        CallbackResult::Next
-    }
-
-    fn on_clipboard_error(&mut self, error: std::io::Error) -> CallbackResult {
-        eprintln!("clipboard listener error: {error}");
-        CallbackResult::Next
-    }
-}
-
-impl ClipboardListener {
-    /// Pull the clipboard image (if any), PNG-encode, broadcast.  Same gates
-    /// as text — send_clipboard_enabled, sync_image_enabled, double-copy
-    /// option, loopback suppression — just on the image path.
-    fn try_broadcast_image(&mut self, is_double_tap: bool) -> CallbackResult {
-        let clipboard = match self.clipboard.as_mut() {
-            Some(c) => c,
-            None => return CallbackResult::Next,
-        };
-        let img = match clipboard.get_image() {
-            Ok(i) => i,
-            Err(_) => return CallbackResult::Next,
-        };
-        let raw_rgba: Vec<u8> = img.bytes.into_owned();
-        let width = img.width as u32;
-        let height = img.height as u32;
-        if width == 0 || height == 0 || raw_rgba.is_empty() {
-            return CallbackResult::Next;
-        }
-        let digest = sha256_short(&raw_rgba);
-
-        // Settings + suppression gates.
-        let backend = match self.app.try_state::<Backend>() {
-            Some(b) => b,
-            None => return CallbackResult::Next,
-        };
-        let settings = backend.settings.lock().unwrap().clone();
-
-        let mut state = self.state.lock().unwrap();
-        if state.suppressed_image_digest == Some(digest) {
-            // We just pushed this image to the local clipboard from a peer
-            // — don't bounce it back.
-            state.suppressed_image_digest = None;
-            state.last_image_digest = Some(digest);
-            return CallbackResult::Next;
-        }
-        if !settings.send_clipboard_enabled || !settings.sync_image_enabled {
-            state.last_image_digest = Some(digest);
-            return CallbackResult::Next;
-        }
-
-        let should_send = if settings.send_only_on_double_copy {
-            is_double_tap
-        } else {
-            state.last_image_digest != Some(digest)
-        };
-        state.last_image_digest = Some(digest);
-        if !should_send {
-            return CallbackResult::Next;
-        }
-        // Pre-arm suppression so the post-encode broadcast doesn't loop back.
-        state.suppressed_image_digest = Some(digest);
-        drop(state);
-
-        if settings.send_only_on_double_copy {
-            self.last_event_at = None;
-        }
-
-        // Encode RGBA → PNG. PNG buffer comes back ready to wire.
-        let mut png_bytes: Vec<u8> = Vec::new();
-        let encode_result = {
-            use image::codecs::png::PngEncoder;
-            use image::ImageEncoder;
-            let encoder = PngEncoder::new(&mut png_bytes);
-            encoder.write_image(&raw_rgba, width, height, image::ExtendedColorType::Rgba8)
-        };
-        if let Err(e) = encode_result {
-            eprintln!("clipboard image encode failed: {e}");
-            return CallbackResult::Next;
-        }
-
-        if png_bytes.len() > anydrop::MAX_CLIPBOARD_BYTES {
-            if let Err(error) = outgoing::clipboard(&self.app, &png_bytes, "png") {
-                backend.set_status(&error);
-                backend.log(error);
-            }
-            return CallbackResult::Next;
-        }
-        anydrop::lib_util::shared_anydrop_broadcast_image(
-            png_bytes,
-            self.service.clone(),
-            &self.config,
-        );
-        emit_snapshot(&self.app);
-        CallbackResult::Next
     }
 }
 
@@ -1075,17 +850,22 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let discovery_config = config.clone();
     let discovery_display_name = settings.display_name.clone();
     let discovery_device_id = settings.device_id.clone();
+    let discovery_app = app.clone();
     threads.push(thread::spawn(move || {
-        let _ = DiscoveryService::run(
-            discovery_config.discovery_service_client_port,
-            discovery_config.discovery_service_server_port,
-            discovery_thread_peers,
-            Some(discovery_last_seen),
-            Box::new(move || discovery_stop.load(Ordering::SeqCst)),
-            discovery_config.group_identifier,
-            discovery_display_name,
-            discovery_device_id,
-        );
+        supervise_service(&discovery_app, "UDP discovery", &discovery_stop, || {
+            let run_stop = discovery_stop.clone();
+            DiscoveryService::run(
+                discovery_config.discovery_service_client_port,
+                discovery_config.discovery_service_server_port,
+                discovery_thread_peers.clone(),
+                Some(discovery_last_seen.clone()),
+                Box::new(move || run_stop.load(Ordering::SeqCst)),
+                discovery_config.group_identifier,
+                discovery_display_name.clone(),
+                discovery_device_id.clone(),
+            )
+            .map_err(|e| e.to_string())
+        });
     }));
 
     // mDNS / DNS-SD discovery runs alongside the UDP broadcast above and
@@ -1099,18 +879,20 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
     let mdns_group = config.group_identifier;
     let mdns_display_name = settings.display_name.clone();
     let mdns_device_id = settings.device_id.clone();
+    let mdns_app = app.clone();
     threads.push(thread::spawn(move || {
-        if let Err(e) = anydrop::service::mdns_discovery::run(
-            mdns_peers,
-            Some(mdns_last_seen),
-            mdns_data_port,
-            mdns_group,
-            mdns_display_name,
-            mdns_device_id,
-            Box::new(move || mdns_stop.load(Ordering::SeqCst)),
-        ) {
-            eprintln!("mdns discovery error: {e}");
-        }
+        supervise_service(&mdns_app, "mDNS discovery", &mdns_stop, || {
+            let run_stop = mdns_stop.clone();
+            anydrop::service::mdns_discovery::run(
+                mdns_peers.clone(),
+                Some(mdns_last_seen.clone()),
+                mdns_data_port,
+                mdns_group,
+                mdns_display_name.clone(),
+                mdns_device_id.clone(),
+                Box::new(move || run_stop.load(Ordering::SeqCst)),
+            )
+        });
     }));
 
     // Periodic discovery refresh.  Two pulses per cycle:
@@ -1249,26 +1031,13 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 popup_enabled = settings.clipboard_popup_enabled;
             }
 
-            if let Ok(mut guard) = text_clipboard.lock() {
-                // Drop rapid exact-duplicate deliveries (same text reaching us via
-                // two of our own addresses). A genuine re-send of the same text
-                // after the window still gets through.
-                let now = std::time::Instant::now();
-                let is_dup = guard.last_received_text == text
-                    && guard
-                        .last_received_at
-                        .map(|t| now.duration_since(t) < Duration::from_millis(1500))
-                        .unwrap_or(false);
-                guard.last_received_at = Some(now);
-                if is_dup {
-                    return;
+            if let Err(error) = clipboard::write_text(&text_clipboard, &text) {
+                if let Some(backend) = text_app.try_state::<Backend>() {
+                    backend.set_status(&error);
+                    backend.log(error);
                 }
-                guard.last_received_text = text.clone();
-                guard.last_text = text.clone();
-                guard.suppressed_text = Some(text.clone());
-            }
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                let _ = clipboard.set_text(text.clone());
+                emit_snapshot(&text_app);
+                return;
             }
             let _ = text_app.emit(
                 "text-received",
@@ -1276,10 +1045,9 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             );
             // Optional bottom-right popup mirroring the file-receive one.
             if popup_enabled && !popup_suppressed_by_game(&text_app) {
-                ensure_receive_window(&text_app);
                 let preview: String = text.chars().take(200).collect();
-                let _ = text_app.emit(
-                    "clipboard-popup",
+                receipts::show(
+                    &text_app,
                     serde_json::json!({
                         "kind": "text",
                         "preview": preview,
@@ -1312,33 +1080,24 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             // Decode PNG into raw RGBA for arboard.set_image. We're holding
             // the bytes already; decode is just for format conversion.
             let png = packet.png_bytes();
-            let img = match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
-                Ok(i) => i.to_rgba8(),
-                Err(e) => {
-                    eprintln!("image_callback: decode failed: {e}");
+            let img = match clipboard::decode(png) {
+                Ok(image) => image,
+                Err(error) => {
+                    if let Some(backend) = image_app.try_state::<Backend>() {
+                        backend.log(format!("clipboard image decode: {error}"));
+                    }
+                    emit_snapshot(&image_app);
                     return;
                 }
             };
             let (w, h) = img.dimensions();
-            let raw = img.into_raw();
-
-            // Compute a hash of the decoded RGBA so the suppression check in
-            // the clipboard listener (next event after set_image) can
-            // recognize and skip our own write.
-            let digest = sha256_short(&raw);
-            if let Ok(mut guard) = image_clipboard.lock() {
-                guard.suppressed_image_digest = Some(digest);
-            }
-
-            if let Ok(mut cb) = arboard::Clipboard::new() {
-                let data = arboard::ImageData {
-                    width: w as usize,
-                    height: h as usize,
-                    bytes: std::borrow::Cow::Owned(raw),
-                };
-                if let Err(e) = cb.set_image(data) {
-                    eprintln!("image_callback: set_image failed: {e}");
+            if let Err(error) = clipboard::write_image(&image_clipboard, &img) {
+                if let Some(backend) = image_app.try_state::<Backend>() {
+                    backend.set_status(&error);
+                    backend.log(error);
                 }
+                emit_snapshot(&image_app);
+                return;
             }
             let _ = image_app.emit(
                 "image-received",
@@ -1350,9 +1109,8 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 }),
             );
             if popup_enabled && !popup_suppressed_by_game(&image_app) {
-                ensure_receive_window(&image_app);
-                let _ = image_app.emit(
-                    "clipboard-popup",
+                receipts::show(
+                    &image_app,
                     serde_json::json!({
                         "kind": "image",
                         "preview": format!("{}×{} 图片", w, h),
@@ -1373,49 +1131,37 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             Arc::new(Box::new(image_callback)),
             data_service.discovery_service(),
         );
-        let _ = DataService::run(context, Box::new(move || data_stop.load(Ordering::SeqCst)));
+        supervise_service(&data_app, "Clipboard receiver", &data_stop, || {
+            let run_stop = data_stop.clone();
+            DataService::run(
+                context.clone(),
+                Box::new(move || run_stop.load(Ordering::SeqCst)),
+            )
+            .map_err(|e| e.to_string())
+        });
     }));
 
-    // Clipboard listener (event-driven).
-    //
-    // The previous polling implementation could only react to *content*
-    // changes, which made the "send on double Ctrl+C" toggle impossible to
-    // satisfy — copying the same text twice produced one content change, not
-    // two events. `clipboard-master` taps the OS-level clipboard sequence
-    // (Win: GetClipboardSequenceNumber, mac: NSPasteboard.changeCount,
-    // Linux: X11/Wayland selection events) so we genuinely see every copy.
     let clipboard_app = app.clone();
     let clipboard_stop = stop.clone();
     let clipboard_state = backend.clipboard.clone();
     let clipboard_service = service.discovery_service();
     let clipboard_config = config.clone();
     threads.push(thread::spawn(move || {
-        let handler = ClipboardListener {
-            app: clipboard_app,
-            state: clipboard_state,
-            service: clipboard_service,
-            config: clipboard_config,
-            last_event_at: None,
-            clipboard: arboard::Clipboard::new().ok(),
-        };
-        let mut master = match Master::new(handler) {
-            Ok(m) => m,
-            Err(err) => {
-                eprintln!("clipboard listener init failed: {err}");
-                return;
-            }
-        };
-        // Bridge our AtomicBool shutdown flag to clipboard-master's channel.
-        let shutdown = master.shutdown_channel();
-        let stop_flag = clipboard_stop.clone();
-        thread::spawn(move || {
-            while !stop_flag.load(Ordering::SeqCst) {
-                thread::sleep(Duration::from_millis(250));
-            }
-            let _ = shutdown.signal();
-        });
-        if let Err(err) = master.run() {
-            eprintln!("clipboard listener stopped: {err}");
+        clipboard::run(
+            clipboard_app,
+            clipboard_state,
+            clipboard_service,
+            clipboard_config,
+            clipboard_stop,
+        );
+    }));
+
+    let receipt_app = app.clone();
+    let receipt_stop = stop.clone();
+    threads.push(thread::spawn(move || {
+        while !receipt_stop.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(500));
+            receipts::recover_if_needed(&receipt_app);
         }
     }));
 
@@ -1725,55 +1471,7 @@ fn save_settings(
 /// Explicit sends bypass the automatic/double-copy switches, as the existing button did.
 /// The image opt-in still applies, and file clipboard formats are not treated as file offers.
 fn send_current_clipboard(app: &AppHandle, backend: &Backend) -> Result<bool, String> {
-    if backend.installing.load(Ordering::SeqCst) {
-        return Err("正在安装更新".into());
-    }
-    let service = backend.service().ok_or("服务未启动")?;
-    let config = backend.config().ok_or("服务未启动")?;
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("无法读取剪贴板：{e}"))?;
-    if let Ok(text) = clipboard.get_text() {
-        if !text.is_empty() {
-            if text.len() > anydrop::MAX_CLIPBOARD_BYTES {
-                {
-                    let mut state = backend.clipboard.lock().unwrap();
-                    state.last_text.clear();
-                    state.oversized_text_digest = Some((text.len(), sha256_short(text.as_bytes())));
-                }
-                outgoing::clipboard(app, text.as_bytes(), "txt")?;
-                return Ok(false);
-            }
-            shared_anydrop_broadcast_text(text.clone(), service.discovery_service(), &config);
-            backend.clipboard.lock().unwrap().last_text = text;
-            backend.set_status("Clipboard sent to LAN peers");
-            emit_snapshot(app);
-            return Ok(true);
-        }
-    }
-    let img = clipboard
-        .get_image()
-        .map_err(|_| "剪贴板没有可发送的文本或图片")?;
-    if !backend.settings.lock().unwrap().sync_image_enabled {
-        return Err("请先开启同步剪贴板图片".into());
-    }
-    if img.width == 0 || img.height == 0 || img.bytes.is_empty() {
-        return Err("剪贴板图片为空".into());
-    }
-    let width = u32::try_from(img.width).map_err(|_| "图片尺寸无效")?;
-    let height = u32::try_from(img.height).map_err(|_| "图片尺寸无效")?;
-    let mut png = Vec::new();
-    use image::ImageEncoder;
-    image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(&img.bytes, width, height, image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("图片编码失败：{e}"))?;
-    if png.len() > anydrop::MAX_CLIPBOARD_BYTES {
-        outgoing::clipboard(app, &png, "png")?;
-        return Ok(false);
-    }
-    backend.clipboard.lock().unwrap().last_image_digest = Some(sha256_short(&img.bytes));
-    anydrop::lib_util::shared_anydrop_broadcast_image(png, service.discovery_service(), &config);
-    backend.set_status("Clipboard image sent to LAN peers");
-    emit_snapshot(app);
-    Ok(true)
+    clipboard::send_current(app, backend)
 }
 
 #[tauri::command]
@@ -2180,15 +1878,7 @@ fn push_log(app: AppHandle, backend: State<'_, Backend>, msg: String) -> Snapsho
 /// the clipboard listener doesn't rebroadcast it to peers.
 #[tauri::command]
 fn copy_text(backend: State<'_, Backend>, text: String) -> Result<(), String> {
-    if let Ok(mut guard) = backend.clipboard.lock() {
-        guard.suppressed_text = Some(text.clone());
-        guard.last_text = text.clone();
-        guard.last_received_text = text.clone();
-        guard.last_received_at = Some(std::time::Instant::now());
-    }
-    arboard::Clipboard::new()
-        .and_then(|mut c| c.set_text(text))
-        .map_err(|err| err.to_string())
+    clipboard::write_text(&backend.clipboard, &text)
 }
 
 #[tauri::command]
@@ -2538,6 +2228,25 @@ fn preinit_receive_window(app: &AppHandle) {
     }
 }
 
+fn show_receive_window(window: &tauri::WebviewWindow) {
+    let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+    position_bottom_right(window);
+    let _ = window.set_always_on_top(true);
+    let _ = window.show();
+    #[cfg(windows)]
+    if let Ok(handle) = window.hwnd() {
+        // Tao caches visibility flags. Reassert native visibility after a
+        // desktop/session transition even if the cached value is already true.
+        // SW_RESTORE/unminimize would activate the window.
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
+                handle.0,
+                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
+            );
+        }
+    }
+}
+
 /// Show the (pre-created, persistent) receive popup. Reused for file offers and
 /// clipboard receipts; the webview hides it again once it has nothing to show.
 ///
@@ -2547,16 +2256,15 @@ fn preinit_receive_window(app: &AppHandle) {
 /// We intentionally do NOT steal focus — `always_on_top` makes it visible
 /// without yanking focus away from whatever the user is doing.
 fn ensure_receive_window(app: &AppHandle) {
+    receipts::request_view(app);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
-            let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
-            position_bottom_right(&window);
-            let _ = window.show();
+            show_receive_window(&window);
             return;
         }
         if let Some(window) = make_receive_window(&app) {
-            let _ = window.show();
+            show_receive_window(&window);
         }
     });
 }
@@ -2818,6 +2526,9 @@ pub fn run() {
             stop_service,
             save_settings,
             send_clipboard_now,
+            receipts::get_clipboard_receipts,
+            receipts::acknowledge_clipboard_receipts,
+            receipts::acknowledge_receive_view,
             send_text_to_peer,
             accept_transfer,
             reject_transfer,

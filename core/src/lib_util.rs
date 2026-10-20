@@ -11,7 +11,7 @@ use crate::service::context::data_service_context::DataServiceContext;
 use crate::service::data_service::DataService;
 use crate::service::discovery_service::DiscoveryService;
 use crate::service::ShouldInterruptFunctionType;
-use log::{debug, error, info, LevelFilter};
+use log::{error, info, LevelFilter};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Logger, Root};
 use log4rs::Config;
@@ -41,34 +41,7 @@ pub fn shared_anydrop_broadcast_text(
     };
     let text_serialized = Arc::new(packet.serialize());
 
-    if let Ok(peers_ptr) = service_disc.peers().lock() {
-        for peer in peers_ptr.iter() {
-            let thread_peer = peer.clone();
-            let thread_config = config.clone();
-            let thread_text_serialized = text_serialized.clone();
-            std::thread::spawn(move || {
-                debug!(
-                    "lib: Sending text to (addr={}:{})",
-                    thread_peer.host(),
-                    thread_config.data_service_listen_port
-                );
-                if let Err(e) = DataService::send_once_with_retry(
-                    &thread_peer,
-                    thread_config.data_service_listen_port,
-                    MagicNumbers::Text,
-                    &thread_text_serialized,
-                    Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
-                ) {
-                    error!(
-                        "lib: Failed to send text to (addr={}:{}): {}",
-                        thread_peer.host(),
-                        thread_config.data_service_listen_port,
-                        e
-                    );
-                }
-            });
-        }
-    }
+    broadcast_to_devices(service_disc, config, MagicNumbers::Text, text_serialized);
 }
 
 pub fn shared_anydrop_broadcast_image(
@@ -85,34 +58,84 @@ pub fn shared_anydrop_broadcast_image(
     };
     let serialized = Arc::new(packet.serialize());
 
-    if let Ok(peers_ptr) = service_disc.peers().lock() {
-        for peer in peers_ptr.iter() {
-            let thread_peer = peer.clone();
-            let thread_config = config.clone();
-            let thread_serialized = serialized.clone();
-            std::thread::spawn(move || {
-                debug!(
-                    "lib: Sending image to (addr={}:{}, {} bytes)",
-                    thread_peer.host(),
-                    thread_config.data_service_listen_port,
-                    thread_serialized.len()
-                );
-                if let Err(e) = DataService::send_once_with_retry(
-                    &thread_peer,
-                    thread_config.data_service_listen_port,
-                    MagicNumbers::Image,
-                    &thread_serialized,
+    broadcast_to_devices(service_disc, config, MagicNumbers::Image, serialized);
+}
+
+fn group_device_addresses(
+    peers: Vec<crate::network::peer::Peer>,
+) -> Vec<Vec<crate::network::peer::Peer>> {
+    let mut devices = std::collections::BTreeMap::<String, Vec<_>>::new();
+    for peer in peers {
+        let key = if peer.device_id().is_empty() {
+            format!("host:{}", peer.host())
+        } else {
+            format!("device:{}", peer.device_id())
+        };
+        devices.entry(key).or_default().push(peer);
+    }
+    devices.into_values().collect()
+}
+
+fn broadcast_to_devices(
+    service: Arc<DiscoveryService>,
+    config: &AnyDropServiceConfig,
+    kind: MagicNumbers,
+    bytes: Arc<Vec<u8>>,
+) {
+    let peers = service
+        .peers()
+        .lock()
+        .map(|p| p.iter().cloned().collect())
+        .unwrap_or_default();
+    for candidates in group_device_addresses(peers) {
+        let bytes = bytes.clone();
+        let port = config.data_service_listen_port;
+        let magic = kind.value();
+        std::thread::spawn(move || {
+            let mut last_error = String::from("no IPv4 address");
+            let ips: Vec<_> = candidates
+                .iter()
+                .filter_map(|p| p.host().parse().ok())
+                .collect();
+            // Fresh ranking on every copy handles Wi-Fi/Ethernet changes. Send
+            // once per device; try its other addresses only on failure.
+            for ip in crate::util::network::rank_peer_ips(&ips) {
+                let peer = candidates
+                    .iter()
+                    .find(|p| p.host() == &ip.to_string())
+                    .unwrap();
+                match DataService::send_once_with_retry(
+                    peer,
+                    port,
+                    MagicNumbers::from(magic).unwrap(),
+                    &bytes,
                     Duration::from_millis(CONNECTION_TIMEOUT_MILLIS),
                 ) {
-                    error!(
-                        "lib: Failed to send image to (addr={}:{}): {}",
-                        thread_peer.host(),
-                        thread_config.data_service_listen_port,
-                        e
-                    );
+                    Ok(()) => return,
+                    Err(error) => last_error = format!("{}:{port}: {error}", peer.host()),
                 }
-            });
-        }
+            }
+            error!("lib: clipboard delivery failed for all addresses of a device ({last_error})");
+        });
+    }
+}
+
+#[cfg(test)]
+mod clipboard_delivery_tests {
+    use super::*;
+    use crate::network::peer::Peer;
+    #[test]
+    fn groups_interfaces_by_device_without_merging_equal_hostnames() {
+        let peers = vec![
+            Peer::new(&"192.168.1.2".into(), 9819, Some(&"PC".into())).with_device_id("a"),
+            Peer::new(&"10.0.0.2".into(), 9819, Some(&"PC".into())).with_device_id("a"),
+            Peer::new(&"192.168.1.3".into(), 9819, Some(&"PC".into())).with_device_id("b"),
+            Peer::new(&"192.168.1.4".into(), 9819, Some(&"PC".into())),
+        ];
+        let devices = group_device_addresses(peers);
+        assert_eq!(devices.len(), 3);
+        assert_eq!(devices.iter().map(Vec::len).sum::<usize>(), 4);
+        assert_eq!(devices.iter().filter(|d| d.len() == 2).count(), 1);
     }
 }
 

@@ -14,13 +14,12 @@ tauri-build = { version = "2.2.0", features = [] }
 
 [dependencies]
 anydrop = { path = "../../../core" }
-arboard = "3.4.1"
-# Event-driven clipboard change notifications. arboard only does get/set —
-# we need this to detect when the user re-copies the same content, which a
-# content-diff poll fundamentally can't see.
-clipboard-master = "4"
-# PNG encode for outgoing clipboard images; decode on incoming.
-image = { version = "0.25", default-features = false, features = ["png"] }
+arboard = "3.6.1"
+# Normalize the formats used by native apps and HTML clipboard fragments.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "gif", "webp"] }
+base64 = "0.22"
+html5ever = "0.38"
+url = "2"
 dirs = "5.0.1"
 open = "5.3.2"
 rand = "0.8"
@@ -42,7 +41,12 @@ tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSString"] }
 plist = "1"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+clipboard-master = "4"
 
 [target.'cfg(windows)'.dependencies]
 # Fullscreen-game detection (suppress popups while gaming). Reuses the
@@ -53,4 +57,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",
     "Win32_System_SystemInformation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }

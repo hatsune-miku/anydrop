@@ -97,8 +97,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD }}
         run: yarn workspace @anydrop/desktop-tauri tauri build --config src-tauri/.generated/updater.json --bundles nsis
 
-      - name: Verify Windows launcher without PowerShell on PATH
-        run: cargo test --release -p anydrop-desktop-tauri --lib context_menu::windows::tests
+      - name: Verify Windows clipboard recovery and desktop integration
+        run: |
+          cargo test --release -p anydrop-desktop-tauri --lib -- --include-ignored --test-threads=1
+          if ($LASTEXITCODE) { throw "Desktop tests failed" }
+          cargo test --release -p anydrop --test test_clipboard_limits --test test_clipboard_recovery
+          if ($LASTEXITCODE) { throw "Clipboard transport tests failed" }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -204,6 +208,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.ANYDROP_UPDATER_PRIVATE_KEY_PASSWORD }}
         run: yarn workspace @anydrop/desktop-tauri tauri build --config src-tauri/.generated/updater.json --target ${{ steps.target.outputs.triple }} --bundles app,dmg
+
+      - name: Verify macOS clipboard recovery and native formats
+        run: |
+          HOST=$(rustc -vV | sed -n 's/^host: //p')
+          cargo test --release --target "$HOST" -p anydrop-desktop-tauri --lib -- --include-ignored --test-threads=1
+          cargo test --release --target "$HOST" -p anydrop --test test_clipboard_limits --test test_clipboard_recovery
 
       - uses: actions/upload-artifact@v4
         with:

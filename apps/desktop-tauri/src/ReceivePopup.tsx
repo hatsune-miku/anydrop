@@ -26,7 +26,10 @@ type ClipboardCard = {
   text: string
   peer: string
   title?: string
+  expiresAt: number
 }
+
+type ClipboardReceipt = Omit<ClipboardCard, 'expiresAt' | 'text'> & { text?: string }
 
 type OutgoingRequest = { id: string; clipboard: boolean; fileName: string; bytes: number }
 
@@ -51,10 +54,7 @@ export default function ReceivePopup() {
   const [busy, setBusy] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<Record<string, string>>({})
   const content = useRef<HTMLDivElement>(null)
-  const cardSeq = useRef(0)
-  // Last card signature + timestamp, to drop duplicate emits (network dup or a
-  // dev StrictMode double-subscribe) that arrive back-to-back.
-  const lastCard = useRef<{ sig: string; ts: number }>({ sig: '', ts: 0 })
+  const seenReceipts = useRef(new Set<number>())
 
   const track = (key: string) =>
     setTracked((prev) => {
@@ -65,6 +65,32 @@ export default function ReceivePopup() {
     })
 
   useEffect(() => {
+    let active = true
+    function receiveCard(receipt: ClipboardReceipt) {
+      if (!active || seenReceipts.current.has(receipt.id)) return
+      seenReceipts.current.add(receipt.id)
+      // IDs deduplicate event + hydration races without swallowing a new copy
+      // of identical text (or two different images with identical dimensions).
+      if (seenReceipts.current.size > 128) {
+        seenReceipts.current.delete(seenReceipts.current.values().next().value!)
+      }
+      setCards((prev) =>
+        [{ ...receipt, text: receipt.text ?? '', expiresAt: performance.now() + 6000 }, ...prev]
+          .sort((a, b) => b.id - a.id)
+          .slice(0, 4)
+      )
+    }
+    async function restoreReceipts() {
+      try {
+        const pending = await invoke<ClipboardReceipt[]>('get_clipboard_receipts')
+        pending.forEach(receiveCard)
+      } catch {
+        // The backend retains unacknowledged receipts and retries recovery.
+      }
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') void restoreReceipts()
+    }
     // The popup window is transparent — only the bubbles are visible. Clear any
     // page background this webview inherited from :root.
     document.documentElement.style.background = 'transparent'
@@ -97,8 +123,14 @@ export default function ReceivePopup() {
         if (!requestsChanged) setRequests(initial)
       })
       .catch(() => {})
+    const receiptsListener = listen<ClipboardReceipt>('clipboard-popup', ({ payload }) => receiveCard(payload))
+    // Subscribe before reading; receipts received while mounting/reloading
+    // remain available until the render acknowledgement below.
+    void receiptsListener.then(restoreReceipts).catch(() => {})
+    document.addEventListener('visibilitychange', onVisibilityChange)
     const unlisteners = [
       requestsListener,
+      receiptsListener,
       listen<Transfer>('incoming-file', (event) => {
         const t = event.payload
         setTransfers((prev) => ({ ...prev, [t.key]: t }))
@@ -123,36 +155,36 @@ export default function ReceivePopup() {
         for (const t of event.payload.transfers) map[t.key] = t
         setTransfers(map)
       }),
-      listen<{ kind: 'text' | 'image'; preview: string; text?: string; peer: string; title?: string }>(
-        'clipboard-popup',
-        (event) => {
-          const {
-            kind,
-            preview,
-            text = '',
-            peer,
-            title,
-          } = event.payload ?? { kind: 'text', preview: '', text: '', peer: '' }
-          // Skip empty text receipts — nothing useful to show, and an empty card
-          // reads as a glitch.
-          if (kind === 'text' && !preview.trim() && !peer.trim()) return
-          // Drop a back-to-back duplicate of the same content.
-          const sig = `${kind}:${preview}:${peer}`
-          const now = Date.now()
-          if (lastCard.current.sig === sig && now - lastCard.current.ts < 1500) return
-          lastCard.current = { sig, ts: now }
-          const id = (cardSeq.current += 1)
-          setCards((prev) => [{ id, kind, preview, text, peer, title }, ...prev].slice(0, 4))
-          // Auto-dismiss clipboard cards after a few seconds.
-          setTimeout(() => setCards((prev) => prev.filter((c) => c.id !== id)), 6000)
-        }
-      ),
     ]
     return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVisibilityChange)
       void Promise.all(unlisteners).then((items) => items.forEach((u) => u()))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (cards.length === 0) return
+    let active = true
+    // Effects run after React commits the cards. Receiving an IPC event alone
+    // is not an acknowledgement that the view was able to display it.
+    void getCurrentWindow()
+      .show()
+      .then(() => {
+        if (active) return invoke('acknowledge_clipboard_receipts', { ids: cards.map((card) => card.id) })
+      })
+      .catch(() => {})
+    const timeout = Math.max(0, Math.min(...cards.map((card) => card.expiresAt)) - performance.now())
+    const timer = setTimeout(
+      () => setCards((prev) => prev.filter((card) => card.expiresAt > performance.now())),
+      timeout
+    )
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [cards])
 
   const rows = useMemo(
     () =>
@@ -165,6 +197,12 @@ export default function ReceivePopup() {
 
   const pending = rows.filter((t) => t.status === 1)
   const ongoing = rows.filter((t) => t.status !== 1)
+
+  useEffect(() => {
+    // Also acknowledge file offers and oversized-image confirmations, which
+    // share this view with clipboard receipts.
+    void invoke('acknowledge_receive_view').catch(() => {})
+  }, [cards, requests, transfers])
 
   // Self-hide when there is nothing left to show. Rust re-shows the window on
   // the next offer / clipboard receipt.

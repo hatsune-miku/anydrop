@@ -44,6 +44,7 @@ try {
     assert.equal(styles.card.width, 348)
     await page.evaluate(() =>
       window.__emit('clipboard-popup', {
+        id: 1,
         kind: 'text',
         title: '收到 JSON (12,345 字符)',
         preview: '{"hello":"世界"}',
@@ -114,8 +115,49 @@ try {
     'Stale initial state cannot overwrite a newer request'
   )
   await late.close()
+  const recovery = await browser.newPage({ viewport: { width: 540, height: 690 } })
+  await recovery.addInitScript(installMock, { snap: lateSnapshot, label: 'receive', platform: 'Win32', now: epoch })
+  await recovery.addInitScript(() => {
+    window.__clipboardReceipts = [{ id: 50, kind: 'text', preview: '重复内容', text: '重复内容', peer: 'Mac' }]
+    window.__holdReceiptRead = true
+  })
+  await recovery.goto('http://127.0.0.1:1420/?window=receive')
+  await recovery.waitForFunction(() => typeof window.__finishReceiptRead === 'function')
+  await recovery.evaluate(() => {
+    window.__emit('clipboard-popup', { id: 51, kind: 'text', preview: '重复内容', text: '重复内容', peer: 'Mac' })
+    window.__finishReceiptRead()
+  })
+  await recovery.waitForFunction(() => document.querySelectorAll('.popup-card--clip').length === 2)
+  await recovery.waitForFunction(() =>
+    window.__testCalls.some(
+      (c) => c.cmd === 'acknowledge_clipboard_receipts' && c.args.ids.includes(50) && c.args.ids.includes(51)
+    )
+  )
+  await recovery.evaluate(() => {
+    window.__emit('clipboard-popup', { id: 51, kind: 'text', preview: '重复内容', text: '重复内容', peer: 'Mac' })
+  })
+  assert.equal(await recovery.locator('.popup-card--clip').count(), 2, 'Only identical receipt IDs are deduplicated')
+  // Simulate a lost event followed by a hidden WebView becoming visible.
+  await recovery.evaluate(() => {
+    window.__holdReceiptRead = false
+    window.__clipboardReceipts = [{ id: 52, kind: 'image', preview: '640×480 图片', peer: 'Mac' }]
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await recovery.getByText('收到剪贴板图片', { exact: true }).waitFor()
+  await recovery.locator('.popup-card--clip').first().click()
+  // A delayed hydration of an already dismissed receipt must not resurrect it.
+  await recovery.evaluate(() => {
+    window.__clipboardReceipts = [{ id: 52, kind: 'image', preview: '640×480 图片', peer: 'Mac' }]
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  assert.equal(await recovery.getByText('收到剪贴板图片', { exact: true }).count(), 0)
+  await recovery.waitForFunction(() => document.querySelectorAll('.popup-card--clip').length === 0, null, {
+    timeout: 10000,
+  })
+  await recovery.waitForFunction(() => window.__testCalls.at(-1)?.cmd === 'plugin:window|hide')
+  await recovery.close()
   console.log(
-    `${engine}: popup transparency, shadow gutters, receipt title, multiple/single/no peer, error and cancellation passed`
+    `${engine}: popup layout, offers, late receipt hydration, visibility recovery, identical recopy, deduplication and dismissal passed`
   )
 } finally {
   await browser.close()

@@ -138,6 +138,21 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       }
       if (cmd === 'get_desktop_preferences') return structuredClone(preferences)
       if (cmd === 'resize_receive_window') return
+      if (cmd === 'acknowledge_receive_view') return
+      if (cmd === 'get_clipboard_receipts') {
+        const initial = structuredClone(window.__clipboardReceipts ?? [])
+        if (window.__holdReceiptRead)
+          await new Promise((resolve) => {
+            window.__finishReceiptRead = resolve
+          })
+        return initial
+      }
+      if (cmd === 'acknowledge_clipboard_receipts') {
+        window.__clipboardReceipts = (window.__clipboardReceipts ?? []).filter(
+          (receipt) => !args.ids.includes(receipt.id)
+        )
+        return
+      }
       if (cmd === 'get_outgoing_requests') {
         const initial = structuredClone(window.__outgoingRequests ?? [])
         if (window.__holdOutgoingRead)

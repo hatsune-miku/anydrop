@@ -341,6 +341,9 @@ impl DiscoveryService {
         info!("Discovery service online and ready for connections.");
 
         loop {
+            if should_interrupt() {
+                break;
+            }
             let (packet_size, src_addr) = match server_socket.recv_from(&mut buf) {
                 Ok(r) => r,
                 Err(e) if e.kind() == WouldBlock || e.kind() == TimedOut => {
@@ -350,18 +353,16 @@ impl DiscoveryService {
                     }
                     continue;
                 }
+                Err(e)
+                    if e.kind() == io::ErrorKind::Interrupted
+                        || e.kind() == io::ErrorKind::ConnectionReset =>
+                {
+                    continue
+                }
                 Err(e) => {
-                    error!("Failed to receive packet size ({})", e);
-
-                    // Broadcast another one to ensure that we are discovered.
-                    let _ = Self::broadcast_discovery_request(
-                        client_port,
-                        server_port,
-                        group_identifier,
-                        &hostname,
-                        &device_id,
-                    );
-                    continue;
+                    // Recreate the socket through the host's supervisor. A
+                    // permanently invalid socket otherwise loops forever.
+                    return Err(e);
                 }
             };
 
