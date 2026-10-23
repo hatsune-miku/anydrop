@@ -66,11 +66,13 @@ fn full_limit_frame_roundtrips_including_protocol_overhead() {
     let expected = data.clone();
     let task = std::thread::spawn(move || {
         DataTransmit::from(sender)
+            .unwrap()
             .send_data_progress_with_retry(&data, |_| {})
             .unwrap()
     });
     assert_eq!(
         DataTransmit::from(receiver)
+            .unwrap()
             .read_data_progress_with_retry(|_| {})
             .unwrap(),
         expected
@@ -83,6 +85,7 @@ fn oversized_frame_rejected_before_allocation_and_eof_terminates() {
     sender.write_all(&u32::MAX.to_le_bytes()).unwrap();
     assert_eq!(
         DataTransmit::from(receiver)
+            .unwrap()
             .read_data_progress_with_retry(|_| {})
             .unwrap_err()
             .kind(),
@@ -94,9 +97,55 @@ fn oversized_frame_rejected_before_allocation_and_eof_terminates() {
     drop(sender);
     assert_eq!(
         DataTransmit::from(receiver)
+            .unwrap()
             .read_data_progress_with_retry(|_| {})
             .unwrap_err()
             .kind(),
         ErrorKind::UnexpectedEof
     );
+}
+
+#[test]
+fn nonblocking_connection_waits_for_fragmented_image_data() {
+    // Windows accept() inherits the listener's nonblocking mode. A small
+    // loopback packet can arrive before read(), hiding this on the old tests.
+    let (mut sender, receiver) = pair();
+    receiver.set_nonblocking(true).unwrap();
+    let mut image = image::RgbaImage::new(256, 256);
+    let mut seed = 17u32;
+    for pixel in image.pixels_mut() {
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        *pixel = image::Rgba([seed as u8, (seed >> 8) as u8, (seed >> 16) as u8, 255]);
+    }
+    let mut png = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let packet = DataPacket::new(
+        0x3944,
+        &ImagePacket::new(png.into_inner()).unwrap().serialize(),
+    )
+    .serialize();
+    let expected = packet.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+    let task = std::thread::spawn(move || {
+        let mut receiver = DataTransmit::from(receiver).unwrap();
+        ready_tx.send(()).unwrap();
+        receiver.read_data_progress_with_retry(|_| {})
+    });
+    ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    let mut wire = (packet.len() as u32).to_le_bytes().to_vec();
+    wire.extend(packet);
+    // Split even the length header, then send an image over many TCP packets.
+    let mut sent = sender.write_all(&wire[..2]);
+    std::thread::sleep(Duration::from_millis(50));
+    for chunk in wire[2..].chunks(4096) {
+        if sent.is_err() {
+            break;
+        }
+        sent = sender.write_all(chunk);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let received = task.join().unwrap();
+    assert_eq!(received.unwrap(), expected);
+    sent.unwrap();
 }

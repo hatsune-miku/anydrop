@@ -38,7 +38,7 @@ impl DataService {
         let stream = connect(peer, port, connect_timeout)?;
         info!("Connection established with {}.", peer.to_string());
 
-        let mut dt = DataTransmit::from(stream);
+        let mut dt = DataTransmit::from(stream)?;
 
         // Wrap with data packet.
         let data_packet = DataPacket::new(magic_number.value(), data);
@@ -67,7 +67,7 @@ impl DataService {
             let stream = connect(peer, port, connect_timeout)?;
             info!("Data session established with {}.", peer.to_string());
 
-            let mut dt = DataTransmit::from(stream);
+            let mut dt = DataTransmit::from(stream)?;
 
             match session(&mut dt, &mut state) {
                 Ok(_) => {
@@ -111,7 +111,13 @@ impl DataService {
                 return;
             }
         };
-        let mut tt = DataTransmit::from(stream);
+        let mut tt = match DataTransmit::from(stream) {
+            Ok(transmit) => transmit,
+            Err(error) => {
+                warn!("Failed to configure clipboard connection: {error}");
+                return;
+            }
+        };
 
         loop {
             let raw_data = match tt.read_data_progress_with_retry(|portion| {

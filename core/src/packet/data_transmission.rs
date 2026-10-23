@@ -15,11 +15,15 @@ pub struct DataTransmit {
 }
 
 impl DataTransmit {
-    pub fn from(stream: TcpStream) -> Self {
+    pub fn from(stream: TcpStream) -> io::Result<Self> {
+        // Windows accept() inherits the nonblocking listener's mode. This
+        // protocol uses synchronous read_exact/write with timeouts: a gap
+        // between TCP fragments must wait, not become an immediate WouldBlock.
+        stream.set_nonblocking(false)?;
         // Bound idle clipboard connections, including malicious length-only peers.
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-        let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
-        Self { stream }
+        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+        Ok(Self { stream })
     }
     pub fn close(&mut self) -> Result<(), io::Error> {
         self.stream.shutdown(std::net::Shutdown::Both)

@@ -1,6 +1,9 @@
 use anydrop::{
     lib_util::{shared_anydrop_broadcast_image, shared_anydrop_broadcast_text},
     network::peer::Peer,
+    packet::{
+        data::image_packet::ImagePacket, data_packet::DataPacket, protocol::serialize::Serialize,
+    },
     service::{
         anydrop_service::AnyDropServiceConfig, context::data_service_context::DataServiceContext,
         data_service::DataService, discovery_service::DiscoveryService,
@@ -55,7 +58,7 @@ fn text_and_images_keep_working_across_repeated_receiver_restarts() {
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
     let png = png.into_inner();
-    for _ in 0..12 {
+    for cycle in 0..12 {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let worker_context = context.clone();
@@ -94,6 +97,27 @@ fn text_and_images_keep_working_across_repeated_receiver_restarts() {
             rx.recv_timeout(Duration::from_secs(5)).unwrap(),
             ("image", png.clone())
         );
+        if cycle == 0 {
+            // Exercise the real nonblocking listener, not just a blocking
+            // TcpListener pair: on Windows the accepted socket inherits it.
+            let packet =
+                DataPacket::new(0x3944, &ImagePacket::new(png.clone()).unwrap().serialize())
+                    .serialize();
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            let length = (packet.len() as u32).to_le_bytes();
+            stream.write_all(&length[..2]).unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+            stream.write_all(&length[2..]).unwrap();
+            for chunk in packet.chunks(32) {
+                stream.write_all(chunk).unwrap();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert_eq!(
+                rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+                ("image", png.clone())
+            );
+        }
         assert!(
             rx.recv_timeout(Duration::from_millis(40)).is_err(),
             "one delivery per device, not per address"
