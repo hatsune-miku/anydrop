@@ -6,6 +6,8 @@ mod outgoing;
 mod receipts;
 #[cfg(target_os = "macos")]
 mod receive_window_macos;
+#[cfg(any(windows, test))]
+mod shell_inbox;
 mod text_format;
 #[cfg(desktop)]
 mod updates;
@@ -1229,6 +1231,10 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         save_transfers(&offer_transfers.lock().unwrap());
+        let show_popup = !popup_suppressed_by_game(&offer_app);
+        if show_popup {
+            receipts::request_view(&offer_app, format!("incoming:{}", offer.transfer_id));
+        }
         let _ = offer_app.emit("incoming-file", t);
         #[cfg(desktop)]
         if desktop::auto_receive_files(&offer_app) {
@@ -1239,7 +1245,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 None,
             ) {
                 Ok(_) => {
-                    if !popup_suppressed_by_game(&offer_app) {
+                    if show_popup {
                         ensure_receive_window(&offer_app);
                     }
                     return;
@@ -1253,7 +1259,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         // Surface the offer natively: bottom-right popup + dock bounce / taskbar
         // flash + a system notification banner. Skipped while a fullscreen game
         // is in front (if the user kept that option on).
-        if !popup_suppressed_by_game(&offer_app) {
+        if show_popup {
             ensure_receive_window(&offer_app);
             request_attention(&offer_app);
             let _ = offer_app
@@ -2259,7 +2265,6 @@ fn show_receive_window(window: &tauri::WebviewWindow) {
 /// We intentionally do NOT steal focus — `always_on_top` makes it visible
 /// without yanking focus away from whatever the user is doing.
 fn ensure_receive_window(app: &AppHandle) {
-    receipts::request_view(app);
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
@@ -2431,6 +2436,19 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     shared_anydrop_init();
+    let context = tauri::generate_context!();
+    #[cfg(windows)]
+    let (queued_shell_request, startup_guard) =
+        match shell_inbox::prepare(&context.config().identifier) {
+            Ok(shell_inbox::Launch::Start { queued, startup }) => (queued, startup),
+            Ok(shell_inbox::Launch::Delivered) => return,
+            Err(error) => {
+                shell_inbox::report_error(&error);
+                return;
+            }
+        };
+    #[cfg(not(windows))]
+    let queued_shell_request = false;
     let mut builder = tauri::Builder::default();
     // Single-instance MUST be the first plugin registered. A second launch
     // re-focuses the existing window instead of spawning another process —
@@ -2482,7 +2500,7 @@ pub fn run() {
                 }
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             if let Some(backend) = handle.try_state::<Backend>() {
                 backend.set_status("Opening UI");
@@ -2496,13 +2514,18 @@ pub fn run() {
             preinit_receive_window(&handle);
             #[cfg(desktop)]
             desktop::initialize(handle.clone());
-            let shell_request = context_menu::handle_arguments(
-                &handle,
-                &std::env::args().collect::<Vec<_>>(),
-                &std::env::current_dir()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            );
+            #[cfg(windows)]
+            shell_inbox::start(handle.clone());
+            #[cfg(windows)]
+            drop(startup_guard);
+            let shell_request = queued_shell_request
+                || context_menu::handle_arguments(
+                    &handle,
+                    &std::env::args().collect::<Vec<_>>(),
+                    &std::env::current_dir()
+                        .unwrap_or_default()
+                        .to_string_lossy(),
+                );
             if !shell_request && !std::env::args().any(|arg| arg == "--autostart") {
                 show_main_window(&handle);
             }
@@ -2552,6 +2575,6 @@ pub fn run() {
             show_window_menu,
             focus_main_window
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running AnyDrop");
 }

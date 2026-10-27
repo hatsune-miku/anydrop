@@ -20,6 +20,7 @@ struct Request {
 #[derive(Default)]
 pub struct OutgoingState {
     pending: Mutex<Vec<Request>>,
+    publication: Mutex<()>,
     // A paused/retryable transfer still needs its original, immutable source file.
     sources: Mutex<HashMap<String, tempfile::TempDir>>,
 }
@@ -30,12 +31,35 @@ impl OutgoingState {
 }
 fn publish(app: &AppHandle) {
     let backend = app.state::<Backend>();
-    let _ = app.emit("outgoing-requests", get_outgoing_requests(backend));
-    ensure_receive_window(app);
+    // Concurrent menu clicks must not publish an older snapshot after a newer one.
+    let _publication = backend.outgoing.publication.lock().unwrap();
+    let requests: Vec<_> = backend
+        .outgoing
+        .pending
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.view.clone())
+        .collect();
+    let ids: Vec<_> = requests
+        .iter()
+        .map(|request| format!("outgoing:{}", request.id))
+        .collect();
+    super::receipts::request_outgoing_views(app, &ids);
+    let _ = app.emit("outgoing-requests", &requests);
+    if !requests.is_empty() {
+        ensure_receive_window(app);
+    }
 }
 fn enqueue(app: &AppHandle, request: Request) -> Result<(), String> {
     let backend = app.state::<Backend>();
     let mut pending = backend.outgoing.pending.lock().unwrap();
+    if pending
+        .iter()
+        .any(|existing| existing.view.id == request.view.id)
+    {
+        return Ok(());
+    }
     // Only the most recently copied oversized clipboard is pending. Existing file
     // menu requests are kept; no stale confirmation can send replaced contents.
     if request.view.clipboard {
@@ -74,6 +98,14 @@ pub fn clipboard(app: &AppHandle, bytes: &[u8], extension: &str) -> Result<(), S
     )
 }
 pub fn files(app: &AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
+    files_with_id(app, paths, rand::random::<u64>().to_string())
+}
+
+pub(crate) fn files_with_id(
+    app: &AppHandle,
+    paths: Vec<PathBuf>,
+    id: String,
+) -> Result<(), String> {
     if paths.is_empty() {
         return Err("没有选择文件".into());
     }
@@ -91,7 +123,7 @@ pub fn files(app: &AppHandle, paths: Vec<PathBuf>) -> Result<(), String> {
         app,
         Request {
             view: RequestView {
-                id: rand::random::<u64>().to_string(),
+                id,
                 clipboard: false,
                 file_name: if paths.len() == 1 {
                     name.into()

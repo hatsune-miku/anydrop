@@ -30,6 +30,10 @@ macOS 在当前用户 `~/Library/Services` 安装 `AnyDrop-Send.workflow`、`Any
 
 Windows 传统菜单在当前用户注册两个 `IExplorerCommand`，扩展按版本保留独立文件，避免升级覆盖被 Explorer 占用的 DLL；原生扩展位于安装目录 `shell/AnyDropShell-版本号.dll`。Windows 11 中通过「显示更多选项」使用传统菜单，不修改系统的菜单策略。卸载钩子负责注销当前用户的传统菜单。
 
+Windows 的「使用 AnyDrop 发送」在进入 Tauri 前，将所选绝对路径原子写入当前用户配置目录的 `shell-inbox`。主实例独立轮询该目录，接收后按请求 ID 回执；已有实例时不再依赖单实例插件的 `WM_COPYDATA` / 隐藏消息窗口转交文件。等待 15 秒仍未收到回执会明确报错并保留请求；下次打开 AnyDrop 可继续处理。冷启动通过独立互斥量串行初始化，避免连续点击启动多个接收者；慢速网络路径也不会独占全部交接处理。此回执表示已进入待确认队列，文件仍需用户选择设备并确认发送。
+
+确认浮窗每 2 秒重新读取待发送请求，并在恢复可见时补读；丢失事件不再使已接收的菜单请求永久不可见。前端按实际显示的请求 ID 确认，显示失败或无关快照刷新不会解除另一条请求的视图恢复。接受、取消或替换请求后清除对应的恢复记录。
+
 注册入口通过 `GetSystemDirectoryW` 定位系统的 `WindowsPowerShell/v1.0/powershell.exe`，不依赖启动进程继承的 `PATH`，不要求另装 PowerShell 7；卸载也使用系统 PowerShell 的绝对路径，并在 32 位 NSIS 进程中优先通过 Sysnative 启动原生版本。系统 PowerShell 或注册脚本确实缺失时，错误会明确显示缺失项与路径。原来的 `program not found` 表示注册脚本尚未启动，并非右键菜单签名错误。
 
 Windows 11 新式右键菜单暂时停用：不构建、签名或分发 MSIX 身份包，启动、重新注册与注销均不调用 Appx 注册链路，也不会再显示缺少签名身份包的错误。`shell/windows/AppxManifest.xml` 仅保留为未启用的历史源文件。发布不需要 `ANYDROP_WINDOWS_CERTIFICATE` 或其密码；Tauri Updater 的现有签名流程保持独立运行。
@@ -40,8 +44,9 @@ Windows 11 新式右键菜单暂时停用：不构建、签名或分发 MSIX 身
 
 - `cargo test -p anydrop --lib --test test_clipboard_limits --test test_clipboard_recovery`：包含 12 次 TCP 接收服务重启、半截连接、重复文本、图片与双网卡去重。
 - `cargo test -p anydrop-desktop-tauri --lib`
+- 文件菜单交接回归覆盖超时保留、消费者重启、回执去重、并发选择、路径字符保留与错误回传；Windows 额外验证没有消息窗口时仍可交接，以及并发冷启动等待初始化完成。
 - RC 的 Windows / macOS runner 额外运行 `-- --include-ignored --test-threads=1`，在隔离桌面实际读写系统剪贴板，覆盖 30 轮重复复制与远端写入、原生图片格式、HTML 和本地图片文件。旧协议测试通过真实 TCP 发送固定的旧格式文本 / 图片帧，覆盖多次重复投递、合并通知、超过原有屏蔽窗口的延迟回传，以及接收后再次手动复制；这是旧协议与本机防回弹测试，不是旧版 GUI 双机实测。该测试会改写系统剪贴板，不应在日常桌面直接运行。
-- `scripts/popup-check.mjs` 覆盖延迟加载、相同内容的新提示、同 ID 去重、隐藏后恢复、确认与自动消失。上述加速测试不等同于 11–17 天真实休眠运行，也未代替微信 / 飞书各版本的实机测试；不支持的私有格式可依据格式名称日志继续定位。
+- `scripts/popup-check.mjs` 覆盖延迟加载、丢失文件菜单事件后轮询恢复、无关刷新不误确认、原生显示失败不确认、相同内容的新提示、同 ID 去重、隐藏后恢复、确认与自动消失。上述加速测试不等同于 11–17 天真实休眠运行，也未代替微信 / 飞书各版本的实机测试；不支持的私有格式可依据格式名称日志继续定位。
 - 启动前端后运行 `node scripts/popup-check.mjs` 与 `node scripts/desktop-check.mjs`，可加 `VISUAL_ENGINE=webkit`。
 - Swift 协议检查与 Android `:app:testDevUnitTest` 覆盖 4 MiB 往返、超限及损坏帧。
 - macOS 单测实际运行生成的 Automator 服务，检查空格、引号、中文和 shell 特殊字符在文件参数中被完整保留。

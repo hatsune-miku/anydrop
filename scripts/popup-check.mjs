@@ -115,6 +115,51 @@ try {
     'Stale initial state cannot overwrite a newer request'
   )
   await late.close()
+  // A long-lived popup must recover a lost menu event without being reloaded.
+  const missed = await browser.newPage({ viewport: { width: 540, height: 690 } })
+  await missed.addInitScript(installMock, { snap: lateSnapshot, label: 'receive', platform: 'Win32', now: epoch })
+  await missed.goto('http://127.0.0.1:1420/?window=receive')
+  await missed.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'plugin:window|hide'))
+  await missed.evaluate((snap) => {
+    window.__testCalls = []
+    window.__outgoingRequests = [{ id: 'missed-menu', clipboard: false, fileName: '菜单文件.txt', bytes: 123 }]
+    // Only an unrelated snapshot arrives. It must not acknowledge a missing card.
+    window.__emit('snapshot', snap)
+  }, lateSnapshot)
+  await missed.waitForTimeout(100)
+  assert.equal(
+    await missed.evaluate(() => window.__testCalls.filter((c) => c.cmd === 'acknowledge_receive_view').length),
+    0,
+    'An empty view must not cancel the request watchdog'
+  )
+  await missed.getByText('菜单文件.txt', { exact: false }).waitFor()
+  await missed.waitForFunction(() =>
+    window.__testCalls.some((c) => c.cmd === 'acknowledge_receive_view' && c.args.ids.includes('outgoing:missed-menu'))
+  )
+  // Failure to show the native window must leave this request unacknowledged.
+  await missed.evaluate(() => {
+    window.__testCalls = []
+    window.__showFailure = true
+    window.__outgoingRequests = [{ id: 'show-failed', clipboard: false, fileName: '第二个文件.txt', bytes: 321 }]
+    window.__emit('outgoing-requests', window.__outgoingRequests)
+  })
+  await missed.getByText('第二个文件.txt', { exact: false }).waitFor()
+  await missed.waitForTimeout(100)
+  assert.equal(
+    await missed.evaluate(() => window.__testCalls.filter((c) => c.cmd === 'acknowledge_receive_view').length),
+    0,
+    'A failed show must not acknowledge display'
+  )
+  await missed.evaluate(() => {
+    window.__showFailure = false
+    window.__outgoingRequests = [{ id: 'visible-again', clipboard: false, fileName: '恢复的文件.txt', bytes: 456 }]
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await missed.getByText('恢复的文件.txt', { exact: false }).waitFor()
+  await missed.waitForFunction(() =>
+    window.__testCalls.some((c) => c.cmd === 'acknowledge_receive_view' && c.args.ids.includes('outgoing:visible-again'))
+  )
+  await missed.close()
   const recovery = await browser.newPage({ viewport: { width: 540, height: 690 } })
   await recovery.addInitScript(installMock, { snap: lateSnapshot, label: 'receive', platform: 'Win32', now: epoch })
   await recovery.addInitScript(() => {

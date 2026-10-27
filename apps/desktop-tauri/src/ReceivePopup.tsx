@@ -66,6 +66,26 @@ export default function ReceivePopup() {
 
   useEffect(() => {
     let active = true
+    let requestsVersion = 0
+    let requestsRead = 0
+    function receiveRequests(next: OutgoingRequest[]) {
+      if (!active) return
+      setRequests((previous) =>
+        previous.length === next.length && previous.every((request, index) => request.id === next[index].id)
+          ? previous
+          : next
+      )
+    }
+    async function restoreRequests() {
+      const version = requestsVersion
+      const read = ++requestsRead
+      try {
+        const pending = await invoke<OutgoingRequest[]>('get_outgoing_requests')
+        if (version === requestsVersion && read === requestsRead) receiveRequests(pending)
+      } catch {
+        // A later visibility change or poll retries a temporarily unavailable IPC call.
+      }
+    }
     function receiveCard(receipt: ClipboardReceipt) {
       if (!active || seenReceipts.current.has(receipt.id)) return
       seenReceipts.current.add(receipt.id)
@@ -89,7 +109,10 @@ export default function ReceivePopup() {
       }
     }
     function onVisibilityChange() {
-      if (document.visibilityState === 'visible') void restoreReceipts()
+      if (document.visibilityState === 'visible') {
+        void restoreReceipts()
+        void restoreRequests()
+      }
     }
     // The popup window is transparent — only the bubbles are visible. Clear any
     // page background this webview inherited from :root.
@@ -111,18 +134,15 @@ export default function ReceivePopup() {
       })
       .catch(() => {})
 
-    let requestsChanged = false
     const requestsListener = listen<OutgoingRequest[]>('outgoing-requests', ({ payload }) => {
-      requestsChanged = true
-      setRequests(payload)
+      requestsVersion += 1
+      receiveRequests(payload)
     })
     // Subscribe first, then read pending state: startup never drops a file-menu request.
-    void requestsListener
-      .then(() => invoke<OutgoingRequest[]>('get_outgoing_requests'))
-      .then((initial) => {
-        if (!requestsChanged) setRequests(initial)
-      })
-      .catch(() => {})
+    void requestsListener.then(restoreRequests).catch(() => {})
+    // Notifications are hints. Pending menu requests remain authoritative in Rust,
+    // even if a long-lived WebView misses an event without reloading the page.
+    const requestsTimer = setInterval(() => void restoreRequests(), 2000)
     const receiptsListener = listen<ClipboardReceipt>('clipboard-popup', ({ payload }) => receiveCard(payload))
     // Subscribe before reading; receipts received while mounting/reloading
     // remain available until the render acknowledgement below.
@@ -158,6 +178,7 @@ export default function ReceivePopup() {
     ]
     return () => {
       active = false
+      clearInterval(requestsTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       void Promise.all(unlisteners).then((items) => items.forEach((u) => u()))
     }
@@ -199,10 +220,25 @@ export default function ReceivePopup() {
   const ongoing = rows.filter((t) => t.status !== 1)
 
   useEffect(() => {
-    // Also acknowledge file offers and oversized-image confirmations, which
-    // share this view with clipboard receipts.
-    void invoke('acknowledge_receive_view').catch(() => {})
-  }, [cards, requests, transfers])
+    const ids = [
+      ...requests.map((request) => `outgoing:${request.id}`),
+      ...rows.map((transfer) => `incoming:${transfer.key}`),
+    ]
+    if (ids.length === 0) return
+    let active = true
+    // A snapshot refresh is not evidence that a particular request was displayed.
+    // Acknowledge only committed cards, after their window was shown successfully.
+    async function acknowledgeViews() {
+      const popup = getCurrentWindow()
+      // Incoming transfers still obey the backend's fullscreen-game suppression.
+      if (requests.length > 0) await popup.show()
+      if ((await popup.isVisible()) && active) await invoke('acknowledge_receive_view', { ids })
+    }
+    void acknowledgeViews().catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [requests, rows])
 
   // Self-hide when there is nothing left to show. Rust re-shows the window on
   // the next offer / clipboard receipt.

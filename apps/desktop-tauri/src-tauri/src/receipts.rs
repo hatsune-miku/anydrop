@@ -2,7 +2,7 @@
 //! each one until React confirms it was rendered, with bounded memory/age.
 use super::{ensure_receive_window, now_ms, AppHandle, Backend, RECEIVE_WINDOW_LABEL};
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use tauri::{Emitter, Manager, State};
 
 #[derive(Clone, Serialize)]
@@ -22,7 +22,7 @@ pub struct Receipts {
     next_id: u64,
     pending: VecDeque<Pending>,
     last_recovery: Option<u64>,
-    view_requested_at: Option<u64>,
+    views: HashMap<String, u64>,
     recovery_attempts: u32,
 }
 
@@ -53,6 +53,17 @@ impl Receipts {
         self.pending.retain(|item| !ids.contains(&item.receipt.id));
     }
 
+    fn request_view(&mut self, id: String, now: u64) {
+        self.views.entry(id).or_insert(now);
+    }
+
+    fn acknowledge_views(&mut self, ids: &[String]) {
+        self.views.retain(|id, _| !ids.contains(id));
+        if self.views.is_empty() && self.pending.is_empty() {
+            self.recovery_attempts = 0;
+        }
+    }
+
     fn needs_recovery(&mut self, now: u64) -> bool {
         self.expire(now);
         let receipt_waiting = self
@@ -60,8 +71,9 @@ impl Receipts {
             .front()
             .is_some_and(|item| now.saturating_sub(item.queued_at) >= 2500);
         let view_waiting = self
-            .view_requested_at
-            .is_some_and(|at| now.saturating_sub(at) >= 2500);
+            .views
+            .values()
+            .any(|at| now.saturating_sub(*at) >= 2500);
         if (receipt_waiting || view_waiting)
             && self
                 .last_recovery
@@ -75,14 +87,21 @@ impl Receipts {
     }
 }
 
-pub fn request_view(app: &AppHandle) {
+pub fn request_view(app: &AppHandle, id: String) {
     if let Some(backend) = app.try_state::<Backend>() {
-        backend
-            .receipts
-            .lock()
-            .unwrap()
-            .view_requested_at
-            .get_or_insert(now_ms());
+        backend.receipts.lock().unwrap().request_view(id, now_ms());
+    }
+}
+
+pub fn request_outgoing_views(app: &AppHandle, ids: &[String]) {
+    let backend = app.state::<Backend>();
+    let mut receipts = backend.receipts.lock().unwrap();
+    // Confirmation, cancellation and replacement retire their old requests.
+    receipts
+        .views
+        .retain(|id, _| !id.starts_with("outgoing:") || ids.contains(id));
+    for id in ids {
+        receipts.request_view(id.clone(), now_ms());
     }
 }
 
@@ -112,11 +131,13 @@ pub fn acknowledge_clipboard_receipts(backend: State<'_, Backend>, ids: Vec<u64>
 }
 
 #[tauri::command]
-pub fn acknowledge_receive_view(window: tauri::WebviewWindow, backend: State<'_, Backend>) {
+pub fn acknowledge_receive_view(
+    window: tauri::WebviewWindow,
+    backend: State<'_, Backend>,
+    ids: Vec<String>,
+) {
     if window.label() == RECEIVE_WINDOW_LABEL {
-        let mut receipts = backend.receipts.lock().unwrap();
-        receipts.view_requested_at = None;
-        receipts.recovery_attempts = 0;
+        backend.receipts.lock().unwrap().acknowledge_views(&ids);
     }
 }
 
@@ -124,10 +145,22 @@ pub fn recover_if_needed(app: &AppHandle) {
     let Some(backend) = app.try_state::<Backend>() else {
         return;
     };
+    let incoming: Vec<_> = backend
+        .transfers
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|transfer| transfer.direction == "incoming" && matches!(transfer.status, 1 | 4 | 9))
+        .map(|transfer| format!("incoming:{}", transfer.key))
+        .collect();
     let mut receipts = backend.receipts.lock().unwrap();
+    // A transfer handled from the main window no longer requires a popup.
+    receipts
+        .views
+        .retain(|id, _| !id.starts_with("incoming:") || incoming.contains(id));
     receipts.expire(now_ms());
     if app.get_webview_window(RECEIVE_WINDOW_LABEL).is_none()
-        && (!receipts.pending.is_empty() || receipts.view_requested_at.is_some())
+        && (!receipts.pending.is_empty() || !receipts.views.is_empty())
     {
         drop(receipts);
         ensure_receive_window(app);
@@ -144,7 +177,7 @@ pub fn recover_if_needed(app: &AppHandle) {
         if let Some(backend) = app.try_state::<Backend>() {
             let receipts = backend.receipts.lock().unwrap();
             // An acknowledgement may arrive while this UI task is queued.
-            if receipts.pending.is_empty() && receipts.view_requested_at.is_none() {
+            if receipts.pending.is_empty() && receipts.views.is_empty() {
                 return;
             }
         }
@@ -202,9 +235,24 @@ mod tests {
     #[test]
     fn pending_file_confirmations_also_recover_an_unresponsive_view() {
         let mut queue = Receipts::default();
-        queue.view_requested_at = Some(1000);
+        queue.request_view("outgoing:first".into(), 1000);
         assert!(queue.needs_recovery(4000));
-        queue.view_requested_at = None;
+        queue.acknowledge_views(&["outgoing:first".into()]);
+        assert!(!queue.needs_recovery(40_000));
+    }
+
+    #[test]
+    fn unrelated_or_stale_view_acknowledgements_cannot_hide_a_new_request() {
+        let mut queue = Receipts::default();
+        queue.request_view("outgoing:first".into(), 1000);
+        queue.request_view("outgoing:second".into(), 2000);
+        queue.acknowledge_views(&[]);
+        queue.acknowledge_views(&["incoming:transfer".into(), "outgoing:first".into()]);
+        assert_eq!(queue.views.len(), 1);
+        assert!(queue.needs_recovery(5000));
+        queue.request_view("outgoing:second".into(), 6000);
+        assert_eq!(queue.views["outgoing:second"], 2000);
+        queue.acknowledge_views(&["outgoing:second".into()]);
         assert!(!queue.needs_recovery(40_000));
     }
 }

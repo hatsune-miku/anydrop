@@ -2,12 +2,10 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
-pub fn handle_arguments(app: &AppHandle, args: &[String], cwd: &str) -> bool {
-    let Some(index) = args.iter().position(|arg| arg == "--send-files") else {
-        return false;
-    };
+pub(crate) fn selected_paths(args: &[String], cwd: &str) -> Option<Vec<PathBuf>> {
+    let index = args.iter().position(|arg| arg == "--send-files")?;
     if args.get(index + 1).map(String::as_str) != Some("--") {
-        return false;
+        return None;
     }
     let paths: Vec<_> = args[index + 2..]
         .iter()
@@ -20,6 +18,13 @@ pub fn handle_arguments(app: &AppHandle, args: &[String], cwd: &str) -> bool {
             }
         })
         .collect();
+    Some(paths)
+}
+
+pub fn handle_arguments(app: &AppHandle, args: &[String], cwd: &str) -> bool {
+    let Some(paths) = selected_paths(args, cwd) else {
+        return false;
+    };
     let app = app.clone();
     std::thread::spawn(move || {
         if let Err(error) = super::outgoing::files(&app, paths) {

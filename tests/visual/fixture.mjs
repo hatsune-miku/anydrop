@@ -138,6 +138,16 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       }
       if (cmd === 'get_desktop_preferences') return structuredClone(preferences)
       if (cmd === 'resize_receive_window') return
+      if (cmd === 'plugin:window|show') {
+        if (window.__showFailure) throw new Error('window unavailable')
+        window.__popupVisible = true
+        return
+      }
+      if (cmd === 'plugin:window|hide') {
+        window.__popupVisible = false
+        return
+      }
+      if (cmd === 'plugin:window|is_visible') return Boolean(window.__popupVisible)
       if (cmd === 'acknowledge_receive_view') return
       if (cmd === 'get_clipboard_receipts') {
         const initial = structuredClone(window.__clipboardReceipts ?? [])
