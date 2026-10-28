@@ -184,17 +184,46 @@ async fn catalogue(State(operations): State<Arc<dyn Operations>>) -> Json<Value>
 }
 async fn openapi(State(operations): State<Arc<dyn Operations>>) -> Json<Value> {
     let mut paths = serde_json::Map::new();
+    let mut schemas = serde_json::Map::new();
     for tool in operations.tools() {
+        // JSON Schema fragment references resolve from the whole document.
+        // Give each tool a component and relocate its local $defs references.
+        let component = format!("#/components/schemas/{}", tool.name);
+        let mut schema = Value::Object((*tool.input_schema).clone());
+        relocate_schema_refs(&mut schema, &component);
+        schemas.insert(tool.name.to_string(), schema);
         paths.insert(format!("/api/{}", tool.name), json!({"post": {
             "operationId":tool.name, "description":tool.description,
-            "requestBody":{"required":true,"content":{"application/json":{"schema":tool.input_schema}}},
+            "requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":component}}}},
             "responses":{"200":{"description":"Operation result: {ok:true,result:...}"},
                 "400":{"description":"Invalid arguments"},"409":{"description":"Operation could not complete: {ok:false,error:{code,message}}"}}
         }}));
     }
     Json(
-        json!({"openapi":"3.1.0", "info":{"title":"AnyDrop local API","version":operations.version()}, "paths":paths}),
+        json!({"openapi":"3.1.0", "info":{"title":"AnyDrop local API","version":operations.version()}, "paths":paths,
+            "components":{"schemas":schemas}}),
     )
+}
+
+fn relocate_schema_refs(value: &mut Value, component: &str) {
+    match value {
+        Value::Object(object) => {
+            if let Some(Value::String(reference)) = object.get_mut("$ref") {
+                if let Some(fragment) = reference.strip_prefix('#') {
+                    *reference = format!("{component}{fragment}");
+                }
+            }
+            for child in object.values_mut() {
+                relocate_schema_refs(child, component);
+            }
+        }
+        Value::Array(array) => {
+            for child in array {
+                relocate_schema_refs(child, component);
+            }
+        }
+        _ => (),
+    }
 }
 
 fn allowed_headers(headers: &HeaderMap, port: u16) -> bool {

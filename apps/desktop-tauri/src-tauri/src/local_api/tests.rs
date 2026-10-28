@@ -168,6 +168,33 @@ async fn official_mcp_client_and_http_share_catalogue_and_results() {
         .await
         .unwrap();
     assert_eq!(schema["paths"].as_object().unwrap().len(), names.len());
+    fn verify_references(value: &Value, document: &Value) {
+        match value {
+            Value::Object(object) => {
+                if let Some(reference) = object.get("$ref").and_then(Value::as_str) {
+                    let pointer = reference.strip_prefix('#').expect("local schema reference");
+                    assert!(
+                        document.pointer(pointer).is_some(),
+                        "Unresolved schema reference: {reference}"
+                    );
+                }
+                for child in object.values() {
+                    verify_references(child, document);
+                }
+            }
+            Value::Array(array) => {
+                for child in array {
+                    verify_references(child, document);
+                }
+            }
+            _ => (),
+        }
+    }
+    verify_references(&schema, &schema);
+    assert_eq!(
+        schema["components"]["schemas"]["save_settings"]["properties"]["settings"]["$ref"],
+        "#/components/schemas/save_settings/$defs/SettingsChange"
+    );
     client.cancel().await.unwrap();
 }
 
