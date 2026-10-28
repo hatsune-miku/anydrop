@@ -86,6 +86,12 @@ try {
     }, snap)
     await page.getByText('当前频段暂无在线设备').waitFor()
     assert(await send.isDisabled(), 'No peer cannot send')
+    await page.evaluate(() => {
+      window.__emit('clipboard-popup', { id: 8, kind: 'text', preview: 'API dismissal', text: 'API dismissal', peer: 'test' })
+      window.__emit('dismiss-popup', { receiptId: null, transferKeys: [], allReceipts: true })
+    })
+    await page.locator('.popup-card--clip').waitFor({ state: 'hidden' })
+    assert(await page.getByText('等待.txt', { exact: false }).isVisible(), 'API dismissal keeps pending confirmations')
     assert.deepEqual(errors, [])
     await page.close()
   }
@@ -109,7 +115,7 @@ try {
     window.__finishOutgoingRead()
   })
   await late.getByText('确认以文件形式发送', { exact: true }).waitFor()
-  await late.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'plugin:window|show'))
+  await late.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'show_receive_popup'))
   assert(
     await late.getByText('late.txt', { exact: false }).isVisible(),
     'Stale initial state cannot overwrite a newer request'

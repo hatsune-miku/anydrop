@@ -151,6 +151,14 @@ export default function ReceivePopup() {
     const unlisteners = [
       requestsListener,
       receiptsListener,
+      listen<{ receiptId: number | null; transferKeys: string[]; allReceipts: boolean }>(
+        'dismiss-popup',
+        ({ payload }) => {
+          if (payload.allReceipts) setCards([])
+          else if (payload.receiptId !== null) setCards((previous) => previous.filter((card) => card.id !== payload.receiptId))
+          setTracked((previous) => new Set([...previous].filter((key) => !payload.transferKeys.includes(key))))
+        }
+      ),
       listen<Transfer>('incoming-file', (event) => {
         const t = event.payload
         setTransfers((prev) => ({ ...prev, [t.key]: t }))
@@ -190,8 +198,7 @@ export default function ReceivePopup() {
     let active = true
     // Effects run after React commits the cards. Receiving an IPC event alone
     // is not an acknowledgement that the view was able to display it.
-    void getCurrentWindow()
-      .show()
+    void invoke('show_receive_popup')
       .then(() => {
         if (active) return invoke('acknowledge_clipboard_receipts', { ids: cards.map((card) => card.id) })
       })
@@ -231,7 +238,7 @@ export default function ReceivePopup() {
     async function acknowledgeViews() {
       const popup = getCurrentWindow()
       // Incoming transfers still obey the backend's fullscreen-game suppression.
-      if (requests.length > 0) await popup.show()
+      if (requests.length > 0) await invoke('show_receive_popup')
       if ((await popup.isVisible()) && active) await invoke('acknowledge_receive_view', { ids })
     }
     void acknowledgeViews().catch(() => {})
@@ -250,9 +257,7 @@ export default function ReceivePopup() {
     // Restore delayed send confirmations/receipts after first hydration. Incoming
     // file rows alone must still respect the backend's fullscreen-game suppression.
     if (requests.length > 0 || cards.length > 0) {
-      void getCurrentWindow()
-        .show()
-        .catch(() => {})
+      void invoke('show_receive_popup').catch(() => {})
     }
   }, [rows.length, cards.length, requests.length])
 

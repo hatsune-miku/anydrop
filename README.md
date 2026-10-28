@@ -28,6 +28,7 @@ AnyDrop is the visual source of truth for CakeUI. The desktop app uses CakeUI 0.
 - [Confirmed mobile scope: React Native, Android APK, and iOS Simulator](docs/mobile-plan.md)
 - [Mobile implementation checklist: confirmed decisions and remaining engineering work](docs/mobile-implementation-questions.md)
 - [Desktop autostart, global shortcut and updater configuration](docs/desktop-integration.md)
+- [Local MCP and HTTP API, including incoming file and clipboard waits](docs/local-api.md)
 
 Desktop updates use independent AnyDrop signatures and the RC endpoint at https://anydrop-api.vanillacake.cn/rc/latest.json. GitHub builds signed installers; the server verifies and mirrors complete releases before publishing the manifest. See [updater deployment](deploy/updater/README.md).
 

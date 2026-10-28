@@ -38,6 +38,9 @@ unsafe extern "C-unwind" fn nonactivating(window: &AnyObject, selector: Sel) -> 
 // receipts order forward without taking keyboard focus; other windows delegate.
 unsafe extern "C-unwind" fn show(window: &AnyObject, selector: Sel, sender: *mut AnyObject) {
     if is_receipt(window) {
+        // Reassert the native level as well: Tauri may cache an earlier topmost
+        // value across hide/show and desktop transitions.
+        let _: () = msg_send![window, setLevel: objc2_app_kit::NSFloatingWindowLevel];
         let _: () = msg_send![window, orderFrontRegardless];
     } else {
         (ORIGINAL.get().unwrap().show)(window, selector, sender);
@@ -105,6 +108,7 @@ pub fn configure(window: &tauri::WebviewWindow) -> Result<(), String> {
         // https://github.com/chromium/chromium/blob/main/components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm
         let _: () = msg_send![native, _setPreventsActivation: Bool::YES];
         let _: () = msg_send![native, setHidesOnDeactivate: Bool::NO];
+        let _: () = msg_send![native, setLevel: objc2_app_kit::NSFloatingWindowLevel];
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
 //! Native desktop receive integration probe, confined to the loopback address.
-//! args: PORT FILE [pending]; use an isolated debug AnyDrop instance.
+//! args: PORT FILE [FILE ...] [pending]; use an isolated debug AnyDrop instance.
 use anydrop::transfer::{self, TransferStatus};
 use std::{
     path::PathBuf,
@@ -9,8 +9,12 @@ use std::{
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     let port: u16 = args.get(1).ok_or("port required")?.parse()?;
-    let path = PathBuf::from(args.get(2).ok_or("file required")?);
-    let pending = args.get(3).is_some_and(|s| s == "pending");
+    let pending = args.last().is_some_and(|s| s == "pending");
+    let end = args.len() - usize::from(pending);
+    let paths: Vec<_> = args[2..end].iter().map(PathBuf::from).collect();
+    if paths.is_empty() {
+        return Err("file required".into());
+    }
     let (tx, rx) = mpsc::channel();
     let server = transfer::start_server(
         "127.0.0.1:0".parse()?,
@@ -21,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         |_| {},
     )?;
-    let id = server.send_paths(format!("127.0.0.1:{port}").parse()?, vec![path]);
+    let id = server.send_paths(format!("127.0.0.1:{port}").parse()?, paths);
     let started = Instant::now();
     let mut awaiting = false;
     while started.elapsed() < Duration::from_secs(if pending { 3 } else { 15 }) {
@@ -39,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Err(p.error.unwrap_or_default().into());
             }
             if p.status == TransferStatus::AllDone {
-                println!("Native auto-receive completed: {} bytes", p.total_done);
+                println!("Native file reception completed: {} bytes", p.total_done);
                 server.close();
                 return Ok(());
             }

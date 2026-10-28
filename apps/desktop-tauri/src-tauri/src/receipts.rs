@@ -130,6 +130,10 @@ pub fn acknowledge_clipboard_receipts(backend: State<'_, Backend>, ids: Vec<u64>
     backend.receipts.lock().unwrap().acknowledge(&ids);
 }
 
+pub fn dismiss_all_clipboard_receipts(backend: &Backend) {
+    backend.receipts.lock().unwrap().pending.clear();
+}
+
 #[tauri::command]
 pub fn acknowledge_receive_view(
     window: tauri::WebviewWindow,
@@ -182,7 +186,7 @@ pub fn recover_if_needed(app: &AppHandle) {
             }
         }
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
-            super::show_receive_window(&window);
+            let _ = super::show_receive_window(&window);
             // reload() recovers a failed renderer and re-runs subscription +
             // pending-state hydration. It doesn't clear backend file offers.
             if recreate || window.reload().is_err() {

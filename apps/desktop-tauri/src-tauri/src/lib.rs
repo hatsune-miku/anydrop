@@ -2,10 +2,14 @@ mod clipboard;
 mod context_menu;
 #[cfg(desktop)]
 mod desktop;
+#[cfg(desktop)]
+mod local_api;
 mod outgoing;
 mod receipts;
 #[cfg(target_os = "macos")]
 mod receive_window_macos;
+#[cfg(windows)]
+mod receive_window_windows;
 #[cfg(any(windows, test))]
 mod shell_inbox;
 mod text_format;
@@ -282,6 +286,11 @@ struct Transfer {
     file_name: String,
     remote_path: String,
     local_path: String,
+    /// Top-level entries in the offer, used to return every landed selection.
+    #[serde(default)]
+    entries: Vec<String>,
+    #[serde(default)]
+    local_paths: Vec<String>,
     peer: String,
     host: String,
     direction: String,
@@ -374,6 +383,9 @@ struct Backend {
     installing: AtomicBool,
     runtime: Mutex<Option<ServiceRuntime>>,
     settings: Mutex<AppSettings>,
+    settings_change: Mutex<()>,
+    #[cfg(desktop)]
+    events: Arc<local_api::events::Events>,
     peers: Arc<Mutex<Vec<PeerGroup>>>,
     transfers: Arc<Mutex<HashMap<String, Transfer>>>,
     clipboard: Arc<Mutex<ClipboardState>>,
@@ -449,6 +461,8 @@ fn apply_progress(
         }),
         remote_path: format!("transfer_id:{}", p.transfer_id),
         local_path: String::new(),
+        entries: Vec::new(),
+        local_paths: Vec::new(),
         peer: format!("{}@{}", p.display_name, p.remote_addr),
         host: p.remote_addr.ip().to_string(),
         direction: if matches!(p.direction, TransferDirection::Send) {
@@ -1041,6 +1055,11 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 emit_snapshot(&text_app);
                 return;
             }
+            #[cfg(desktop)]
+            text_app.state::<Backend>().events.publish(
+                local_api::events::Kind::ClipboardText,
+                serde_json::json!({"text": &text, "peer": peer_text(peer)}),
+            );
             let _ = text_app.emit(
                 "text-received",
                 serde_json::json!({ "text": text, "peer": peer_text(peer) }),
@@ -1213,6 +1232,15 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             file_name: label,
             remote_path: format!("transfer_id:{}", offer.transfer_id),
             local_path: String::new(),
+            entries: offer
+                .items
+                .iter()
+                .map(|item| top_level_name(&item.rel_path))
+                .filter(|name| !name.is_empty())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
+            local_paths: Vec::new(),
             peer: format!("{}@{}", offer.display_name, offer.remote_addr),
             host: offer.remote_addr.ip().to_string(),
             direction: "incoming".to_string(),
@@ -1231,6 +1259,12 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
         };
         offer_transfers.lock().unwrap().insert(key, t.clone());
         save_transfers(&offer_transfers.lock().unwrap());
+        #[cfg(desktop)]
+        backend.events.publish(
+            local_api::events::Kind::FileOffered,
+            serde_json::json!({"transferKey": &t.key, "peer": &t.peer, "fileName": &t.file_name,
+                "entries": &t.entries, "bytes": t.total}),
+        );
         let show_popup = !popup_suppressed_by_game(&offer_app);
         if show_popup {
             receipts::request_view(&offer_app, format!("incoming:{}", offer.transfer_id));
@@ -1301,6 +1335,14 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
             );
         }
         let t = apply_progress(&prog_transfers, &p, None);
+        #[cfg(desktop)]
+        if matches!(p.direction, TransferDirection::Recv)
+            && matches!(p.status, TransferStatus::AllDone)
+        {
+            prog_app.state::<Backend>().events.publish(local_api::events::Kind::FileReceived,
+                serde_json::json!({"transferKey": &t.key, "peer": &t.peer, "fileName": &t.file_name,
+                    "localPath": &t.reveal_path, "paths": &t.local_paths, "saveDir": &t.local_path, "bytes": t.total}));
+        }
         if matches!(
             p.status,
             TransferStatus::AllDone | TransferStatus::Rejected | TransferStatus::Cancelled
@@ -1456,6 +1498,15 @@ fn stop_service(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
 fn save_settings(
     app: AppHandle,
     backend: State<'_, Backend>,
+    settings: AppSettings,
+) -> Result<Snapshot, String> {
+    let _change = backend.settings_change.lock().unwrap();
+    save_settings_inner(&app, &backend, settings)
+}
+
+fn save_settings_inner(
+    app: &AppHandle,
+    backend: &Backend,
     settings: AppSettings,
 ) -> Result<Snapshot, String> {
     let settings = normalize_settings(settings);
@@ -1617,6 +1668,8 @@ fn send_paths_inner(
             file_name: String::new(), // overwritten by the client's summary event
             remote_path: format!("transfer_id:{}", transfer_id),
             local_path: source_dir,
+            entries: Vec::new(),
+            local_paths: Vec::new(),
             peer: target.to_string(),
             host: target.ip().to_string(),
             direction: "outgoing".to_string(),
@@ -1703,6 +1756,11 @@ fn accept_transfer_inner(
         }
         t.status = 4;
         t.local_path = save_root.to_string_lossy().to_string();
+        t.local_paths = t
+            .entries
+            .iter()
+            .map(|entry| save_root.join(entry).to_string_lossy().into_owned())
+            .collect();
         // Reveal target = the top-level entry under the save root. Falls back
         // to the save root itself if we never learned a top-level name.
         let reveal = if t.top_level.is_empty() {
@@ -1711,6 +1769,9 @@ fn accept_transfer_inner(
             save_root.join(&t.top_level)
         };
         t.reveal_path = reveal.to_string_lossy().to_string();
+        if t.local_paths.is_empty() {
+            t.local_paths.push(t.reveal_path.clone());
+        }
     }
     handle.respond(transfer_id, Decision::Accept { save_root });
     backend.persist_transfers();
@@ -1766,8 +1827,10 @@ fn cancel_transfer(
     // Optimistically mark the row Cancelled in case the backend hasn't yet
     // emitted its terminal Cancelled progress event — UI feedback is instant.
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
-        t.status = 5;
-        t.speed_bps = 0.0;
+        if matches!(t.status, 4 | 9 | 10) {
+            t.status = 5;
+            t.speed_bps = 0.0;
+        }
     }
     emit_snapshot(&app);
     Ok(backend.snapshot())
@@ -1789,8 +1852,10 @@ fn pause_transfer(
     let signalled = handle.pause_transfer(transfer_id);
     backend.log(format!("pause: id={transfer_id} signalled={signalled}"));
     if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
-        t.status = 9;
-        t.speed_bps = 0.0;
+        if t.status == 4 {
+            t.status = 9;
+            t.speed_bps = 0.0;
+        }
     }
     emit_snapshot(&app);
     Ok(backend.snapshot())
@@ -1839,8 +1904,10 @@ fn resume_transfer(
                     "resume: id={transfer_id} (incoming → signalled {host})"
                 ));
                 if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
-                    t.status = 4;
-                    t.error = None;
+                    if t.status == 9 {
+                        t.status = 4;
+                        t.error = None;
+                    }
                 }
             }
             Err(_) => {
@@ -1854,8 +1921,10 @@ fn resume_transfer(
         backend.log(format!("resume: id={transfer_id} restarted={restarted}"));
         if restarted {
             if let Some(t) = backend.transfers.lock().unwrap().get_mut(&transfer_key) {
-                t.status = 4;
-                t.error = None;
+                if t.status == 9 {
+                    t.status = 4;
+                    t.error = None;
+                }
             }
         }
     }
@@ -2212,16 +2281,7 @@ fn make_receive_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
 /// raising the main window. macOS uses receive_window_macos for the same purpose.
 #[cfg(windows)]
 fn make_no_activate(window: &tauri::WebviewWindow) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
-    };
-    if let Ok(handle) = window.hwnd() {
-        let hwnd = handle.0;
-        unsafe {
-            let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE as isize));
-        }
-    }
+    receive_window_windows::configure(window);
 }
 
 #[cfg(not(windows))]
@@ -2237,22 +2297,36 @@ fn preinit_receive_window(app: &AppHandle) {
     }
 }
 
-fn show_receive_window(window: &tauri::WebviewWindow) {
+fn show_receive_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
     position_bottom_right(window);
-    let _ = window.set_always_on_top(true);
-    let _ = window.show();
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
     #[cfg(windows)]
-    if let Ok(handle) = window.hwnd() {
-        // Tao caches visibility flags. Reassert native visibility after a
-        // desktop/session transition even if the cached value is already true.
-        // SW_RESTORE/unminimize would activate the window.
-        unsafe {
-            windows_sys::Win32::UI::WindowsAndMessaging::ShowWindow(
-                handle.0,
-                windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNOACTIVATE,
-            );
-        }
+    receive_window_windows::show(window)?;
+    Ok(())
+}
+
+/// Every frontend show goes through the same native topmost/no-activation path.
+#[tauri::command]
+async fn show_receive_popup(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != RECEIVE_WINDOW_LABEL {
+        return Err("无效浮窗".into());
+    }
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    window
+        .app_handle()
+        .clone()
+        .run_on_main_thread(move || {
+            let result = show_receive_window(&window)
+                .and_then(|_| window.is_visible().map_err(|e| e.to_string()));
+            let _ = sender.send(result);
+        })
+        .map_err(|e| e.to_string())?;
+    if receiver.await.map_err(|e| e.to_string())?? {
+        Ok(())
+    } else {
+        Err("浮窗未能显示".into())
     }
 }
 
@@ -2268,11 +2342,11 @@ fn ensure_receive_window(app: &AppHandle) {
     let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || {
         if let Some(window) = app.get_webview_window(RECEIVE_WINDOW_LABEL) {
-            show_receive_window(&window);
+            let _ = show_receive_window(&window);
             return;
         }
         if let Some(window) = make_receive_window(&app) {
-            show_receive_window(&window);
+            let _ = show_receive_window(&window);
         }
     });
 }
@@ -2359,6 +2433,7 @@ fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> R
     if let Some(window) = app.get_webview_window(PREVIEW_WINDOW_LABEL) {
         let _ = window.emit("preview-load", &payload);
         let _ = window.set_title(name);
+        let _ = window.set_always_on_top(true);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -2373,6 +2448,7 @@ fn open_preview_window(app: &AppHandle, path: &str, kind: &str, name: &str) -> R
     .inner_size(760.0, 580.0)
     .min_inner_size(360.0, 280.0)
     .decorations(false)
+    .always_on_top(true)
     .center()
     .build()
     .map_err(|err| format!("preview window build failed: {err}"))?;
@@ -2436,7 +2512,14 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn run() {
     shared_anydrop_init();
-    let context = tauri::generate_context!();
+    #[allow(unused_mut)]
+    let mut context = tauri::generate_context!();
+    #[cfg(all(desktop, debug_assertions))]
+    if std::env::var_os("ANYDROP_TEST_CONFIG_DIR").is_some() {
+        // An isolated integration probe must not forward into the user's app.
+        context.config_mut().identifier =
+            format!("{}.test-{}", context.config().identifier, local_api::port());
+    }
     #[cfg(windows)]
     let (queued_shell_request, startup_guard) =
         match shell_inbox::prepare(&context.config().identifier) {
@@ -2474,7 +2557,8 @@ pub fn run() {
             )
             .plugin(tauri_plugin_updater::Builder::new().build())
             .manage(desktop::DesktopState::default())
-            .manage(updates::UpdateState::default());
+            .manage(updates::UpdateState::default())
+            .manage(local_api::ServerState::default());
     }
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -2514,6 +2598,8 @@ pub fn run() {
             preinit_receive_window(&handle);
             #[cfg(desktop)]
             desktop::initialize(handle.clone());
+            #[cfg(desktop)]
+            local_api::start(handle.clone());
             #[cfg(windows)]
             shell_inbox::start(handle.clone());
             #[cfg(windows)]
@@ -2546,6 +2632,7 @@ pub fn run() {
             outgoing::confirm_outgoing_request,
             outgoing::dismiss_outgoing_request,
             resize_receive_window,
+            show_receive_popup,
             get_snapshot,
             refresh_peers,
             start_service,
@@ -2575,6 +2662,12 @@ pub fn run() {
             show_window_menu,
             focus_main_window
         ])
-        .run(context)
-        .expect("error while running AnyDrop");
+        .build(context)
+        .expect("error while building AnyDrop")
+        .run(|app, event| {
+            #[cfg(desktop)]
+            if matches!(event, tauri::RunEvent::Exit) {
+                local_api::stop(app);
+            }
+        });
 }

@@ -65,6 +65,8 @@ pub async fn check_app_update(
     if !configured(&app) {
         return Err("此版本尚未配置更新服务".into());
     }
+    // Local API calls may arrive before the LAN service has initialized TLS.
+    anydrop::transfer::cert::ensure_crypto_installed();
     let mut update = app
         .updater_builder()
         .timeout(std::time::Duration::from_secs(30))

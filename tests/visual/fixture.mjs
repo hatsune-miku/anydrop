@@ -138,7 +138,7 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       }
       if (cmd === 'get_desktop_preferences') return structuredClone(preferences)
       if (cmd === 'resize_receive_window') return
-      if (cmd === 'plugin:window|show') {
+      if (cmd === 'plugin:window|show' || cmd === 'show_receive_popup') {
         if (window.__showFailure) throw new Error('window unavailable')
         window.__popupVisible = true
         return

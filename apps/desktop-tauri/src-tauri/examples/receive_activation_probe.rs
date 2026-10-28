@@ -83,7 +83,12 @@ fn main() {
                 let active: Bool = msg_send![application, isActive];
                 assert!(!active.as_bool(), "probe must start in the background");
                 for _ in 0..30 {
+                    // Simulate another native operation losing the topmost level.
+                    let native = &*popup.ns_window().unwrap().cast::<AnyObject>();
+                    let _: () = msg_send![native, setLevel: 0isize];
                     popup.show().unwrap();
+                    let level: isize = msg_send![native, level];
+                    assert_eq!(level, objc2_app_kit::NSFloatingWindowLevel);
                     assert!(popup.is_visible().unwrap());
                     assert!(!popup.is_focused().unwrap());
                     assert!(!main.is_visible().unwrap());
