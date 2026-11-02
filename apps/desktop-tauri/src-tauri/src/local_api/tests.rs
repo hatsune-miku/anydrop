@@ -15,6 +15,7 @@ fn http_client() -> reqwest::Client {
 struct Fixture {
     events: Arc<events::Events>,
     active: Arc<AtomicUsize>,
+    calls: Arc<AtomicUsize>,
 }
 impl Operations for Fixture {
     fn version(&self) -> String {
@@ -26,7 +27,9 @@ impl Operations for Fixture {
     fn call(&self, name: String, arguments: Value, cancel: CancellationToken) -> Call {
         let events = self.events.clone();
         let active = self.active.clone();
+        let calls = self.calls.clone();
         Box::pin(async move {
+            calls.fetch_add(1, Ordering::SeqCst);
             struct Active(Arc<AtomicUsize>);
             impl Drop for Active {
                 fn drop(&mut self) {
@@ -38,6 +41,11 @@ impl Operations for Fixture {
             match name.as_str() {
                 "get_snapshot" => Ok(json!({"running":true,"fixture":true})),
                 "get_event_cursor" => Ok(json!({"cursor":events.cursor()})),
+                "accept_transfer" | "reject_transfer" | "pause_transfer" | "resume_transfer"
+                | "cancel_transfer" | "dismiss_transfer" | "copy_text" | "clear_logs"
+                | "clear_transfers" | "open_directory" | "preview_file" => {
+                    Ok(json!({"operation":name,"arguments":arguments}))
+                }
                 "wait_for_clipboard_text" | "wait_for_file" => {
                     let options = serde_json::from_value(arguments)
                         .map_err(|e| ApiError::invalid(format!("{e}")))?;
@@ -74,6 +82,7 @@ async fn server() -> Server {
     let fixture = Arc::new(Fixture {
         events: Arc::new(events::Events::default()),
         active: Arc::new(AtomicUsize::new(0)),
+        calls: Arc::new(AtomicUsize::new(0)),
     });
     let stop = CancellationToken::new();
     let router = router(fixture.clone(), address.port(), stop.clone());
@@ -103,7 +112,7 @@ async fn active_count(server: &Server, expected: usize) {
 }
 
 #[tokio::test]
-async fn official_mcp_client_and_http_share_catalogue_and_results() {
+async fn official_mcp_client_has_compact_catalogue_and_shared_results() {
     let server = server().await;
     let http = http_client();
     let inventory: Value = http
@@ -133,7 +142,28 @@ async fn official_mcp_client_and_http_share_catalogue_and_results() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, http_names);
+    let http_only = [
+        "copy_text",
+        "clear_logs",
+        "clear_transfers",
+        "open_directory",
+        "preview_file",
+        "accept_transfer",
+        "reject_transfer",
+        "pause_transfer",
+        "resume_transfer",
+        "cancel_transfer",
+        "dismiss_transfer",
+    ];
+    let mut expected: Vec<_> = http_names
+        .iter()
+        .copied()
+        .filter(|name| !http_only.contains(name))
+        .collect();
+    expected.push("operate_transfer");
+    assert_eq!(names, expected);
+    assert_eq!(names.len(), 29);
+    assert_eq!(http_names.len(), 39);
     assert!(names.contains(&"wait_for_file") && names.contains(&"wait_for_clipboard_text"));
     let mcp = client
         .call_tool(CallToolRequestParams::new("get_snapshot"))
@@ -167,7 +197,7 @@ async fn official_mcp_client_and_http_share_catalogue_and_results() {
         .json()
         .await
         .unwrap();
-    assert_eq!(schema["paths"].as_object().unwrap().len(), names.len());
+    assert_eq!(schema["paths"].as_object().unwrap().len(), http_names.len());
     fn verify_references(value: &Value, document: &Value) {
         match value {
             Value::Object(object) => {
@@ -195,6 +225,140 @@ async fn official_mcp_client_and_http_share_catalogue_and_results() {
         schema["components"]["schemas"]["save_settings"]["properties"]["settings"]["$ref"],
         "#/components/schemas/save_settings/$defs/SettingsChange"
     );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn mcp_transfer_actions_dispatch_and_retired_tool_names_are_rejected() {
+    let server = server().await;
+    let http = http_client();
+    let transport = StreamableHttpClientTransport::with_client(
+        http_client(),
+        StreamableHttpClientTransportConfig::with_uri(format!("{}/mcp", server.url)),
+    );
+    let client = ClientConfig::default().serve(transport).await.unwrap();
+    let tools = client.list_all_tools().await.unwrap();
+    let tool = tools
+        .iter()
+        .find(|tool| tool.name == "operate_transfer")
+        .unwrap();
+    let schema = Value::Object((*tool.input_schema).clone());
+    assert_eq!(
+        schema["$defs"]["TransferAction"]["enum"],
+        json!(["accept", "reject", "pause", "resume", "cancel", "dismiss"])
+    );
+    assert_eq!(schema["required"], json!(["action", "transferKey"]));
+    assert_eq!(schema["additionalProperties"], false);
+
+    for (action, operation) in [
+        ("accept", "accept_transfer"),
+        ("reject", "reject_transfer"),
+        ("pause", "pause_transfer"),
+        ("resume", "resume_transfer"),
+        ("cancel", "cancel_transfer"),
+        ("dismiss", "dismiss_transfer"),
+    ] {
+        let mut arguments = json!({"action":action,"transferKey":"123"});
+        let mut forwarded = json!({"transferKey":"123"});
+        if action == "accept" {
+            arguments["saveDir"] = json!("/chosen folder");
+            forwarded["saveDir"] = json!("/chosen folder");
+        }
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("operate_transfer")
+                    .with_arguments(arguments.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result.structured_content.unwrap(),
+            json!({"ok":true,"result":{"operation":operation,"arguments":forwarded}})
+        );
+    }
+    let default_accept = client
+        .call_tool(
+            CallToolRequestParams::new("operate_transfer").with_arguments(
+                json!({"action":"accept","transferKey":"123"})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        default_accept.structured_content.unwrap()["result"]["arguments"],
+        json!({"transferKey":"123"})
+    );
+
+    let before = server.fixture.calls.load(Ordering::SeqCst);
+    for arguments in [
+        json!({"transferKey":"123"}),
+        json!({"action":"accept"}),
+        json!({"action":"delete","transferKey":"123"}),
+        json!({"action":"cancel","transferKey":"123","saveDir":"/wrong"}),
+        json!({"action":"accept","transferKey":"123","extra":true}),
+    ] {
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("operate_transfer")
+                    .with_arguments(arguments.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            result.structured_content.unwrap()["error"]["code"],
+            "invalid_arguments"
+        );
+    }
+    assert_eq!(server.fixture.calls.load(Ordering::SeqCst), before);
+
+    for name in [
+        "copy_text",
+        "clear_logs",
+        "clear_transfers",
+        "open_directory",
+        "preview_file",
+        "accept_transfer",
+        "reject_transfer",
+        "pause_transfer",
+        "resume_transfer",
+        "cancel_transfer",
+        "dismiss_transfer",
+    ] {
+        let result: Value = http.post(format!("{}/mcp", server.url))
+            .header("Accept", "application/json, text/event-stream")
+            .header("MCP-Protocol-Version", "2025-11-25")
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{}}}))
+            .send().await.unwrap().json().await.unwrap();
+        assert_eq!(result["error"]["code"], -32601, "{name}: {result}");
+    }
+    assert_eq!(server.fixture.calls.load(Ordering::SeqCst), before);
+    for name in [
+        "copy_text",
+        "clear_logs",
+        "clear_transfers",
+        "open_directory",
+        "preview_file",
+        "accept_transfer",
+        "reject_transfer",
+        "pause_transfer",
+        "resume_transfer",
+        "cancel_transfer",
+        "dismiss_transfer",
+    ] {
+        let result: Value = http
+            .post(format!("{}/api/{name}", server.url))
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(result["result"]["operation"], name);
+    }
     client.cancel().await.unwrap();
 }
 

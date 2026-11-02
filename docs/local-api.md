@@ -10,7 +10,35 @@ They operate on the running app's settings, peers and transfers. The local serve
 
 ## MCP
 
-Add a Streamable HTTP server with URL `http://localhost:26937/mcp` in your MCP client. The server supports initialization, `tools/list`, `tools/call` and cancellation through the MCP Rust SDK. Tool names and argument schemas match the HTTP catalogue below. Successful results expose `{ "ok": true, "result": ... }` in `structuredContent`; operation failures set `isError` and return `{ "ok": false, "error": { "code": "...", "message": "..." } }`.
+Add a Streamable HTTP server with URL `http://localhost:26937/mcp` in your MCP client. The server supports initialization, `tools/list`, `tools/call` and cancellation through the MCP Rust SDK. MCP exposes 29 tools; use `tools/list` for their argument schemas. Successful results expose `{ "ok": true, "result": ... }` in `structuredContent`; operation failures set `isError` and return `{ "ok": false, "error": { "code": "...", "message": "..." } }`.
+
+Transfer controls use **`operate_transfer`** with a required `action` and `transferKey`:
+
+| `action` | Behavior |
+| --- | --- |
+| `accept` | Accept an incoming offer; optional `saveDir` chooses an absolute destination directory. |
+| `reject` | Reject an incoming offer. |
+| `pause` | Pause an active transfer. |
+| `resume` | Resume a paused transfer. |
+| `cancel` | Cancel an active, paused or awaiting-accept transfer. |
+| `dismiss` | Remove a finished transfer record without deleting received files. |
+
+Example `tools/call` parameters:
+
+```json
+{
+  "name": "operate_transfer",
+  "arguments": {
+    "action": "accept",
+    "transferKey": "123",
+    "saveDir": "/Users/me/Downloads"
+  }
+}
+```
+
+Omitting `saveDir` uses the GUI's default receive directory. `saveDir` is only valid for `accept`. Results and transfer-state checks are shared with the corresponding GUI/HTTP actions.
+
+MCP no longer exposes or accepts calls to `copy_text`, `clear_logs`, `clear_transfers`, `open_directory`, `preview_file`, or the six old transfer tool names (`accept_transfer`, `reject_transfer`, `pause_transfer`, `resume_transfer`, `cancel_transfer`, `dismiss_transfer`). Other MCP tools retain the names and arguments listed in the HTTP catalogue below. HTTP keeps its existing 39 operations and OpenAPI schemas, including all of those individual operations; `operate_transfer` is MCP-only.
 
 ## HTTP
 
@@ -29,7 +57,7 @@ curl http://localhost:26937/api \
 
 Success returns `{ "ok": true, "result": ... }`. Operation errors return `{ "ok": false, "error": { "code": "...", "message": "..." } }`: HTTP 400 for invalid arguments, 404 for unknown operations, 409 for operations that cannot complete, or 500 for internal failures. Malformed HTTP/JSON can also be rejected by the transport before dispatch.
 
-| GUI operation | API / MCP names |
+| GUI operation | HTTP operation names |
 | --- | --- |
 | App, peers and service | `get_app_info`, `get_snapshot`, `refresh_peers`, `start_service`, `stop_service` |
 | Settings and nicknames | `save_settings`, `set_peer_remark` |
@@ -49,7 +77,7 @@ Read `GET /api` for complete input schemas. `save_settings` accepts a partial `s
 
 ## Waiting for files and clipboard text
 
-`wait_for_file` defaults to **completed reception** and returns local paths. It does not accept offers or change auto-receive preferences. Accept through the GUI, `accept_transfer`, or the existing auto-receive setting.
+`wait_for_file` defaults to **completed reception** and returns local paths. It does not accept offers or change auto-receive preferences. Accept through the GUI, MCP `operate_transfer` with `action: "accept"`, HTTP `accept_transfer`, or the existing auto-receive setting.
 
 ```sh
 curl http://localhost:26937/api/wait_for_file \
@@ -91,7 +119,7 @@ To decide whether to receive a file programmatically:
 
 1. Call `get_event_cursor` and save its `cursor`.
 2. Call `wait_for_file` with `{ "stage": "offered", "after": "<cursor>" }`.
-3. Inspect `transferKey`, `entries`, `peer` and `bytes`, then call `accept_transfer` with `{ "transferKey": "...", "saveDir": "/absolute/destination" }` or `reject_transfer`.
+3. Inspect `transferKey`, `entries`, `peer` and `bytes`. In MCP, call `operate_transfer` with `{ "action": "accept", "transferKey": "...", "saveDir": "/absolute/destination" }` or `{ "action": "reject", "transferKey": "..." }`. HTTP uses `accept_transfer` or `reject_transfer` with the same arguments except `action`.
 4. Call `wait_for_file` with `{ "after": "<offer cursor>", "transferKey": "..." }`. Completion is returned even if it occurred between steps 3 and 4.
 
 Both waits accept `after`, `timeoutMs` and an exact `peer` filter; file waits also accept `transferKey` and `stage` (`completed` by default, or `offered`). Without `after`, only events arriving after the call starts qualify. Timeout defaults to 60 seconds; `0` waits indefinitely; the maximum nonzero value is 24 hours. Set the client request timeout accordingly.
@@ -100,7 +128,7 @@ A timeout returns `{ "timedOut": true, "cursor": "...", "event": null }`. Pass t
 
 ## Verification
 
-`cargo test -p anydrop-desktop-tauri --lib` includes loopback HTTP and MCP SDK client tests for schemas, errors, Host/Origin checks, concurrent waits, replay, timeouts and cancellation.
+`cargo test -p anydrop-desktop-tauri --lib` includes loopback HTTP and MCP SDK client tests for schemas, removed-tool rejection, all six merged transfer actions, unchanged HTTP operations, errors, Host/Origin checks, concurrent waits, replay, timeouts and cancellation.
 
 The native probe receives a real multi-selection QUIC transfer and verifies its contents and returned paths, settings changes and LAN service stop/start:
 

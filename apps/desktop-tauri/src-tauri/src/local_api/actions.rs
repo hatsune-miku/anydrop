@@ -1,4 +1,5 @@
-//! One operation catalogue and dispatcher for both local transports.
+//! Desktop operation catalogue and dispatcher, exposed directly by HTTP and
+//! through MCP's compact tool surface.
 use super::{
     events::{Kind, WaitOptions},
     ApiError,

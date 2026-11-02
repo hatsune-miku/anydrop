@@ -130,7 +130,15 @@ try {
   })
   assert.equal(initialized.protocolVersion, '2025-11-25')
   const tools = await mcp('tools/list', {})
-  assert.deepEqual(tools.tools.map((tool) => tool.name), inventory.operations.map((tool) => tool.name))
+  const httpOnly = new Set([
+    'copy_text', 'clear_logs', 'clear_transfers', 'open_directory', 'preview_file',
+    'accept_transfer', 'reject_transfer', 'pause_transfer', 'resume_transfer', 'cancel_transfer', 'dismiss_transfer',
+  ])
+  assert.deepEqual(tools.tools.map((tool) => tool.name), [
+    ...inventory.operations.map((tool) => tool.name).filter((name) => !httpOnly.has(name)),
+    'operate_transfer',
+  ])
+  assert.equal(tools.tools.length, 29)
   const nativeSnapshot = await mcp('tools/call', { name: 'get_snapshot', arguments: {} })
   assert.equal(nativeSnapshot.structuredContent.result.settings.displayName, settings.displayName)
   const ipv6 = await (await fetch(`http://[::1]:${apiPort}/api`)).json()
@@ -174,7 +182,11 @@ try {
   assert.equal(offered.event.data.entries.length, 2)
   await delay(200)
   assert.equal(completedEarly, false, 'Default file wait must not return an unaccepted offer')
-  await call('accept_transfer', { transferKey: offered.event.data.transferKey, saveDir: destination })
+  const accepted = await mcp('tools/call', {
+    name: 'operate_transfer',
+    arguments: { action: 'accept', transferKey: offered.event.data.transferKey, saveDir: destination },
+  })
+  assert.equal(accepted.isError, false, JSON.stringify(accepted))
   const received = await completed
   assert.equal(received.timedOut, false)
   assert.equal(received.event.data.transferKey, offered.event.data.transferKey)
@@ -201,6 +213,13 @@ try {
   checks.push('Real QUIC offer, explicit acceptance, default completion wait, multiple local paths, exact file contents, cursor replay')
 
   await call('dismiss_popup')
+  const dismissed = await mcp('tools/call', {
+    name: 'operate_transfer',
+    arguments: { action: 'dismiss', transferKey: received.event.data.transferKey },
+  })
+  assert.equal(dismissed.isError, false, JSON.stringify(dismissed))
+  assert.equal((await call('get_snapshot')).transfers.length, 0)
+  checks.push('Merged MCP transfer acceptance and dismissal with the existing HTTP API retained')
   assert.equal((await call('clear_transfers')).transfers.length, 0)
   await call('stop_service', {}, 15000)
   assert.equal((await call('get_snapshot')).running, false)

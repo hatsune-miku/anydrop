@@ -1,6 +1,7 @@
 //! Loopback-only control surfaces backed by the same desktop operations.
 mod actions;
 pub mod events;
+mod mcp;
 
 use axum::{
     extract::{DefaultBodyLimit, Path, State},
@@ -102,7 +103,9 @@ impl ServerHandler for Mcp {
     }
 
     fn get_tool(&self, name: &str) -> Option<Tool> {
-        self.0.tools().into_iter().find(|tool| tool.name == name)
+        mcp::tools(self.0.tools())
+            .into_iter()
+            .find(|tool| tool.name == name)
     }
 
     async fn list_tools(
@@ -110,7 +113,7 @@ impl ServerHandler for Mcp {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(self.0.tools()))
+        Ok(ListToolsResult::with_all_items(mcp::tools(self.0.tools())))
     }
 
     async fn call_tool(
@@ -126,11 +129,11 @@ impl ServerHandler for Mcp {
             ));
         }
         let arguments = Value::Object(request.arguments.unwrap_or_default());
-        Ok(match self
-            .0
-            .call(request.name.into_owned(), arguments, context.ct)
-            .await
-        {
+        let result = match mcp::resolve(request.name.into_owned(), arguments) {
+            Ok((name, arguments)) => self.0.call(name, arguments, context.ct).await,
+            Err(error) => Err(error),
+        };
+        Ok(match result {
             Ok(result) => CallToolResult::structured(json!({"ok": true, "result": result})),
             Err(error) => CallToolResult::structured_error(json!({"ok":false,"error":error})),
         }
