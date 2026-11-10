@@ -43,7 +43,7 @@ pub fn handle_urls(app: &AppHandle, urls: &[tauri::Url]) {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn paths_from_url(url: &tauri::Url) -> Option<Vec<PathBuf>> {
     if url.scheme() != "anydrop"
         || url.host_str() != Some("send-files")
@@ -90,6 +90,7 @@ mod migration_tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn finder_urls_preserve_multiselect_and_special_characters() {
         let paths = [
             "/Users/test/空格 ' + & # % ?.txt",
