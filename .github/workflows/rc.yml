@@ -219,7 +219,7 @@ jobs:
         run: |
           APP="target/${{ steps.target.outputs.triple }}/release/bundle/macos/AnyDrop.app"
           codesign --verify --deep --strict "$APP"
-          lipo -verify_arch arm64 x86_64 "$APP/Contents/PlugIns/AnyDropFinder.appex/Contents/MacOS/AnyDropFinder"
+          lipo "$APP/Contents/PlugIns/AnyDropFinder.appex/Contents/MacOS/AnyDropFinder" -verify_arch arm64 x86_64
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$APP/Contents/PlugIns/AnyDropFinder.appex/Contents/Info.plist")" = com.apple.FinderSync
 
       - uses: actions/upload-artifact@v4
