@@ -152,27 +152,62 @@ pub fn write_image(state: &Mutex<ClipboardState>, image: &RgbaImage) -> Result<(
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum SendTrigger {
+    Automatic,
+    Explicit,
+}
+
+enum PreparedSend {
+    Text(String),
+    Image(Vec<u8>),
+    FileOffer(Vec<u8>, &'static str),
+    SkipOversized,
+}
+
+fn prepare_send(content: Content, trigger: SendTrigger) -> Result<PreparedSend, String> {
+    let (bytes, extension) = match content {
+        Content::Text(text) if text.len() <= anydrop::MAX_CLIPBOARD_BYTES => {
+            return Ok(PreparedSend::Text(text));
+        }
+        Content::Text(text) => (text.into_bytes(), "txt"),
+        Content::Image(image) => {
+            let png = io::encode(&image)?;
+            if png.len() <= anydrop::MAX_CLIPBOARD_BYTES {
+                return Ok(PreparedSend::Image(png));
+            }
+            (png, "png")
+        }
+    };
+    Ok(match trigger {
+        SendTrigger::Automatic => PreparedSend::SkipOversized,
+        SendTrigger::Explicit => PreparedSend::FileOffer(bytes, extension),
+    })
+}
+
 fn send(
     app: &AppHandle,
     service: Arc<DiscoveryService>,
     config: &AnyDropServiceConfig,
     content: Content,
+    trigger: SendTrigger,
 ) -> Result<bool, String> {
-    match content {
-        Content::Text(text) => {
-            if text.len() > anydrop::MAX_CLIPBOARD_BYTES {
-                outgoing::clipboard(app, text.as_bytes(), "txt")?;
-                return Ok(false);
-            }
+    match prepare_send(content, trigger)? {
+        PreparedSend::Text(text) => {
             anydrop::lib_util::shared_anydrop_broadcast_text(text, service, config);
         }
-        Content::Image(image) => {
-            let png = io::encode(&image)?;
-            if png.len() > anydrop::MAX_CLIPBOARD_BYTES {
-                outgoing::clipboard(app, &png, "png")?;
-                return Ok(false);
-            }
+        PreparedSend::Image(png) => {
             anydrop::lib_util::shared_anydrop_broadcast_image(png, service, config);
+        }
+        PreparedSend::FileOffer(bytes, extension) => {
+            outgoing::clipboard(app, &bytes, extension)?;
+            return Ok(false);
+        }
+        PreparedSend::SkipOversized => {
+            app.state::<Backend>()
+                .log("剪贴板内容超过自动同步大小上限，已跳过；可手动发送剪贴板");
+            emit_snapshot(app);
+            return Ok(false);
         }
     }
     emit_snapshot(app);
@@ -193,7 +228,13 @@ pub fn send_current(app: &AppHandle, backend: &Backend) -> Result<bool, String> 
     if let Content::Text(text) = &content {
         backend.clipboard.lock().unwrap().last_text = text.chars().take(200).collect();
     }
-    let sent = send(app, service.discovery_service(), &config, content)?;
+    let sent = send(
+        app,
+        service.discovery_service(),
+        &config,
+        content,
+        SendTrigger::Explicit,
+    )?;
     if sent {
         backend.set_status("Clipboard sent to LAN peers");
     }
@@ -258,7 +299,13 @@ pub fn run(
             && settings.send_clipboard_enabled
             && (settings.sync_image_enabled || matches!(content, Content::Text(_)))
         {
-            if let Err(err) = send(&app, service.clone(), &config, content) {
+            if let Err(err) = send(
+                &app,
+                service.clone(),
+                &config,
+                content,
+                SendTrigger::Automatic,
+            ) {
                 backend.log(format!("clipboard send: {err}"));
                 backend.set_status(&err);
                 emit_snapshot(&app);
@@ -313,7 +360,13 @@ pub fn run(
                 && settings.send_clipboard_enabled
                 && (settings.sync_image_enabled || matches!(content, Content::Text(_)))
             {
-                let _ = send(&self.app, self.service.clone(), &self.config, content);
+                let _ = send(
+                    &self.app,
+                    self.service.clone(),
+                    &self.config,
+                    content,
+                    SendTrigger::Automatic,
+                );
             }
             CallbackResult::Next
         }
@@ -340,6 +393,41 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_screenshots_only_offer_files_for_explicit_sends() {
+        use rand::{RngCore, SeedableRng};
+        let mut pixels = vec![0u8; 1200 * 1200 * 4];
+        rand::rngs::StdRng::seed_from_u64(42).fill_bytes(&mut pixels);
+        let image = RgbaImage::from_raw(1200, 1200, pixels).unwrap();
+        assert!(matches!(
+            prepare_send(Content::Image(image.clone()), SendTrigger::Automatic).unwrap(),
+            PreparedSend::SkipOversized
+        ));
+        match prepare_send(Content::Image(image), SendTrigger::Explicit).unwrap() {
+            PreparedSend::FileOffer(bytes, "png") => {
+                assert!(bytes.len() > anydrop::MAX_CLIPBOARD_BYTES)
+            }
+            _ => panic!("Manual sending must retain the file fallback"),
+        }
+        assert!(matches!(
+            prepare_send(
+                Content::Image(RgbaImage::new(16, 16)),
+                SendTrigger::Automatic
+            )
+            .unwrap(),
+            PreparedSend::Image(_)
+        ));
+        let text = "x".repeat(anydrop::MAX_CLIPBOARD_BYTES);
+        assert!(matches!(
+            prepare_send(Content::Text(text.clone()), SendTrigger::Automatic).unwrap(),
+            PreparedSend::Text(_)
+        ));
+        assert!(matches!(
+            prepare_send(Content::Text(text + "x"), SendTrigger::Automatic).unwrap(),
+            PreparedSend::SkipOversized
+        ));
+    }
 
     #[test]
     fn every_recopied_text_is_sent_including_after_receive() {

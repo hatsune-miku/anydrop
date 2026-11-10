@@ -3,14 +3,20 @@ import type { KeyboardEvent } from 'react'
 
 import { ArrowDownToLine, Keyboard, MousePointer2, Power, RefreshCw } from 'lucide-react'
 
-import { Button, Dialog, ProgressBar, Switch, TextBox } from '@a1knla/cakeui'
+import { Button, ComboBox, Dialog, ProgressBar, Switch, TextBox } from '@a1knla/cakeui'
 import { getVersion } from '@tauri-apps/api/app'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
+import AppearanceSettings from './components/AppearanceSettings'
 import './index.scss'
 
-import { formatBytes, isTauriRuntime } from '../../types'
+import {
+  type AppearanceSettings as AppearanceValues,
+  type SettingsModel,
+  formatBytes,
+  isTauriRuntime,
+} from '../../types'
 
 interface Preferences {
   autostart: boolean
@@ -19,6 +25,7 @@ interface Preferences {
   shortcutError: string | null
   autoReceiveFiles: boolean
   fileContextMenuEnabled: boolean
+  fileContextMenuLocation: 'finder' | 'services' | null
   fileContextMenuError: string | null
   updaterConfigured: boolean
 }
@@ -43,7 +50,17 @@ function displayShortcut(shortcut: string) {
     .join(' + ')
 }
 
-export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfers: boolean; disabled?: boolean }) {
+export function DesktopSettings({
+  hasTransfers,
+  disabled = false,
+  settings,
+  onAppearanceChange,
+}: {
+  hasTransfers: boolean
+  disabled?: boolean
+  settings: SettingsModel
+  onAppearanceChange: (change: Partial<AppearanceValues>) => Promise<void>
+}) {
   const [showMore, setShowMore] = useState(false)
   const [closingMore, setClosingMore] = useState(false)
   const settingsElement = useRef<HTMLDivElement>(null)
@@ -114,13 +131,33 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
     return () => clearTimeout(timer)
   }, [preferences?.updaterConfigured])
 
-  async function setPreference(command: string, enabled: boolean) {
+  async function setPreference(command: string, enabled: boolean, location?: 'finder' | 'services') {
     setBusy(true)
     setError('')
     try {
-      setPreferences(await invoke<Preferences>(command, { enabled }))
+      setPreferences(await invoke<Preferences>(command, { enabled, ...(location ? { location } : {}) }))
     } catch (e) {
       setError(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function openFinderSettings() {
+    try {
+      await invoke('open_finder_extension_settings')
+    } catch (e) {
+      setError(String(e))
+    }
+  }
+
+  async function setAppearance(change: Partial<AppearanceValues>) {
+    setBusy(true)
+    setError('')
+    try {
+      await onAppearanceChange(change)
+    } catch (error) {
+      setError(String(error))
     } finally {
       setBusy(false)
     }
@@ -302,6 +339,7 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
         }
       >
         <div className="desktop-settings-content">
+          <AppearanceSettings settings={settings} disabled={busy} onChange={(change) => void setAppearance(change)} />
           <div className="desktop-settings-options">
             <div className="desktop-setting-row">
               <Power className="desktop-setting-icon" size={19} aria-hidden="true" />
@@ -356,6 +394,29 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
                 disabled={!preferences || busy}
                 onChange={(e) => void setPreference('set_file_context_menu', e.currentTarget.checked)}
               />
+              {/Mac/i.test(navigator.platform) && (
+                <div className="desktop-setting-followup">
+                  <label className="desktop-label" htmlFor="desktop-file-menu-location">
+                    菜单位置
+                  </label>
+                  <ComboBox
+                    id="desktop-file-menu-location"
+                    className="desktop-file-menu-location"
+                    value={preferences?.fileContextMenuLocation ?? 'finder'}
+                    disabled={!preferences || busy}
+                    onChange={(e) =>
+                      void setPreference(
+                        'set_file_context_menu',
+                        preferences?.fileContextMenuEnabled ?? false,
+                        e.currentTarget.value as 'finder' | 'services'
+                      )
+                    }
+                  >
+                    <option value="finder">访达右键菜单</option>
+                    <option value="services">服务子菜单</option>
+                  </ComboBox>
+                </div>
+              )}
               {preferences?.fileContextMenuEnabled && (
                 <div className="desktop-setting-followup">
                   <Button
@@ -368,7 +429,18 @@ export function DesktopSettings({ hasTransfers, disabled = false }: { hasTransfe
                     <RefreshCw size={13} aria-hidden="true" />
                     重新注册
                   </Button>
-                  <span className="desktop-setting-description">菜单未出现时可重新注册</span>
+                  {preferences.fileContextMenuLocation === 'finder' ? (
+                    <Button
+                      className="desktop-reregister"
+                      variant="ghost"
+                      size="small"
+                      onClick={() => void openFinderSettings()}
+                    >
+                      访达扩展设置
+                    </Button>
+                  ) : (
+                    <span className="desktop-setting-description">菜单未出现时可重新注册</span>
+                  )}
                 </div>
               )}
               {preferences?.fileContextMenuError && (

@@ -13,6 +13,8 @@ export function snapshot(darkMode = false) {
       displayName: '工作电脑',
       syncImageEnabled: true,
       darkMode,
+      appearanceTheme: 'pink',
+      appearanceDensity: 'compact',
       defaultSaveDir: '/Users/example/Downloads/AnyDrop',
       clipboardPopupEnabled: true,
       suppressPopupInGame: true,
@@ -94,6 +96,7 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
     autostart: false,
     autoReceiveFiles: false,
     fileContextMenuEnabled: true,
+    fileContextMenuLocation: platform === 'MacIntel' ? 'services' : null,
     fileContextMenuError: null,
     clipboardShortcut: '',
     shortcutRegistered: false,
@@ -105,6 +108,10 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
   let id = 0
   window.__testCalls = []
   window.__emit = (event, payload) => {
+    if (event === 'snapshot') snap = structuredClone(payload)
+    if (event === 'transfer-updated' || event === 'incoming-file') {
+      snap.transfers = [...snap.transfers.filter((transfer) => transfer.key !== payload.key), structuredClone(payload)]
+    }
     for (const [eventId, item] of listeners) {
       if (item.event === event) callbacks.get(item.handler)?.({ event, id: eventId, payload })
     }
@@ -174,16 +181,43 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       if (cmd === 'dismiss_outgoing_request' || cmd === 'confirm_outgoing_request') {
         if (cmd === 'confirm_outgoing_request' && window.__outgoingFailure)
           throw new Error('所选设备已离线，请重新选择')
-        window.__outgoingRequests = (window.__outgoingRequests ?? []).filter((request) => request.id !== args.id)
+        if (cmd === 'confirm_outgoing_request') {
+          const request = window.__outgoingRequests.find((request) => request.id === args.id)
+          request.transferKey = `send-${request.id}`
+          snap.transfers.push({
+            key: request.transferKey,
+            fileId: 0,
+            fileName: request.fileName,
+            remotePath: '',
+            localPath: '/example',
+            peer: args.peerName,
+            host: '127.0.0.1',
+            direction: 'outgoing',
+            progress: 0,
+            total: request.bytes,
+            status: 10,
+            speedBps: 0,
+            createdAt: now,
+          })
+          window.__emit('snapshot', structuredClone(snap))
+        } else {
+          window.__outgoingRequests = (window.__outgoingRequests ?? []).filter((request) => request.id !== args.id)
+        }
         window.__emit('outgoing-requests', window.__outgoingRequests)
         return
       }
+      if (cmd === 'open_transfer_folder') {
+        if (window.__folderFailure) throw new Error('文件位置不可用')
+        return
+      }
+      if (cmd === 'open_finder_extension_settings') return
       if (cmd === 'set_auto_receive_files') {
         preferences.autoReceiveFiles = args.enabled
         return structuredClone(preferences)
       }
       if (cmd === 'set_file_context_menu') {
         preferences.fileContextMenuEnabled = args.enabled
+        if (args.location) preferences.fileContextMenuLocation = args.location
         return structuredClone(preferences)
       }
       if (cmd === 'set_autostart') {

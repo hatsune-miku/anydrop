@@ -29,7 +29,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
 import { DesktopSettings } from './components/DesktopSettings'
+import { useAppearance } from './hooks/useAppearance'
 import {
+  type AppearanceSettings,
   type PeerGroup,
   type SettingsModel,
   type Snapshot,
@@ -150,11 +152,7 @@ function App() {
   // Latest selected peer, read inside the drag-drop handler without re-subscribing.
   const selectedPeerRef = useRef<PeerGroup | undefined>(undefined)
 
-  const systemDark =
-    typeof window !== 'undefined' ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false) : false
-  // Theme preference is stored natively in settings now (settings.darkMode):
-  // null = follow the OS theme, an explicit boolean = user override.
-  const darkMode = snapshot.settings.darkMode ?? systemDark
+  const { darkMode, provider: appearance } = useAppearance(snapshot.settings)
 
   useEffect(() => {
     getVersion().then(async (v) => {
@@ -162,10 +160,6 @@ function App() {
       await invoke('push_log', { msg: 'Proudly Crafted With CakeDesign.' })
     })
   }, [])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode)
-  }, [darkMode])
 
   // Auto-dismiss the toast notice after 5s so transient messages (e.g.
   // "收到新的剪贴板文本") don't linger.
@@ -357,6 +351,12 @@ function App() {
     setNotice('设置已保存')
   }
 
+  async function saveAppearance(change: Partial<AppearanceSettings>) {
+    const saved = await invoke<Snapshot>('save_settings', { settings: { ...snapshot.settings, ...change } })
+    setSnapshot(saved)
+    setSettingsDraft((draft) => ({ ...draft, ...change }))
+  }
+
   /**
    * Flip a boolean setting and persist it immediately.
    *
@@ -458,13 +458,7 @@ function App() {
   const selectedPeerHosts = selectedPeer?.hosts.join(' / ') ?? '等待设备发现'
 
   return (
-    <CakeProvider
-      id="app-theme"
-      className="app-theme"
-      theme="pink"
-      density="compact"
-      mode={darkMode ? 'dark' : 'light'}
-    >
+    <CakeProvider id="app-theme" className="app-theme" {...appearance}>
       <main className="app-shell">
         {detail
           ? (() => {
@@ -1090,6 +1084,8 @@ function App() {
                 <div className="settings-footer">
                   <DesktopSettings
                     disabled={busy}
+                    settings={snapshot.settings}
+                    onAppearanceChange={saveAppearance}
                     hasTransfers={snapshot.transfers.some((transfer) => [1, 3, 4, 9, 10].includes(transfer.status))}
                   />
                   <Button className="button full-width" type="button" disabled={busy} onClick={saveSettings}>

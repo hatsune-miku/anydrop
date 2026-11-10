@@ -7,6 +7,9 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
+import { useAppearance } from './hooks/useAppearance'
+import { type AppearanceSettings, type Snapshot, fallbackSettings } from './types'
+
 type PreviewPayload = {
   path: string
   kind: 'image' | 'audio' | 'video' | 'other'
@@ -29,15 +32,23 @@ async function close() {
 
 export default function PreviewWindow() {
   const [payload, setPayload] = useState<PreviewPayload | null>(null)
+  const [settings, setSettings] = useState<AppearanceSettings>(fallbackSettings)
+  const { provider: appearance } = useAppearance(settings)
 
   useEffect(() => {
-    // Follow the OS theme for the chrome (the stage itself is always dark).
-    document.documentElement.classList.toggle(
-      'dark',
-      window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
-    )
-
     let cancelled = false
+    let settingsVersion = 0
+    const settingsListener = listen<Snapshot>('snapshot', ({ payload }) => {
+      settingsVersion += 1
+      setSettings(payload.settings)
+    })
+    void settingsListener
+      .then(async () => {
+        const version = settingsVersion
+        const snapshot = await invoke<Snapshot>('get_snapshot')
+        if (!cancelled && version === settingsVersion) setSettings(snapshot.settings)
+      })
+      .catch(() => {})
     // The payload is set in the backend before this window is built, so the
     // first read normally succeeds. Retry a few times anyway to absorb any
     // mount/build race rather than getting stuck on a blank stage.
@@ -65,13 +76,14 @@ export default function PreviewWindow() {
       cancelled = true
       window.removeEventListener('keydown', onKey)
       void unlisten.then((u) => u())
+      void settingsListener.then((stop) => stop())
     }
   }, [])
 
   const src = payload ? convertFileSrc(payload.path) : ''
 
   return (
-    <CakeProvider className="app-theme preview-shell" theme="pink" density="compact" mode="system">
+    <CakeProvider className="app-theme preview-shell" {...appearance}>
       <header className="preview-titlebar" data-tauri-drag-region>
         <span data-tauri-drag-region>{payload?.name ?? '速览'}</span>
         <button className="popup-close" type="button" aria-label="关闭" onClick={close}>

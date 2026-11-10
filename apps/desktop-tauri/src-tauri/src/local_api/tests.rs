@@ -162,8 +162,8 @@ async fn official_mcp_client_has_compact_catalogue_and_shared_results() {
         .collect();
     expected.push("operate_transfer");
     assert_eq!(names, expected);
-    assert_eq!(names.len(), 29);
-    assert_eq!(http_names.len(), 39);
+    assert_eq!(names.len(), 30);
+    assert_eq!(http_names.len(), 40);
     assert!(names.contains(&"wait_for_file") && names.contains(&"wait_for_clipboard_text"));
     let mcp = client
         .call_tool(CallToolRequestParams::new("get_snapshot"))

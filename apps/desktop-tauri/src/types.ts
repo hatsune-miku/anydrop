@@ -13,6 +13,8 @@ export type SettingsModel = {
   syncImageEnabled: boolean
   /** null = follow OS theme; true/false = explicit user choice. */
   darkMode: boolean | null
+  appearanceTheme: 'blue' | 'pink' | 'gold'
+  appearanceDensity: 'comfortable' | 'compact'
   /** Default directory received files land in. */
   defaultSaveDir: string
   /** Show a bottom-right popup when clipboard content arrives from a peer. */
@@ -20,6 +22,8 @@ export type SettingsModel = {
   /** Suppress popups/notifications while a fullscreen game is in front. */
   suppressPopupInGame: boolean
 }
+
+export type AppearanceSettings = Pick<SettingsModel, 'darkMode' | 'appearanceTheme' | 'appearanceDensity'>
 
 export type PeerGroup = {
   label: string
@@ -76,6 +80,8 @@ export const fallbackSettings: SettingsModel = {
   displayName: '',
   syncImageEnabled: false,
   darkMode: null,
+  appearanceTheme: 'pink',
+  appearanceDensity: 'compact',
   defaultSaveDir: '',
   clipboardPopupEnabled: false,
   suppressPopupInGame: true,

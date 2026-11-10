@@ -8,10 +8,13 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { open } from '@tauri-apps/plugin-dialog'
 
+import { useAppearance } from './hooks/useAppearance'
 import {
+  type AppearanceSettings,
   type PeerGroup,
   type Snapshot,
   type Transfer,
+  fallbackSettings,
   formatBytes,
   formatSpeed,
   percent,
@@ -31,17 +34,18 @@ type ClipboardCard = {
 
 type ClipboardReceipt = Omit<ClipboardCard, 'expiresAt' | 'text'> & { text?: string }
 
-type OutgoingRequest = { id: string; clipboard: boolean; fileName: string; bytes: number }
+type OutgoingRequest = { id: string; clipboard: boolean; fileName: string; bytes: number; transferKey?: string | null }
 
 /** Statuses we still consider "live" for the popup's tracking heuristic. */
-const ACTIVE = new Set([1, 4, 9])
+const ACTIVE = new Set([1, 3, 4, 9, 10])
 
 function isTerminal(status: number) {
   return !ACTIVE.has(status)
 }
 
 export default function ReceivePopup() {
-  const [darkMode, setDarkMode] = useState(window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
+  const [settings, setSettings] = useState<AppearanceSettings>(fallbackSettings)
+  const { provider: appearance } = useAppearance(settings)
   const [transfers, setTransfers] = useState<Record<string, Transfer>>({})
   // Keys the popup is responsible for showing. Seeded from incoming-file
   // events and any already-active incoming transfers in the initial snapshot.
@@ -53,6 +57,9 @@ export default function ReceivePopup() {
   const [selected, setSelected] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [requestError, setRequestError] = useState<Record<string, string>>({})
+  const [countdowns, setCountdowns] = useState<Record<string, number>>({})
+  const sendDeadlines = useRef(new Map<string, number>())
+  const closingSends = useRef(new Set<string>())
   const content = useRef<HTMLDivElement>(null)
   const seenReceipts = useRef(new Set<number>())
 
@@ -68,10 +75,14 @@ export default function ReceivePopup() {
     let active = true
     let requestsVersion = 0
     let requestsRead = 0
+    let transfersVersion = 0
     function receiveRequests(next: OutgoingRequest[]) {
       if (!active) return
       setRequests((previous) =>
-        previous.length === next.length && previous.every((request, index) => request.id === next[index].id)
+        previous.length === next.length &&
+        previous.every(
+          (request, index) => request.id === next[index].id && request.transferKey === next[index].transferKey
+        )
           ? previous
           : next
       )
@@ -82,6 +93,13 @@ export default function ReceivePopup() {
       try {
         const pending = await invoke<OutgoingRequest[]>('get_outgoing_requests')
         if (version === requestsVersion && read === requestsRead) receiveRequests(pending)
+        if (pending.some((request) => request.transferKey)) {
+          const transferVersion = transfersVersion
+          const snapshot = await invoke<Snapshot>('get_snapshot')
+          if (active && transferVersion === transfersVersion) {
+            setTransfers(Object.fromEntries(snapshot.transfers.map((transfer) => [transfer.key, transfer])))
+          }
+        }
       } catch {
         // A later visibility change or poll retries a temporarily unavailable IPC call.
       }
@@ -120,10 +138,9 @@ export default function ReceivePopup() {
     document.body.style.background = 'transparent'
     // Seed from current backend state so an offer that landed before this
     // window finished mounting is still shown.
-    const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
     void invoke<Snapshot>('get_snapshot')
       .then((snap) => {
-        setDarkMode(snap.settings.darkMode ?? systemDark)
+        setSettings(snap.settings)
         setPeers(snap.peers)
         const map: Record<string, Transfer> = {}
         for (const t of snap.transfers) map[t.key] = t
@@ -155,16 +172,19 @@ export default function ReceivePopup() {
         'dismiss-popup',
         ({ payload }) => {
           if (payload.allReceipts) setCards([])
-          else if (payload.receiptId !== null) setCards((previous) => previous.filter((card) => card.id !== payload.receiptId))
+          else if (payload.receiptId !== null)
+            setCards((previous) => previous.filter((card) => card.id !== payload.receiptId))
           setTracked((previous) => new Set([...previous].filter((key) => !payload.transferKeys.includes(key))))
         }
       ),
       listen<Transfer>('incoming-file', (event) => {
+        transfersVersion += 1
         const t = event.payload
         setTransfers((prev) => ({ ...prev, [t.key]: t }))
         track(t.key)
       }),
       listen<Transfer>('transfer-updated', (event) => {
+        transfersVersion += 1
         const t = event.payload
         setTransfers((prev) => {
           const prevRow = prev[t.key]
@@ -177,7 +197,8 @@ export default function ReceivePopup() {
         })
       }),
       listen<Snapshot>('snapshot', (event) => {
-        setDarkMode(event.payload.settings.darkMode ?? systemDark)
+        transfersVersion += 1
+        setSettings(event.payload.settings)
         setPeers(event.payload.peers)
         const map: Record<string, Transfer> = {}
         for (const t of event.payload.transfers) map[t.key] = t
@@ -216,20 +237,63 @@ export default function ReceivePopup() {
 
   const rows = useMemo(
     () =>
-      Array.from(tracked)
+      Array.from(
+        new Set([...tracked, ...requests.flatMap((request) => (request.transferKey ? [request.transferKey] : []))])
+      )
         .map((key) => transfers[key])
         .filter((t): t is Transfer => Boolean(t))
         .sort((a, b) => a.key.localeCompare(b.key)),
-    [tracked, transfers]
+    [tracked, transfers, requests]
   )
 
-  const pending = rows.filter((t) => t.status === 1)
-  const ongoing = rows.filter((t) => t.status !== 1)
+  const pending = rows.filter((t) => t.direction === 'incoming' && t.status === 1)
+  const ongoing = rows.filter((t) => t.direction !== 'incoming' || t.status !== 1)
+  const completedSends = requests
+    .filter((request) => request.transferKey && transfers[request.transferKey]?.status === 7)
+    .map((request) => request.id)
+    .sort()
+    .join(',')
+
+  useEffect(() => {
+    const ids = completedSends ? completedSends.split(',') : []
+    for (const id of sendDeadlines.current.keys()) {
+      if (!ids.includes(id)) sendDeadlines.current.delete(id)
+    }
+    for (const id of closingSends.current) {
+      if (!ids.includes(id)) closingSends.current.delete(id)
+    }
+    if (ids.length === 0) {
+      setCountdowns({})
+      return
+    }
+    for (const id of ids) {
+      if (!sendDeadlines.current.has(id)) sendDeadlines.current.set(id, performance.now() + 3000)
+    }
+    function tick() {
+      const next: Record<string, number> = {}
+      for (const id of ids) {
+        const remaining = Math.max(0, Math.ceil((sendDeadlines.current.get(id)! - performance.now()) / 1000))
+        next[id] = remaining
+        if (remaining === 0 && !closingSends.current.has(id)) {
+          closingSends.current.add(id)
+          void invoke('dismiss_outgoing_request', { id })
+            .then(() => {
+              setRequests((previous) => previous.filter((request) => request.id !== id))
+            })
+            .catch((error) => setRequestError((previous) => ({ ...previous, [id]: String(error) })))
+        }
+      }
+      setCountdowns(next)
+    }
+    tick()
+    const timer = setInterval(tick, 200)
+    return () => clearInterval(timer)
+  }, [completedSends])
 
   useEffect(() => {
     const ids = [
       ...requests.map((request) => `outgoing:${request.id}`),
-      ...rows.map((transfer) => `incoming:${transfer.key}`),
+      ...rows.filter((transfer) => transfer.direction === 'incoming').map((transfer) => `incoming:${transfer.key}`),
     ]
     if (ids.length === 0) return
     let active = true
@@ -307,12 +371,31 @@ export default function ReceivePopup() {
 
   // "已读" only closes the item in the popup — the transfer record stays in the
   // main "最近传输" list. (It does NOT delete the record.)
-  function dismiss(key: string) {
+  async function dismiss(key: string) {
+    const outgoing = requests.find((request) => request.transferKey === key)
+    if (outgoing) {
+      try {
+        await invoke('dismiss_outgoing_request', { id: outgoing.id })
+        setRequests((previous) => previous.filter((request) => request.id !== outgoing.id))
+      } catch (error) {
+        setRequestError((previous) => ({ ...previous, [outgoing.id]: String(error) }))
+      }
+      return
+    }
     setTracked((prev) => {
       const next = new Set(prev)
       next.delete(key)
       return next
     })
+  }
+
+  async function openFolder(key: string) {
+    try {
+      await invoke('open_transfer_folder', { transferKey: key })
+      await dismiss(key)
+    } catch (error) {
+      setRequestError((previous) => ({ ...previous, [key]: String(error) }))
+    }
   }
 
   // Clipboard receipts are throwaway — clicking anywhere on the card removes
@@ -322,62 +405,64 @@ export default function ReceivePopup() {
   }
 
   return (
-    <CakeProvider className="app-theme popup-shell" theme="pink" density="compact" mode={darkMode ? 'dark' : 'light'}>
+    <CakeProvider className="app-theme popup-shell" {...appearance}>
       <div className="popup-body">
         <div className="popup-content" ref={content}>
-          {requests.map((request) => {
-            const choice = peers.length === 1 ? peers[0].name : (selected[request.id] ?? '')
-            const target = peers.find((peer) => peer.name === choice)
-            return (
-              <article className="popup-card popup-card--offer" key={request.id}>
-                <div className="row-main">
-                  <strong>{request.clipboard ? '确认以文件形式发送' : '使用 AnyDrop 发送'}</strong>
-                  <span>
-                    {request.fileName} · {formatBytes(request.bytes)}
-                  </span>
-                </div>
-                {peers.length > 1 ? (
-                  <div className="popup-peers" role="group" aria-label="选择接收设备">
-                    {peers.map((peer) => (
-                      <Button
-                        key={peer.name}
-                        aria-pressed={choice === peer.name}
-                        disabled={busy !== null}
-                        variant={choice === peer.name ? 'primary' : 'default'}
-                        onClick={() => setSelected((prev) => ({ ...prev, [request.id]: peer.name }))}
-                      >
-                        {peer.remark || peer.label}
-                      </Button>
-                    ))}
+          {requests
+            .filter((request) => !request.transferKey)
+            .map((request) => {
+              const choice = peers.length === 1 ? peers[0].name : (selected[request.id] ?? '')
+              const target = peers.find((peer) => peer.name === choice)
+              return (
+                <article className="popup-card popup-card--offer" key={request.id}>
+                  <div className="row-main">
+                    <strong>{request.clipboard ? '确认以文件形式发送' : '使用 AnyDrop 发送'}</strong>
+                    <span>
+                      {request.fileName} · {formatBytes(request.bytes)}
+                    </span>
                   </div>
-                ) : (
-                  <span className="popup-dest">
-                    {target ? `发送到：${target.remark || target.label}` : '当前频段暂无在线设备'}
-                  </span>
-                )}
-                {requestError[request.id] && (
-                  <span className="transfer-error" role="alert">
-                    {requestError[request.id]}
-                  </span>
-                )}
-                <div className="popup-actions">
-                  <Button
-                    variant="primary"
-                    disabled={!target || busy !== null}
-                    onClick={() => void confirmRequest(request, target!.name)}
-                  >
-                    {busy === request.id ? '发送中…' : '确认发送'}
-                  </Button>
-                  <Button
-                    disabled={busy === request.id}
-                    onClick={() => void invoke('dismiss_outgoing_request', { id: request.id })}
-                  >
-                    取消
-                  </Button>
-                </div>
-              </article>
-            )
-          })}
+                  {peers.length > 1 ? (
+                    <div className="popup-peers" role="group" aria-label="选择接收设备">
+                      {peers.map((peer) => (
+                        <Button
+                          key={peer.name}
+                          aria-pressed={choice === peer.name}
+                          disabled={busy !== null}
+                          variant={choice === peer.name ? 'primary' : 'default'}
+                          onClick={() => setSelected((prev) => ({ ...prev, [request.id]: peer.name }))}
+                        >
+                          {peer.remark || peer.label}
+                        </Button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="popup-dest">
+                      {target ? `发送到：${target.remark || target.label}` : '当前频段暂无在线设备'}
+                    </span>
+                  )}
+                  {requestError[request.id] && (
+                    <span className="transfer-error" role="alert">
+                      {requestError[request.id]}
+                    </span>
+                  )}
+                  <div className="popup-actions">
+                    <Button
+                      variant="primary"
+                      disabled={!target || busy !== null}
+                      onClick={() => void confirmRequest(request, target!.name)}
+                    >
+                      {busy === request.id ? '发送中…' : '确认发送'}
+                    </Button>
+                    <Button
+                      disabled={busy === request.id}
+                      onClick={() => void invoke('dismiss_outgoing_request', { id: request.id })}
+                    >
+                      取消
+                    </Button>
+                  </div>
+                </article>
+              )
+            })}
           {cards.map((card, idx) => (
             <article
               className="popup-card popup-card--clip"
@@ -445,42 +530,52 @@ export default function ReceivePopup() {
             </article>
           ))}
 
-          {ongoing.map((t) => (
-            <article className={`popup-card${t.error ? ' popup-card--error' : ''}`} key={t.key}>
-              <div className="row-main">
-                <strong>{t.fileName}</strong>
-                <span>
-                  {transferStatus(t.status)} · {formatBytes(t.progress)} / {formatBytes(t.total)}
-                  {t.status === 4 && t.speedBps > 0 ? ` · ${formatSpeed(t.speedBps)}` : ''}
-                </span>
-                {t.error ? (
-                  <small className="transfer-error" title={t.error}>
-                    <TriangleAlert size={12} />
-                    {t.error}
-                  </small>
-                ) : null}
-              </div>
-              <ProgressBar className="progress-track" value={percent(t)} max={100} aria-label="传输进度" />
-              {isTerminal(t.status) ? (
-                <div className="popup-actions">
-                  {t.localPath ? (
-                    <Button
-                      className="button"
-                      type="button"
-                      onClick={() => void invoke('open_transfer_folder', { transferKey: t.key })}
-                    >
-                      <FolderOpen size={15} />
-                      打开目录
-                    </Button>
+          {ongoing.map((t) => {
+            const request = requests.find((request) => request.transferKey === t.key)
+            const error = requestError[request?.id ?? t.key]
+            const remaining = request ? countdowns[request.id] : undefined
+            return (
+              <article className={`popup-card${t.error ? ' popup-card--error' : ''}`} key={t.key}>
+                <div className="row-main">
+                  <strong>{t.fileName || request?.fileName}</strong>
+                  <span>
+                    {request && t.status === 7 ? '发送成功' : transferStatus(t.status)} · {formatBytes(t.progress)} /{' '}
+                    {formatBytes(t.total)}
+                    {t.status === 4 && t.speedBps > 0 ? ` · ${formatSpeed(t.speedBps)}` : ''}
+                  </span>
+                  {t.error ? (
+                    <small className="transfer-error" title={t.error}>
+                      <TriangleAlert size={12} />
+                      {t.error}
+                    </small>
                   ) : null}
-                  <Button className="button" type="button" onClick={() => dismiss(t.key)}>
-                    <Check size={15} />
-                    已读
-                  </Button>
+                  {error && (
+                    <small className="transfer-error" role="alert">
+                      {error}
+                    </small>
+                  )}
+                  {remaining !== undefined && remaining > 0 && (
+                    <small className="popup-dest">{remaining} 秒后关闭</small>
+                  )}
                 </div>
-              ) : null}
-            </article>
-          ))}
+                <ProgressBar className="progress-track" value={percent(t)} max={100} aria-label="传输进度" />
+                {isTerminal(t.status) ? (
+                  <div className="popup-actions">
+                    {t.localPath ? (
+                      <Button className="button" type="button" onClick={() => void openFolder(t.key)}>
+                        <FolderOpen size={15} />
+                        打开目录
+                      </Button>
+                    ) : null}
+                    <Button className="button" type="button" onClick={() => void dismiss(t.key)}>
+                      <Check size={15} />
+                      已读
+                    </Button>
+                  </div>
+                ) : null}
+              </article>
+            )
+          })}
         </div>
       </div>
     </CakeProvider>

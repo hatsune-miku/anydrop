@@ -11,6 +11,9 @@ pub struct RequestView {
     clipboard: bool,
     file_name: String,
     bytes: u64,
+    /// Retained until the popup acknowledges completion, so missed WebView
+    /// events cannot hide an in-flight send or lose its final countdown.
+    transfer_key: Option<String>,
 }
 struct Request {
     view: RequestView,
@@ -63,7 +66,7 @@ fn enqueue(app: &AppHandle, request: Request) -> Result<(), String> {
     // Only the most recently copied oversized clipboard is pending. Existing file
     // menu requests are kept; no stale confirmation can send replaced contents.
     if request.view.clipboard {
-        pending.retain(|r| !r.view.clipboard);
+        pending.retain(|r| !r.view.clipboard || r.view.transfer_key.is_some());
     }
     if pending.len() >= 8 {
         return Err("待确认的发送请求过多，请先处理右侧浮窗".into());
@@ -91,6 +94,7 @@ pub fn clipboard(app: &AppHandle, bytes: &[u8], extension: &str) -> Result<(), S
                 clipboard: true,
                 file_name: name,
                 bytes: bytes.len() as u64,
+                transfer_key: None,
             },
             paths: vec![path.to_string_lossy().into()],
             temporary: Some(directory),
@@ -131,6 +135,7 @@ pub(crate) fn files_with_id(
                     format!("{name} 等 {} 项", paths.len())
                 },
                 bytes,
+                transfer_key: None,
             },
             paths: canonical,
             temporary: None,
@@ -158,6 +163,22 @@ pub fn dismiss_outgoing_request(app: AppHandle, backend: State<'_, Backend>, id:
         .retain(|r| r.view.id != id);
     publish(&app);
 }
+
+pub fn dismiss_transfer_views(app: &AppHandle, keys: &[&str]) {
+    app.state::<Backend>()
+        .outgoing
+        .pending
+        .lock()
+        .unwrap()
+        .retain(|request| {
+            request
+                .view
+                .transfer_key
+                .as_deref()
+                .is_none_or(|key| !keys.contains(&key))
+        });
+    publish(app);
+}
 #[tauri::command]
 pub async fn confirm_outgoing_request(
     app: AppHandle,
@@ -179,11 +200,14 @@ pub async fn confirm_outgoing_request(
             .iter()
             .position(|r| r.view.id == id)
             .ok_or("此发送请求已取消或被新的剪贴板替换")?;
+        if pending[index].view.transfer_key.is_some() {
+            return Err("此请求已开始发送".into());
+        }
         // Serialize confirmation/cancellation so repeated clicks cannot send twice.
         let (snapshot, key) =
             send_paths_inner(&app, &backend, peer.hosts, pending[index].paths.clone())?;
-        let request = pending.remove(index);
-        if let Some(directory) = request.temporary {
+        pending[index].view.transfer_key = Some(key.clone());
+        if let Some(directory) = pending[index].temporary.take() {
             // Hold the transfers lock across insertion to avoid a fast terminal
             // callback racing with source ownership handover.
             let transfers = backend.transfers.lock().unwrap();

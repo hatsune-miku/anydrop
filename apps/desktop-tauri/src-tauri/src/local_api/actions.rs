@@ -66,6 +66,15 @@ struct Enabled {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+struct FileMenu {
+    enabled: bool,
+    /// macOS only: finder for Finder's context menu, services for the Services submenu.
+    /// Omitted preserves the saved location.
+    location: Option<crate::context_menu::FileContextMenuLocation>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct Shortcut {
     shortcut: String,
 }
@@ -104,6 +113,8 @@ struct SettingsChange {
     /// true = dark, false = light, null = follow the system.
     #[serde(default, deserialize_with = "present_nullable")]
     dark_mode: Option<Option<bool>>,
+    appearance_theme: Option<crate::AppearanceTheme>,
+    appearance_density: Option<crate::AppearanceDensity>,
     default_save_dir: Option<String>,
     clipboard_popup_enabled: Option<bool>,
     suppress_popup_in_game: Option<bool>,
@@ -134,6 +145,8 @@ impl SettingsChange {
             display_name,
             sync_image_enabled,
             dark_mode,
+            appearance_theme,
+            appearance_density,
             default_save_dir,
             clipboard_popup_enabled,
             suppress_popup_in_game
@@ -252,7 +265,8 @@ operations! {
     DesktopPreferences(Empty) => ("get_desktop_preferences", "Read autostart, shortcut, auto-receive, file-menu and updater preferences.", true, false, false),
     Autostart(Enabled) => ("set_autostart", "Enable or disable launching AnyDrop at login.", false, true, false),
     AutoReceive(Enabled) => ("set_auto_receive_files", "Enable or disable automatic acceptance of future incoming file requests.", false, true, false),
-    FileMenu(Enabled) => ("set_file_context_menu", "Enable, disable or repair the system file context menu. Setting enabled=true also re-registers it.", false, true, false),
+    FileMenu(FileMenu) => ("set_file_context_menu", "Enable, disable or repair the system file context menu. On macOS, optionally choose location finder or services. Setting enabled=true also re-registers it.", false, true, false),
+    FinderSettings(Empty) => ("open_finder_extension_settings", "Open macOS system settings to manage the AnyDrop Finder extension.", false, true, false),
     ClipboardShortcut(Shortcut) => ("set_clipboard_shortcut", "Set the global clipboard-send shortcut; empty string disables it.", false, true, false),
     CheckUpdate(Empty) => ("check_app_update", "Check for a signed application update.", true, false, true),
     DownloadUpdate(Empty) => ("download_app_update", "Download and verify the update previously returned by check_app_update.", false, false, true),
@@ -341,7 +355,11 @@ pub async fn call(
             value(desktop::set_auto_receive_files(app, args.enabled).await?)
         }
         Operation::FileMenu(args) => {
-            value(desktop::set_file_context_menu(app, args.enabled).await?)
+            value(desktop::set_file_context_menu(app, args.enabled, args.location).await?)
+        }
+        Operation::FinderSettings(_) => {
+            desktop::open_finder_extension_settings()?;
+            Ok(json!(null))
         }
         Operation::ClipboardShortcut(args) => {
             value(desktop::set_clipboard_shortcut(app, args.shortcut).await?)
@@ -511,8 +529,9 @@ fn call_sync(app: AppHandle, operation: Operation) -> Result<Value, ApiError> {
                         && args.transfer_key.as_ref().is_none_or(|key| &t.key == key)
                         && args.receipt_id.is_none()
                 })
-                .map(|t| &t.key)
+                .map(|t| t.key.as_str())
                 .collect();
+            outgoing::dismiss_transfer_views(&app, &keys);
             app.emit_to(
                 crate::RECEIVE_WINDOW_LABEL,
                 "dismiss-popup",

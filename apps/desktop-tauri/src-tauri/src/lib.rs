@@ -199,6 +199,27 @@ fn save_settings_file(settings: &AppSettings) -> Result<(), String> {
     fs::write(path, raw).map_err(|err| err.to_string())
 }
 
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, SerdeSerialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+enum AppearanceTheme {
+    Blue,
+    #[default]
+    Pink,
+    Gold,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, SerdeSerialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "camelCase")]
+enum AppearanceDensity {
+    Comfortable,
+    #[default]
+    Compact,
+}
+
 #[derive(Clone, Deserialize, SerdeSerialize)]
 #[serde(rename_all = "camelCase")]
 struct AppSettings {
@@ -220,6 +241,10 @@ struct AppSettings {
     /// here (not in browser localStorage) so the choice is native-stored.
     #[serde(default)]
     dark_mode: Option<bool>,
+    #[serde(default)]
+    appearance_theme: AppearanceTheme,
+    #[serde(default)]
+    appearance_density: AppearanceDensity,
     /// Default directory received files land in. normalize_settings seeds it to
     /// `~/Downloads/AnyDrop` when empty.
     #[serde(default)]
@@ -257,6 +282,8 @@ impl Default for AppSettings {
             display_name: String::new(), // normalize_settings fills from OSUtil
             sync_image_enabled: false,
             dark_mode: None,
+            appearance_theme: AppearanceTheme::default(),
+            appearance_density: AppearanceDensity::default(),
             default_save_dir: String::new(), // normalize_settings fills default
             clipboard_popup_enabled: false,
             device_id: String::new(), // normalize_settings generates one
@@ -1962,6 +1989,7 @@ fn copy_text(backend: State<'_, Backend>, text: String) -> Result<(), String> {
 #[tauri::command]
 fn dismiss_transfer(app: AppHandle, backend: State<'_, Backend>, transfer_key: String) -> Snapshot {
     backend.transfers.lock().unwrap().remove(&transfer_key);
+    outgoing::dismiss_transfer_views(&app, &[&transfer_key]);
     backend.persist_transfers();
     emit_snapshot(&app);
     backend.snapshot()
@@ -1971,11 +1999,21 @@ fn dismiss_transfer(app: AppHandle, backend: State<'_, Backend>, transfer_key: S
 /// paused / pending so a running transfer isn't wiped from under the user).
 #[tauri::command]
 fn clear_transfers(app: AppHandle, backend: State<'_, Backend>) -> Snapshot {
+    let removed: Vec<_> = backend
+        .transfer_list()
+        .into_iter()
+        .filter(|transfer| !matches!(transfer.status, 1 | 4 | 9 | 10))
+        .map(|transfer| transfer.key)
+        .collect();
     backend
         .transfers
         .lock()
         .unwrap()
         .retain(|_, t| matches!(t.status, 1 | 4 | 9 | 10));
+    outgoing::dismiss_transfer_views(
+        &app,
+        &removed.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
     backend.persist_transfers();
     emit_snapshot(&app);
     backend.snapshot()
@@ -2623,6 +2661,7 @@ pub fn run() {
             desktop::set_autostart,
             desktop::set_auto_receive_files,
             desktop::set_file_context_menu,
+            desktop::open_finder_extension_settings,
             desktop::set_clipboard_shortcut,
             desktop::set_shortcut_recording,
             updates::check_app_update,
@@ -2665,6 +2704,10 @@ pub fn run() {
         .build(context)
         .expect("error while building AnyDrop")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { ref urls } = event {
+                context_menu::handle_urls(app, urls);
+            }
             #[cfg(desktop)]
             if matches!(event, tauri::RunEvent::Exit) {
                 local_api::stop(app);

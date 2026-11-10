@@ -1,4 +1,5 @@
 //! Desktop integrations. Native registrations survive a hidden/unloaded main webview.
+use super::context_menu::FileContextMenuLocation;
 use super::{config_base, emit_snapshot, send_current_clipboard, Backend};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -20,6 +21,7 @@ struct SavedPreferences {
     clipboard_shortcut: String,
     auto_receive_files: bool,
     file_context_menu_enabled: bool,
+    file_context_menu_location: Option<FileContextMenuLocation>,
 }
 impl Default for SavedPreferences {
     fn default() -> Self {
@@ -27,6 +29,7 @@ impl Default for SavedPreferences {
             clipboard_shortcut: String::new(),
             auto_receive_files: false,
             file_context_menu_enabled: true,
+            file_context_menu_location: None,
         }
     }
 }
@@ -60,6 +63,7 @@ pub struct DesktopPreferences {
     updater_configured: bool,
     auto_receive_files: bool,
     file_context_menu_enabled: bool,
+    file_context_menu_location: Option<FileContextMenuLocation>,
     file_context_menu_error: Option<String>,
 }
 
@@ -119,22 +123,46 @@ pub async fn set_auto_receive_files(
 pub async fn set_file_context_menu(
     app: AppHandle,
     enabled: bool,
+    location: Option<FileContextMenuLocation>,
 ) -> Result<DesktopPreferences, String> {
+    if location.is_some() && !cfg!(target_os = "macos") {
+        return Err("仅 macOS 支持选择右键菜单位置".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
         let _change = state.change.lock().unwrap();
         let mut next = state.preferences.lock().unwrap().clone();
         next.file_context_menu_enabled = enabled;
+        if let Some(location) = location {
+            next.file_context_menu_location = Some(location);
+        }
         // Preserve the requested preference even if the OS registration needs
         // repair. The error is visible beside the repair button.
         save_preferences(&next)?;
-        *state.preferences.lock().unwrap() = next;
+        *state.preferences.lock().unwrap() = next.clone();
         *state.context_menu_error.lock().unwrap() =
-            super::context_menu::register(&app, enabled, true).err();
+            super::context_menu::register(&app, enabled, true, next.file_context_menu_location)
+                .err();
         get_desktop_preferences(app.clone(), app.state::<DesktopState>())
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn open_finder_extension_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.FinderSync")
+            .output().map_err(|e| e.to_string())?;
+        if output.status.success() {
+            return Ok(());
+        }
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("仅 macOS 支持访达扩展设置".into())
 }
 
 pub fn initialize(app: AppHandle) {
@@ -148,11 +176,24 @@ pub fn initialize(app: AppHandle) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => b"{}".to_vec(),
                 Err(e) => return Err(e.to_string()),
             };
-            let saved: SavedPreferences =
+            let mut saved: SavedPreferences =
                 serde_json::from_slice(&raw).map_err(|e| format!("桌面设置无法读取：{e}"))?;
+            if saved.file_context_menu_location.is_none() {
+                saved.file_context_menu_location = super::context_menu::initial_location();
+                // Resolve once, before changing OS registrations. Disabled
+                // installations also keep their selected location across launches.
+                if saved.file_context_menu_location.is_some() {
+                    save_preferences(&saved)?;
+                }
+            }
             *state.preferences.lock().unwrap() = saved.clone();
-            *state.context_menu_error.lock().unwrap() =
-                super::context_menu::register(&app, saved.file_context_menu_enabled, false).err();
+            *state.context_menu_error.lock().unwrap() = super::context_menu::register(
+                &app,
+                saved.file_context_menu_enabled,
+                false,
+                saved.file_context_menu_location,
+            )
+            .err();
             state.binding.lock().unwrap().configured = saved.clipboard_shortcut.clone();
             if let Some(shortcut) = parse_shortcut(&saved.clipboard_shortcut)? {
                 app.global_shortcut()
@@ -229,6 +270,7 @@ pub fn get_desktop_preferences(
         updater_configured: super::updates::configured(&app),
         auto_receive_files: saved.auto_receive_files,
         file_context_menu_enabled: saved.file_context_menu_enabled,
+        file_context_menu_location: saved.file_context_menu_location,
         file_context_menu_error: state.context_menu_error.lock().unwrap().clone(),
     })
 }
@@ -327,6 +369,25 @@ mod tests {
             .unwrap()
             .clipboard_shortcut
             .is_empty());
+    }
+
+    #[test]
+    fn file_menu_preferences_preserve_disable_and_explicit_location() {
+        let old: SavedPreferences =
+            serde_json::from_str(r#"{"fileContextMenuEnabled":false}"#).unwrap();
+        assert!(!old.file_context_menu_enabled);
+        assert!(old.file_context_menu_location.is_none());
+        for location in [
+            FileContextMenuLocation::Finder,
+            FileContextMenuLocation::Services,
+        ] {
+            let mut saved = old.clone();
+            saved.file_context_menu_location = Some(location);
+            let roundtrip: SavedPreferences =
+                serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+            assert!(!roundtrip.file_context_menu_enabled);
+            assert_eq!(roundtrip.file_context_menu_location, Some(location));
+        }
     }
 }
 

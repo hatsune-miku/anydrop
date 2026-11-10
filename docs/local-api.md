@@ -10,7 +10,7 @@ They operate on the running app's settings, peers and transfers. The local serve
 
 ## MCP
 
-Add a Streamable HTTP server with URL `http://localhost:26937/mcp` in your MCP client. The server supports initialization, `tools/list`, `tools/call` and cancellation through the MCP Rust SDK. MCP exposes 29 tools; use `tools/list` for their argument schemas. Successful results expose `{ "ok": true, "result": ... }` in `structuredContent`; operation failures set `isError` and return `{ "ok": false, "error": { "code": "...", "message": "..." } }`.
+Add a Streamable HTTP server with URL `http://localhost:26937/mcp` in your MCP client. The server supports initialization, `tools/list`, `tools/call` and cancellation through the MCP Rust SDK. MCP exposes 30 tools; use `tools/list` for their argument schemas. Successful results expose `{ "ok": true, "result": ... }` in `structuredContent`; operation failures set `isError` and return `{ "ok": false, "error": { "code": "...", "message": "..." } }`.
 
 Transfer controls use **`operate_transfer`** with a required `action` and `transferKey`:
 
@@ -38,7 +38,7 @@ Example `tools/call` parameters:
 
 Omitting `saveDir` uses the GUI's default receive directory. `saveDir` is only valid for `accept`. Results and transfer-state checks are shared with the corresponding GUI/HTTP actions.
 
-MCP no longer exposes or accepts calls to `copy_text`, `clear_logs`, `clear_transfers`, `open_directory`, `preview_file`, or the six old transfer tool names (`accept_transfer`, `reject_transfer`, `pause_transfer`, `resume_transfer`, `cancel_transfer`, `dismiss_transfer`). Other MCP tools retain the names and arguments listed in the HTTP catalogue below. HTTP keeps its existing 39 operations and OpenAPI schemas, including all of those individual operations; `operate_transfer` is MCP-only.
+MCP no longer exposes or accepts calls to `copy_text`, `clear_logs`, `clear_transfers`, `open_directory`, `preview_file`, or the six old transfer tool names (`accept_transfer`, `reject_transfer`, `pause_transfer`, `resume_transfer`, `cancel_transfer`, `dismiss_transfer`). Other MCP tools retain the names and arguments listed in the HTTP catalogue below. HTTP keeps its previous operations and adds `open_finder_extension_settings` for a total of 40 operations, including all of those individual operations; `operate_transfer` is MCP-only.
 
 ## HTTP
 
@@ -66,14 +66,16 @@ Success returns `{ "ok": true, "result": ... }`. Operation errors return `{ "ok"
 | Transfer controls | `accept_transfer`, `reject_transfer`, `cancel_transfer`, `pause_transfer`, `resume_transfer` |
 | History and logs | `dismiss_transfer`, `clear_transfers`, `clear_logs` |
 | Clipboard, folders and preview | `copy_text`, `open_transfer_folder`, `open_directory`, `preview_file` |
-| Desktop integration | `get_desktop_preferences`, `set_autostart`, `set_auto_receive_files`, `set_file_context_menu`, `set_clipboard_shortcut` |
+| Desktop integration | `get_desktop_preferences`, `set_autostart`, `set_auto_receive_files`, `set_file_context_menu`, `open_finder_extension_settings`, `set_clipboard_shortcut` |
 | Updates | `check_app_update`, `download_app_update`, `install_app_update` |
 | Windows, popup cards and exit | `control_window`, `dismiss_popup`, `quit_app` |
 | Incoming events | `get_event_cursor`, `wait_for_file`, `wait_for_clipboard_text` |
 
 Read `GET /api` for complete input schemas. `save_settings` accepts a partial `settings` object; omitted fields retain their values and `darkMode: null` restores the system theme. File and directory arguments must be absolute local paths, replacing GUI pickers. Use one peer's `hosts` from `get_snapshot` for `send_paths` and `send_text_to_peer`; pending confirmations use its `peerName`. `send_paths` returns the new `transferKey` and a snapshot.
 
-`dismiss_popup` with no arguments dismisses informational cards while retaining pending send/receive confirmations; it also accepts a clipboard `receiptId` or completed `transferKey`. `control_window` accepts `window` (`main`, `receive`, `preview`) and `action` (`show`, `hide`, `minimize`, `toggle_maximize`, `close`). Closing the main window hides it as in the GUI.
+Appearance settings are `appearanceTheme` (`blue`, `pink`, `gold`), `appearanceDensity` (`comfortable`, `compact`) and `darkMode` (`true`, `false`, `null`). On macOS, `set_file_context_menu` accepts optional `location` (`finder`, `services`); omission preserves the saved location. `open_finder_extension_settings` opens the macOS system settings entry.
+
+`dismiss_popup` with no arguments dismisses informational cards while retaining pending send/receive confirmations; it also accepts a clipboard `receiptId` or completed `transferKey`. `get_outgoing_requests` retains confirmed sends with a `transferKey` until their card is dismissed, allowing progress and the success countdown to recover after a missed event. `control_window` accepts `window` (`main`, `receive`, `preview`) and `action` (`show`, `hide`, `minimize`, `toggle_maximize`, `close`). Closing the main window hides it as in the GUI.
 
 ## Waiting for files and clipboard text
 

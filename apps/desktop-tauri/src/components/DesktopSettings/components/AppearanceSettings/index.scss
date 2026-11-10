@@ -1,0 +1,17 @@
+.desktop-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .desktop-appearance-fields {
+    display: grid;
+    gap: 10px;
+    margin-left: 34px;
+  }
+  .desktop-appearance-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 168px;
+    align-items: center;
+    gap: 12px;
+  }
+}

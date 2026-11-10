@@ -1,4 +1,7 @@
 {
+  "build": {
+    "beforeBuildCommand": "node ../../scripts/build-macos-finder.mjs && yarn build"
+  },
   "app": {
     "windows": [
       {
@@ -14,6 +17,12 @@
     ]
   },
   "bundle": {
+    "macOS": {
+      "signingIdentity": "-",
+      "files": {
+        "PlugIns/AnyDropFinder.appex": ".generated/AnyDropFinder.appex"
+      }
+    },
     "targets": [
       "app",
       "dmg"

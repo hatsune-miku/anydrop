@@ -11,6 +11,7 @@ const browser = await { chromium, webkit }[engine].launch({
 try {
   for (const hasTransfers of [true, false]) {
     const mode = hasTransfers ? 'light' : 'dark'
+    const shortcutLabel = hasTransfers ? 'Ctrl + Alt + V' : 'Ctrl + Option + V'
     const snap = snapshot(mode === 'dark')
     if (!hasTransfers) snap.transfers = []
     const page = await browser.newPage({ viewport: { width: 1060, height: hasTransfers ? 770 : 580 } })
@@ -19,7 +20,7 @@ try {
     await page.addInitScript(installMock, {
       snap,
       label: 'main',
-      platform: 'Win32',
+      platform: hasTransfers ? 'Win32' : 'MacIntel',
       now: epoch,
       updaterConfigured: true,
     })
@@ -31,6 +32,47 @@ try {
     assert(!(await autostart.isVisible()), 'Desktop extras stay out of the primary settings pane')
     await moreButton.click()
     await moreDialog.waitFor()
+    const theme = page.getByLabel('主题色', { exact: true })
+    const density = page.getByLabel('界面密度', { exact: true })
+    const colorMode = page.getByLabel('明暗模式', { exact: true })
+    await theme.selectOption('gold')
+    await density.selectOption('comfortable')
+    await colorMode.selectOption('system')
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await page.waitForFunction(() => document.querySelector('.app-theme')?.dataset.mode === 'dark')
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.waitForFunction(() => document.querySelector('.app-theme')?.dataset.mode === 'light')
+    const saved = await page.evaluate(
+      () => window.__testCalls.filter((call) => call.cmd === 'save_settings').at(-1).args.settings
+    )
+    assert.equal(saved.appearanceTheme, 'gold')
+    assert.equal(saved.appearanceDensity, 'comfortable')
+    assert.equal(saved.darkMode, null)
+    for (const label of ['receive', 'preview']) {
+      const auxiliary = await browser.newPage({ viewport: { width: 540, height: 690 } })
+      await auxiliary.addInitScript(installMock, {
+        snap: { ...snap, settings: saved },
+        label,
+        platform: 'MacIntel',
+        now: epoch,
+      })
+      await auxiliary.goto(`http://127.0.0.1:1420/?window=${label}`)
+      await auxiliary.waitForFunction(() => document.querySelector('.app-theme')?.dataset.theme === 'gold')
+      assert.equal(await auxiliary.locator('.app-theme').getAttribute('data-density'), 'comfortable')
+      await auxiliary.evaluate((next) => window.__emit('snapshot', next), {
+        ...snap,
+        settings: { ...saved, appearanceTheme: 'blue', darkMode: true },
+      })
+      await auxiliary.waitForFunction(
+        () =>
+          document.querySelector('.app-theme')?.dataset.theme === 'blue' &&
+          document.querySelector('.app-theme')?.dataset.mode === 'dark'
+      )
+      await auxiliary.close()
+    }
+    await theme.selectOption('pink')
+    await density.selectOption('compact')
+    await colorMode.selectOption(mode)
     await mkdir('test-results/desktop', { recursive: true })
     await page.screenshot({ path: `test-results/desktop/${engine}-more-settings-${mode}.png`, animations: 'disabled' })
     const bounds = await moreDialog.boundingBox()
@@ -48,11 +90,28 @@ try {
     await contextMenu.check()
     await page.getByRole('button', { name: '重新注册', exact: true }).click()
     assert(await autoReceive.isChecked(), 'Other preferences survive context-menu changes')
+    const location = page.getByLabel('菜单位置', { exact: true })
+    if (hasTransfers) {
+      assert.equal(await location.count(), 0, 'Menu location is macOS-only')
+    } else {
+      assert.equal(await location.inputValue(), 'services', 'An existing service keeps its location')
+      await location.selectOption('finder')
+      await page.getByRole('button', { name: '访达扩展设置', exact: true }).waitFor()
+      await contextMenu.uncheck()
+      assert.equal(await location.inputValue(), 'finder', 'Disabling preserves the chosen location')
+      await contextMenu.check()
+      await page.getByRole('button', { name: '重新注册', exact: true }).click()
+      assert.equal(await location.inputValue(), 'finder', 'Repair preserves the chosen location')
+      await page.screenshot({ path: `test-results/desktop/${engine}-finder-settings.png`, animations: 'disabled' })
+      await location.selectOption('services')
+      await page.getByRole('button', { name: '访达扩展设置', exact: true }).waitFor({ state: 'hidden' })
+      assert.equal(await page.getByRole('button', { name: '访达扩展设置', exact: true }).count(), 0)
+    }
     await page.getByRole('button', { name: '录制', exact: true }).click()
     const shortcut = page.getByLabel('发送当前剪贴板', { exact: true })
     await shortcut.press('Control+Alt+KeyV')
     await page.waitForFunction(() => window.__testCalls.some((c) => c.cmd === 'set_clipboard_shortcut'))
-    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V')
+    assert.equal(await shortcut.inputValue(), shortcutLabel)
     assert.equal(
       (await page.evaluate(() => window.__testCalls.filter((c) => c.cmd === 'set_clipboard_shortcut').at(-1))).args
         .shortcut,
@@ -62,7 +121,7 @@ try {
     await page.getByRole('button', { name: '录制', exact: true }).click()
     await moreDialog.getByRole('button', { name: '取消', exact: true }).click()
     await page.getByRole('button', { name: '录制', exact: true }).waitFor()
-    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Cancelling capture keeps the previous binding')
+    assert.equal(await shortcut.inputValue(), shortcutLabel, 'Cancelling capture keeps the previous binding')
     await page.getByRole('button', { name: '录制', exact: true }).click()
     await shortcut.press('Escape')
     assert(await moreDialog.isVisible(), 'Escape cancels shortcut capture before closing settings')
@@ -75,7 +134,7 @@ try {
     )
     await moreButton.click()
     assert(await autostart.isChecked(), 'Autostart persists across dialog reopening')
-    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Shortcut persists across dialog reopening')
+    assert.equal(await shortcut.inputValue(), shortcutLabel, 'Shortcut persists across dialog reopening')
     assert(
       !(await page.evaluate(() => window.__testCalls)).some((c) => c.cmd === 'send_clipboard_now'),
       'Recording must never transmit clipboard data'
@@ -86,7 +145,7 @@ try {
     await page.getByRole('button', { name: '录制', exact: true }).click()
     await shortcut.press('Control+Alt+KeyB')
     await page.getByRole('alert').filter({ hasText: '快捷键已被占用' }).waitFor()
-    assert.equal(await shortcut.inputValue(), 'Ctrl + Alt + V', 'Failed registration preserves previous binding')
+    assert.equal(await shortcut.inputValue(), shortcutLabel, 'Failed registration preserves previous binding')
     await page.evaluate(() => {
       window.__shortcutFailure = false
     })

@@ -215,6 +215,13 @@ jobs:
           cargo test --release --target "$HOST" -p anydrop-desktop-tauri --lib -- --include-ignored --test-threads=1
           cargo test --release --target "$HOST" -p anydrop --test test_clipboard_limits --test test_clipboard_recovery
 
+      - name: Verify bundled Finder Sync extension
+        run: |
+          APP="target/${{ steps.target.outputs.triple }}/release/bundle/macos/AnyDrop.app"
+          codesign --verify --deep --strict "$APP"
+          lipo -verify_arch arm64 x86_64 "$APP/Contents/PlugIns/AnyDropFinder.appex/Contents/MacOS/AnyDropFinder"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$APP/Contents/PlugIns/AnyDropFinder.appex/Contents/Info.plist")" = com.apple.FinderSync
+
       - uses: actions/upload-artifact@v4
         with:
           name: libanydrop-dylib-${{ steps.target.outputs.slug }}

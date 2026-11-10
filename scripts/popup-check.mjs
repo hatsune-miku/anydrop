@@ -87,7 +87,13 @@ try {
     await page.getByText('当前频段暂无在线设备').waitFor()
     assert(await send.isDisabled(), 'No peer cannot send')
     await page.evaluate(() => {
-      window.__emit('clipboard-popup', { id: 8, kind: 'text', preview: 'API dismissal', text: 'API dismissal', peer: 'test' })
+      window.__emit('clipboard-popup', {
+        id: 8,
+        kind: 'text',
+        preview: 'API dismissal',
+        text: 'API dismissal',
+        peer: 'test',
+      })
       window.__emit('dismiss-popup', { receiptId: null, transferKeys: [], allReceipts: true })
     })
     await page.locator('.popup-card--clip').waitFor({ state: 'hidden' })
@@ -163,7 +169,9 @@ try {
   })
   await missed.getByText('恢复的文件.txt', { exact: false }).waitFor()
   await missed.waitForFunction(() =>
-    window.__testCalls.some((c) => c.cmd === 'acknowledge_receive_view' && c.args.ids.includes('outgoing:visible-again'))
+    window.__testCalls.some(
+      (c) => c.cmd === 'acknowledge_receive_view' && c.args.ids.includes('outgoing:visible-again')
+    )
   )
   await missed.close()
   const recovery = await browser.newPage({ viewport: { width: 540, height: 690 } })
@@ -207,6 +215,72 @@ try {
   })
   await recovery.waitForFunction(() => window.__testCalls.at(-1)?.cmd === 'plugin:window|hide')
   await recovery.close()
+  // Follow an actual offer through waiting, failure, retry and completion.
+  const sending = await browser.newPage({ viewport: { width: 540, height: 800 } })
+  const sendingSnapshot = snapshot(false)
+  sendingSnapshot.transfers = []
+  sendingSnapshot.peers = sendingSnapshot.peers.slice(0, 1)
+  await sending.addInitScript(installMock, {
+    snap: sendingSnapshot,
+    label: 'receive',
+    platform: 'MacIntel',
+    now: epoch,
+  })
+  await sending.addInitScript(() => {
+    window.__outgoingRequests = [{ id: 'success', clipboard: false, fileName: '发送.txt', bytes: 100 }]
+  })
+  await sending.goto('http://127.0.0.1:1420/?window=receive')
+  await sending.getByRole('button', { name: '确认发送', exact: true }).click()
+  await sending.getByText('等待对方接受', { exact: false }).waitFor()
+  await sending.waitForTimeout(3300)
+  assert.equal(await sending.getByText('秒后关闭', { exact: false }).count(), 0)
+  assert.equal(await sending.locator('.popup-card').count(), 1, 'Waiting for acceptance cannot close the send')
+  const sent = { ...snapshot(false).transfers[0], key: 'send-success', fileName: '发送.txt', total: 100, progress: 0 }
+  await sending.evaluate((transfer) => window.__emit('transfer-updated', transfer), {
+    ...sent,
+    status: 6,
+    error: '连接中断',
+  })
+  await sending.getByText('连接中断', { exact: true }).waitFor()
+  await sending.waitForTimeout(3300)
+  assert.equal(await sending.locator('.popup-card').count(), 1, 'A failed transfer remains available')
+  await sending.evaluate((transfer) => window.__emit('transfer-updated', transfer), { ...sent, status: 4 })
+  const incoming = { ...snapshot(false).transfers[2], key: 'received' }
+  await sending.evaluate((transfer) => window.__emit('incoming-file', transfer), incoming)
+  await sending.evaluate((transfer) => window.__emit('transfer-updated', transfer), {
+    ...sent,
+    status: 7,
+    progress: 100,
+  })
+  await sending.getByText('3 秒后关闭', { exact: true }).waitFor()
+  await sending.waitForTimeout(1200)
+  assert(await sending.getByText('发送.txt', { exact: true }).isVisible(), 'Success stays visible during countdown')
+  await sending.getByText('发送.txt', { exact: true }).waitFor({ state: 'hidden', timeout: 4000 })
+  assert(
+    await sending.getByText(incoming.fileName, { exact: true }).isVisible(),
+    'Send completion preserves incoming cards'
+  )
+  await sending.evaluate(() => {
+    window.__folderFailure = true
+  })
+  await sending.getByRole('button', { name: '打开目录', exact: true }).click()
+  await sending.getByRole('alert').filter({ hasText: '文件位置不可用' }).waitFor()
+  assert(
+    await sending.getByText(incoming.fileName, { exact: true }).isVisible(),
+    'Failed folder opening preserves the card'
+  )
+  await sending.evaluate(() => {
+    window.__folderFailure = false
+  })
+  await sending.getByRole('button', { name: '打开目录', exact: true }).click()
+  await sending.getByText(incoming.fileName, { exact: true }).waitFor({ state: 'hidden' })
+  await sending.waitForFunction(() => !window.__popupVisible)
+  assert.equal(
+    await sending.evaluate(() => window.__testCalls.filter((call) => call.cmd === 'dismiss_transfer').length),
+    0,
+    'Closing a popup must not delete transfer history'
+  )
+  await sending.close()
   console.log(
     `${engine}: popup layout, offers, late receipt hydration, visibility recovery, identical recopy, deduplication and dismissal passed`
   )
