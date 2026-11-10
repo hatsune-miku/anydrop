@@ -158,6 +158,7 @@ export function DesktopSettings({
       await onAppearanceChange(change)
     } catch (error) {
       setError(String(error))
+      throw error
     } finally {
       setBusy(false)
     }
@@ -339,7 +340,7 @@ export function DesktopSettings({
         }
       >
         <div className="desktop-settings-content">
-          <AppearanceSettings settings={settings} disabled={busy} onChange={(change) => void setAppearance(change)} />
+          <AppearanceSettings settings={settings} disabled={busy} onChange={setAppearance} />
           <div className="desktop-settings-options">
             <div className="desktop-setting-row">
               <Power className="desktop-setting-icon" size={19} aria-hidden="true" />

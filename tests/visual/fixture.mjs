@@ -140,6 +140,11 @@ export function installMock({ snap, label, platform, now, updaterConfigured = fa
       if (cmd === 'plugin:dialog|open') return ['/Users/example/Documents/阅读笔记.txt']
       if (cmd === 'get_preview_payload') return { path: '/example/image.png', kind: 'image', name: '图片.png' }
       if (cmd === 'save_settings') {
+        if (window.__pauseSettingsSave) {
+          await new Promise((resolve) => {
+            window.__finishSettingsSave = resolve
+          })
+        }
         snap.settings = args.settings
         window.__emit('snapshot', snap)
       }

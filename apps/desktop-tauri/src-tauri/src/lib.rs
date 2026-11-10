@@ -160,6 +160,7 @@ fn load_transfers() -> HashMap<String, Transfer> {
 }
 
 fn normalize_settings(mut settings: AppSettings) -> AppSettings {
+    settings.sync_appearance_config();
     if settings.discovery_port == 0 {
         settings.discovery_port = DEFAULT_DISCOVERY_PORT;
     }
@@ -208,6 +209,11 @@ enum AppearanceTheme {
     #[default]
     Pink,
     Gold,
+    Dousha,
+    #[serde(rename = "dousha-classic")]
+    DoushaClassic,
+    Grape,
+    Custom,
 }
 
 #[derive(
@@ -243,6 +249,10 @@ struct AppSettings {
     dark_mode: Option<bool>,
     #[serde(default)]
     appearance_theme: AppearanceTheme,
+    /// CakeUI's versioned theme document. The frontend validates it with
+    /// CakeUI before use; storing it intact preserves every scheme's options.
+    #[serde(default)]
+    appearance_config: Option<serde_json::Value>,
     #[serde(default)]
     appearance_density: AppearanceDensity,
     /// Default directory received files land in. normalize_settings seeds it to
@@ -270,6 +280,39 @@ fn default_true() -> bool {
     true
 }
 
+impl AppSettings {
+    fn sync_appearance_config(&mut self) {
+        let Some(config) = self
+            .appearance_config
+            .as_mut()
+            .and_then(|v| v.as_object_mut())
+        else {
+            return;
+        };
+        if config.get("version") != Some(&serde_json::json!(2))
+            || !config.get("options").is_some_and(|v| v.is_object())
+        {
+            return;
+        }
+        // Keep the main-window switch and legacy API fields reflected in the
+        // versioned document without dropping other schemes or color pairs.
+        let scheme = serde_json::to_value(self.appearance_theme).unwrap();
+        config.insert("scheme".into(), scheme.clone());
+        let options = config["options"].as_object_mut().unwrap();
+        let option = options
+            .entry(scheme.as_str().unwrap())
+            .or_insert_with(|| serde_json::json!({ "foreground": "auto" }));
+        if let Some(option) = option.as_object_mut() {
+            let mode = match self.dark_mode {
+                Some(true) => "dark",
+                Some(false) => "light",
+                None => "system",
+            };
+            option.insert("mode".into(), serde_json::json!(mode));
+        }
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -283,6 +326,7 @@ impl Default for AppSettings {
             sync_image_enabled: false,
             dark_mode: None,
             appearance_theme: AppearanceTheme::default(),
+            appearance_config: None,
             appearance_density: AppearanceDensity::default(),
             default_save_dir: String::new(), // normalize_settings fills default
             clipboard_popup_enabled: false,

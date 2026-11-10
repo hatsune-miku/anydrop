@@ -1,0 +1,98 @@
+[
+  {
+    "name": "chromium-light-main.png",
+    "changedPixels": 1303,
+    "rawChangedPixels": 3127,
+    "ratio": 0.0015964224454790492
+  },
+  {
+    "name": "chromium-light-mac.png",
+    "changedPixels": 1300,
+    "rawChangedPixels": 3123,
+    "ratio": 0.0015927468757657437
+  },
+  {
+    "name": "chromium-light-compact.png",
+    "changedPixels": 1308,
+    "rawChangedPixels": 3125,
+    "ratio": 0.002210953346855984
+  },
+  {
+    "name": "chromium-light-empty.png",
+    "changedPixels": 1303,
+    "rawChangedPixels": 6832,
+    "ratio": 0.0015964224454790492
+  },
+  {
+    "name": "chromium-light-send.png",
+    "changedPixels": 1313,
+    "rawChangedPixels": 3088,
+    "ratio": 0.0016086743445234012
+  },
+  {
+    "name": "chromium-light-hover.png",
+    "changedPixels": 1303,
+    "rawChangedPixels": 3125,
+    "ratio": 0.0015964224454790492
+  },
+  {
+    "name": "chromium-light-hint.png",
+    "changedPixels": 1305,
+    "rawChangedPixels": 3125,
+    "ratio": 0.0015988728252879197
+  },
+  {
+    "name": "chromium-light-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  },
+  {
+    "name": "chromium-dark-main.png",
+    "changedPixels": 1662,
+    "rawChangedPixels": 3024,
+    "ratio": 0.0020362656211712817
+  },
+  {
+    "name": "chromium-dark-mac.png",
+    "changedPixels": 1658,
+    "rawChangedPixels": 3019,
+    "ratio": 0.0020313648615535407
+  },
+  {
+    "name": "chromium-dark-compact.png",
+    "changedPixels": 1665,
+    "rawChangedPixels": 3021,
+    "ratio": 0.0028144016227180527
+  },
+  {
+    "name": "chromium-dark-empty.png",
+    "changedPixels": 1662,
+    "rawChangedPixels": 9109,
+    "ratio": 0.0020362656211712817
+  },
+  {
+    "name": "chromium-dark-send.png",
+    "changedPixels": 454,
+    "rawChangedPixels": 2983,
+    "ratio": 0.000556236216613575
+  },
+  {
+    "name": "chromium-dark-hover.png",
+    "changedPixels": 1662,
+    "rawChangedPixels": 3024,
+    "ratio": 0.0020362656211712817
+  },
+  {
+    "name": "chromium-dark-hint.png",
+    "changedPixels": 1652,
+    "rawChangedPixels": 3021,
+    "ratio": 0.0020240137221269297
+  },
+  {
+    "name": "chromium-dark-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  }
+]

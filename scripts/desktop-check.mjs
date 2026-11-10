@@ -32,23 +32,90 @@ try {
     assert(!(await autostart.isVisible()), 'Desktop extras stay out of the primary settings pane')
     await moreButton.click()
     await moreDialog.waitFor()
-    const theme = page.getByLabel('主题色', { exact: true })
+    const theme = page.getByLabel('主题色与明暗', { exact: true })
     const density = page.getByLabel('界面密度', { exact: true })
-    const colorMode = page.getByLabel('明暗模式', { exact: true })
-    await theme.selectOption('gold')
+    const themeDialog = page.getByRole('dialog', { name: '主题设置', exact: true })
+    const applyTheme = themeDialog.getByRole('button', { name: '应用', exact: true })
+    await mkdir('test-results/desktop', { recursive: true })
+    await theme.click()
+    const callsBeforePreview = await page.evaluate(
+      () => window.__testCalls.filter((c) => c.cmd === 'save_settings').length
+    )
+    for (const [id, name] of [
+      ['blue', '蓝'],
+      ['pink', '粉'],
+      ['gold', '金'],
+      ['dousha', '豆沙'],
+      ['dousha-classic', '绿豆沙'],
+      ['grape', '葡萄'],
+    ]) {
+      await themeDialog.getByRole('radio', { name, exact: true }).check()
+      await page.waitForFunction((scheme) => document.querySelector('.app-theme')?.dataset.theme === scheme, id)
+    }
+    await themeDialog.getByRole('radio', { name: '深色', exact: true }).check()
+    await themeDialog.getByRole('radio', { name: '浅色文字', exact: true }).check()
+    await page.screenshot({ path: `test-results/desktop/${engine}-theme-grape-${mode}.png`, animations: 'disabled' })
+    await page.keyboard.press('Escape')
+    await themeDialog.waitFor({ state: 'hidden' })
+    assert(await moreDialog.isVisible(), 'Esc cancels only the theme editor')
+    assert.equal(await page.locator('.app-theme').getAttribute('data-theme'), 'pink')
+    assert.equal(
+      await page.evaluate(() => window.__testCalls.filter((c) => c.cmd === 'save_settings').length),
+      callsBeforePreview,
+      'Preview never writes native settings'
+    )
+    assert(await theme.evaluate((button) => button === document.activeElement), 'Theme cancel restores entry focus')
+
+    await theme.click()
+    await themeDialog.getByRole('radio', { name: '葡萄', exact: true }).check()
+    await themeDialog.getByRole('radio', { name: '深色', exact: true }).check()
+    await themeDialog.getByRole('radio', { name: '浅色文字', exact: true }).check()
+    await page.evaluate(() => {
+      window.__pauseSettingsSave = true
+    })
+    await applyTheme.click()
+    await page.waitForFunction(() => !!window.__finishSettingsSave)
+    await themeDialog.waitFor({ state: 'hidden' })
+    assert.equal(await theme.getAttribute('aria-disabled'), 'true', 'Pending native save prevents reopening')
+    assert(!(await theme.evaluate((button) => button.disabled)), 'Pending native save keeps the entry focusable')
+    assert(
+      await theme.evaluate((button) => button === document.activeElement),
+      'Apply restores entry focus during native save'
+    )
+    await page.evaluate(() => {
+      window.__pauseSettingsSave = false
+      window.__finishSettingsSave()
+    })
+    await page.waitForFunction(
+      () => document.querySelector('#appearance-theme')?.getAttribute('aria-disabled') !== 'true'
+    )
+    await theme.click()
+    await themeDialog.getByRole('radio', { name: '自定义', exact: true }).check()
+    const color = themeDialog.getByLabel('HEX / RGB', { exact: true })
+    await color.fill('not-a-color')
+    assert(await applyTheme.isDisabled(), 'Invalid custom color cannot be applied')
+    await color.fill('rgb(82, 67, 150)')
+    await themeDialog.getByRole('radio', { name: '跟随系统', exact: true }).check()
+    await themeDialog.getByRole('radio', { name: '深色文字', exact: true }).check()
+    await applyTheme.click()
     await density.selectOption('comfortable')
-    await colorMode.selectOption('system')
     await page.emulateMedia({ colorScheme: 'dark' })
-    await page.waitForFunction(() => document.querySelector('.app-theme')?.dataset.mode === 'dark')
+    await page.waitForFunction(() => document.documentElement.classList.contains('dark'))
+    const darkBackground = await page.locator('.app-theme').evaluate((node) => getComputedStyle(node).backgroundColor)
     await page.emulateMedia({ colorScheme: 'light' })
-    await page.waitForFunction(() => document.querySelector('.app-theme')?.dataset.mode === 'light')
+    await page.waitForFunction(() => !document.documentElement.classList.contains('dark'))
+    const lightBackground = await page.locator('.app-theme').evaluate((node) => getComputedStyle(node).backgroundColor)
+    assert.notEqual(darkBackground, lightBackground, 'System mode changes rendered theme colors')
     const saved = await page.evaluate(
       () => window.__testCalls.filter((call) => call.cmd === 'save_settings').at(-1).args.settings
     )
-    assert.equal(saved.appearanceTheme, 'gold')
+    assert.equal(saved.appearanceTheme, 'custom')
+    assert.equal(saved.appearanceConfig.customColor, '#524396')
+    assert.deepEqual(saved.appearanceConfig.options.grape, { mode: 'dark', foreground: 'light' })
+    assert.deepEqual(saved.appearanceConfig.options.custom, { mode: 'system', foreground: 'dark' })
     assert.equal(saved.appearanceDensity, 'comfortable')
     assert.equal(saved.darkMode, null)
-    for (const label of ['receive', 'preview']) {
+    for (const label of ['main', 'receive', 'preview']) {
       const auxiliary = await browser.newPage({ viewport: { width: 540, height: 690 } })
       await auxiliary.addInitScript(installMock, {
         snap: { ...snap, settings: saved },
@@ -57,7 +124,7 @@ try {
         now: epoch,
       })
       await auxiliary.goto(`http://127.0.0.1:1420/?window=${label}`)
-      await auxiliary.waitForFunction(() => document.querySelector('.app-theme')?.dataset.theme === 'gold')
+      await auxiliary.waitForFunction(() => document.querySelector('.app-theme')?.dataset.theme === 'custom')
       assert.equal(await auxiliary.locator('.app-theme').getAttribute('data-density'), 'comfortable')
       await auxiliary.evaluate((next) => window.__emit('snapshot', next), {
         ...snap,
@@ -70,9 +137,32 @@ try {
       )
       await auxiliary.close()
     }
-    await theme.selectOption('pink')
+    await theme.click()
+    await themeDialog.getByRole('radio', { name: '葡萄', exact: true }).check()
+    assert(
+      await themeDialog.getByRole('radio', { name: '深色', exact: true }).isChecked(),
+      'Each preset remembers its mode'
+    )
+    assert(
+      await themeDialog.getByRole('radio', { name: '浅色文字', exact: true }).isChecked(),
+      'Each preset remembers its foreground'
+    )
+    await themeDialog.getByRole('radio', { name: '自定义', exact: true }).check()
+    assert.equal(await color.inputValue(), '#524396', 'Preset switching keeps the custom color')
+    await page.screenshot({ path: `test-results/desktop/${engine}-theme-custom-${mode}.png`, animations: 'disabled' })
+    const themeBounds = await themeDialog.boundingBox()
+    assert(
+      themeBounds.y >= 0 && themeBounds.y + themeBounds.height <= page.viewportSize().height,
+      'Theme editor fits the window'
+    )
+    await themeDialog.getByRole('button', { name: '重置当前配色', exact: true }).click()
+    await themeDialog.getByRole('button', { name: '取消', exact: true }).last().click()
+    await theme.click()
+    assert.equal(await color.inputValue(), '#524396', 'Cancelling reset retains the applied custom color')
+    await themeDialog.getByRole('radio', { name: '粉', exact: true }).check()
+    await themeDialog.getByRole('radio', { name: mode === 'dark' ? '深色' : '浅色', exact: true }).check()
+    await applyTheme.click()
     await density.selectOption('compact')
-    await colorMode.selectOption(mode)
     await mkdir('test-results/desktop', { recursive: true })
     await page.screenshot({ path: `test-results/desktop/${engine}-more-settings-${mode}.png`, animations: 'disabled' })
     const bounds = await moreDialog.boundingBox()
@@ -193,7 +283,7 @@ try {
     await page.close()
   }
   console.log(
-    'Desktop UI checks passed: more settings in both themes, focus restoration, autostart, shortcut capture/cancel/conflict/clear, no accidental sends, nested update details, download persistence and transfer guard.'
+    'Desktop UI checks passed: six theme presets, custom color validation and persistence, preview/cancel/reset, per-scheme memory, system mode, async save focus, three-window sync, desktop preferences, shortcuts, nested updates and transfer guard.'
   )
 } finally {
   await browser.close()

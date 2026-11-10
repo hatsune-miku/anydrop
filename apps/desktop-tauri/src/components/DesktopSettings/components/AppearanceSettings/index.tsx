@@ -1,10 +1,37 @@
+import { useMemo, useRef, useState } from 'react'
+
 import { Palette } from 'lucide-react'
 
-import { ComboBox } from '@a1knla/cakeui'
+import { ComboBox, ThemeSettings } from '@a1knla/cakeui'
+import { resolveThemeOptions, themePresets } from '@a1knla/cakeui/theme'
+import type { ThemeStorageAdapter } from '@a1knla/cakeui/theme'
 
 import './index.scss'
 
 import type { AppearanceSettings as AppearanceValues } from '../../../../types'
+
+const themeLabels = {
+  open: '主题设置',
+  title: '主题设置',
+  scheme: '主题色',
+  custom: '自定义',
+  color: 'HEX / RGB',
+  colorPicker: '选择自定义颜色',
+  mode: '明暗模式',
+  system: '跟随系统',
+  light: '浅色',
+  dark: '深色',
+  foreground: '强调色文字',
+  auto: '自动',
+  lightForeground: '浅色文字',
+  darkForeground: '深色文字',
+  apply: '应用',
+  cancel: '取消',
+  reset: '重置当前配色',
+  invalidColor: '请输入不含透明度的 HEX 或 RGB 颜色',
+  storageError: '主题未能保存，请重试',
+  loading: '正在读取主题…',
+}
 
 export default function AppearanceSettings({
   settings,
@@ -13,8 +40,37 @@ export default function AppearanceSettings({
 }: {
   settings: AppearanceValues
   disabled: boolean
-  onChange: (change: Partial<AppearanceValues>) => void
+  onChange: (change: Partial<AppearanceValues>) => Promise<void>
 }) {
+  // Let ThemeSettings use aria-disabled during its own save so focus can return.
+  const [savingTheme, setSavingTheme] = useState(false)
+  const changeRef = useRef(onChange)
+  changeRef.current = onChange
+  const storage = useMemo<ThemeStorageAdapter>(
+    () => ({
+      // The host snapshot already loads the native settings for all windows.
+      load: () => null,
+      save: async (config) => {
+        const { mode } = resolveThemeOptions(config)
+        setSavingTheme(true)
+        try {
+          await changeRef.current({
+            appearanceConfig: config,
+            appearanceTheme: config.scheme,
+            darkMode: mode === 'system' ? null : mode === 'dark',
+          })
+        } finally {
+          setSavingTheme(false)
+        }
+      },
+    }),
+    []
+  )
+  const schemeName =
+    settings.appearanceTheme === 'custom'
+      ? '自定义'
+      : (themePresets.find((preset) => preset.id === (settings.appearanceTheme ?? 'pink'))?.name ?? '粉')
+
   return (
     <section className="desktop-appearance" aria-labelledby="desktop-appearance-title">
       <div className="desktop-setting-row">
@@ -26,39 +82,17 @@ export default function AppearanceSettings({
       <div className="desktop-appearance-fields">
         <div className="desktop-appearance-field">
           <label className="desktop-label" htmlFor="appearance-theme">
-            主题色
+            主题色与明暗
           </label>
-          <ComboBox
+          <ThemeSettings
             id="appearance-theme"
-            value={settings.appearanceTheme ?? 'pink'}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({ appearanceTheme: event.currentTarget.value as AppearanceValues['appearanceTheme'] })
-            }
+            disabled={disabled && !savingTheme}
+            storage={storage}
+            labels={themeLabels}
+            onClickCapture={(event) => event.currentTarget.focus()}
           >
-            <option value="blue">蓝色</option>
-            <option value="pink">粉色</option>
-            <option value="gold">金色</option>
-          </ComboBox>
-        </div>
-        <div className="desktop-appearance-field">
-          <label className="desktop-label" htmlFor="appearance-mode">
-            明暗模式
-          </label>
-          <ComboBox
-            id="appearance-mode"
-            value={settings.darkMode === null ? 'system' : settings.darkMode ? 'dark' : 'light'}
-            disabled={disabled}
-            onChange={(event) =>
-              onChange({
-                darkMode: event.currentTarget.value === 'system' ? null : event.currentTarget.value === 'dark',
-              })
-            }
-          >
-            <option value="system">跟随系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </ComboBox>
+            {schemeName}
+          </ThemeSettings>
         </div>
         <div className="desktop-appearance-field">
           <label className="desktop-label" htmlFor="appearance-density">
@@ -69,7 +103,9 @@ export default function AppearanceSettings({
             value={settings.appearanceDensity ?? 'compact'}
             disabled={disabled}
             onChange={(event) =>
-              onChange({ appearanceDensity: event.currentTarget.value as AppearanceValues['appearanceDensity'] })
+              void onChange({
+                appearanceDensity: event.currentTarget.value as AppearanceValues['appearanceDensity'],
+              }).catch(() => {})
             }
           >
             <option value="compact">紧凑</option>

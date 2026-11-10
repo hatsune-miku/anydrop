@@ -114,16 +114,19 @@ struct SettingsChange {
     #[serde(default, deserialize_with = "present_nullable")]
     dark_mode: Option<Option<bool>>,
     appearance_theme: Option<crate::AppearanceTheme>,
+    /// Complete CakeUI ThemeConfig, or null to clear remembered theme options.
+    #[serde(default, deserialize_with = "present_nullable")]
+    appearance_config: Option<Option<serde_json::Value>>,
     appearance_density: Option<crate::AppearanceDensity>,
     default_save_dir: Option<String>,
     clipboard_popup_enabled: Option<bool>,
     suppress_popup_in_game: Option<bool>,
 }
 
-fn present_nullable<'de, D: serde::Deserializer<'de>>(
+fn present_nullable<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     d: D,
-) -> Result<Option<Option<bool>>, D::Error> {
-    Option::<bool>::deserialize(d).map(Some)
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::<T>::deserialize(d).map(Some)
 }
 
 impl SettingsChange {
@@ -146,11 +149,13 @@ impl SettingsChange {
             sync_image_enabled,
             dark_mode,
             appearance_theme,
+            appearance_config,
             appearance_density,
             default_save_dir,
             clipboard_popup_enabled,
             suppress_popup_in_game
         );
+        current.sync_appearance_config();
         Ok(())
     }
 }
@@ -602,6 +607,53 @@ async fn window_action(app: AppHandle, args: WindowControl) -> Result<Value, Api
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn theme_settings_preserve_scheme_memory_and_migrate_old_settings() {
+        let mut legacy = serde_json::to_value(AppSettings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("appearanceConfig");
+        let mut settings: AppSettings = serde_json::from_value(legacy).unwrap();
+        assert!(settings.appearance_config.is_none());
+        let config = json!({
+            "version": 2, "scheme": "custom", "customColor": "#524396",
+            "options": {
+                "grape": { "mode": "dark", "foreground": "light" },
+                "custom": { "mode": "system", "foreground": "dark" }
+            }
+        });
+        let patch: SettingsChange = serde_json::from_value(json!({
+            "appearanceTheme": "custom", "appearanceConfig": config
+        }))
+        .unwrap();
+        patch.apply(&mut settings).unwrap();
+        let roundtrip = serde_json::to_string(&settings).unwrap();
+        settings = serde_json::from_str(&roundtrip).unwrap();
+        assert_eq!(settings.appearance_config, Some(config.clone()));
+        let patch: SettingsChange = serde_json::from_value(json!({ "darkMode": true })).unwrap();
+        patch.apply(&mut settings).unwrap();
+        let saved = settings.appearance_config.as_ref().unwrap();
+        assert_eq!(saved["options"]["custom"]["mode"], "dark");
+        assert_eq!(saved["options"]["grape"], config["options"]["grape"]);
+        assert_eq!(saved["customColor"], "#524396");
+        for name in [
+            "blue",
+            "pink",
+            "gold",
+            "dousha",
+            "dousha-classic",
+            "grape",
+            "custom",
+        ] {
+            let patch: SettingsChange =
+                serde_json::from_value(json!({ "appearanceTheme": name })).unwrap();
+            patch.apply(&mut settings).unwrap();
+            assert_eq!(settings.appearance_config.as_ref().unwrap()["scheme"], name);
+        }
+        let patch: SettingsChange =
+            serde_json::from_value(json!({ "appearanceConfig": null })).unwrap();
+        patch.apply(&mut settings).unwrap();
+        assert!(settings.appearance_config.is_none());
+    }
+
     #[test]
     fn partial_settings_preserve_unmentioned_values_and_can_restore_system_theme() {
         let mut settings = AppSettings::default();

@@ -1,6 +1,7 @@
 // Shared data shapes mirrored from the Rust backend (serde camelCase), plus
 // small formatting helpers. Used by the main window, the receive popup, and
 // the preview window so the contract lives in one place.
+import type { ThemeConfig, ThemeScheme } from '@a1knla/cakeui/theme'
 
 export type SettingsModel = {
   sendClipboardEnabled: boolean
@@ -13,7 +14,9 @@ export type SettingsModel = {
   syncImageEnabled: boolean
   /** null = follow OS theme; true/false = explicit user choice. */
   darkMode: boolean | null
-  appearanceTheme: 'blue' | 'pink' | 'gold'
+  appearanceTheme: ThemeScheme
+  /** CakeUI configuration, including remembered options for every scheme. */
+  appearanceConfig: ThemeConfig | null
   appearanceDensity: 'comfortable' | 'compact'
   /** Default directory received files land in. */
   defaultSaveDir: string
@@ -23,7 +26,10 @@ export type SettingsModel = {
   suppressPopupInGame: boolean
 }
 
-export type AppearanceSettings = Pick<SettingsModel, 'darkMode' | 'appearanceTheme' | 'appearanceDensity'>
+export type AppearanceSettings = Pick<
+  SettingsModel,
+  'darkMode' | 'appearanceTheme' | 'appearanceConfig' | 'appearanceDensity'
+>
 
 export type PeerGroup = {
   label: string
@@ -81,6 +87,7 @@ export const fallbackSettings: SettingsModel = {
   syncImageEnabled: false,
   darkMode: null,
   appearanceTheme: 'pink',
+  appearanceConfig: null,
   appearanceDensity: 'compact',
   defaultSaveDir: '',
   clipboardPopupEnabled: false,

@@ -2,15 +2,21 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 0 16px 16px;
+  border: 1px solid var(--cake-line);
+  border-radius: var(--cake-radius-medium);
 
   .desktop-appearance-fields {
     display: grid;
     gap: 10px;
     margin-left: 34px;
   }
+  .cake-theme-settings-status {
+    grid-column: 1 / -1;
+  }
   .desktop-appearance-field {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 168px;
+    grid-template-columns: minmax(0, 1fr) minmax(120px, 168px);
     align-items: center;
     gap: 12px;
   }

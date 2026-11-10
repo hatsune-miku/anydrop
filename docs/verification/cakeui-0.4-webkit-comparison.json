@@ -1,0 +1,98 @@
+[
+  {
+    "name": "webkit-light-main.png",
+    "changedPixels": 1260,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0015437392795883361
+  },
+  {
+    "name": "webkit-light-mac.png",
+    "changedPixels": 1260,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0015437392795883361
+  },
+  {
+    "name": "webkit-light-compact.png",
+    "changedPixels": 1271,
+    "rawChangedPixels": 3101,
+    "ratio": 0.0021484110885733603
+  },
+  {
+    "name": "webkit-light-empty.png",
+    "changedPixels": 1260,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0015437392795883361
+  },
+  {
+    "name": "webkit-light-send.png",
+    "changedPixels": 1260,
+    "rawChangedPixels": 3056,
+    "ratio": 0.0015437392795883361
+  },
+  {
+    "name": "webkit-light-hover.png",
+    "changedPixels": 1260,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0015437392795883361
+  },
+  {
+    "name": "webkit-light-hint.png",
+    "changedPixels": 1272,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0015584415584415584
+  },
+  {
+    "name": "webkit-light-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  },
+  {
+    "name": "webkit-dark-main.png",
+    "changedPixels": 1620,
+    "rawChangedPixels": 3100,
+    "ratio": 0.001984807645185004
+  },
+  {
+    "name": "webkit-dark-mac.png",
+    "changedPixels": 1620,
+    "rawChangedPixels": 3100,
+    "ratio": 0.001984807645185004
+  },
+  {
+    "name": "webkit-dark-compact.png",
+    "changedPixels": 1617,
+    "rawChangedPixels": 3101,
+    "ratio": 0.0027332657200811357
+  },
+  {
+    "name": "webkit-dark-empty.png",
+    "changedPixels": 1620,
+    "rawChangedPixels": 3100,
+    "ratio": 0.001984807645185004
+  },
+  {
+    "name": "webkit-dark-send.png",
+    "changedPixels": 619,
+    "rawChangedPixels": 3046,
+    "ratio": 0.000758392550845381
+  },
+  {
+    "name": "webkit-dark-hover.png",
+    "changedPixels": 1620,
+    "rawChangedPixels": 3100,
+    "ratio": 0.001984807645185004
+  },
+  {
+    "name": "webkit-dark-hint.png",
+    "changedPixels": 1616,
+    "rawChangedPixels": 3100,
+    "ratio": 0.0019799068855672628
+  },
+  {
+    "name": "webkit-dark-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  }
+]
