@@ -6,10 +6,10 @@
   version "0.1.0"
   resolved "file:vendor/a1knla-cakeui-native-0.1.0.tgz#1fd5ba6e1a0bcd79d321ab432dc3935ddabe1f13"
 
-"@a1knla/cakeui@0.4.0":
-  version "0.4.0"
-  resolved "https://registry.npmjs.org/@a1knla/cakeui/-/cakeui-0.4.0.tgz#e817659d9c25d024281ce956b29fae38c9cc777b"
-  integrity sha512-eV6U64W8VwyAq3p8YSKbzatt22Pn6y/QnEaQ/XzvYL/GQ3GHmQOlaomoXwE41/cAau1XUlF7VrsCA+e1p7ilKQ==
+"@a1knla/cakeui@0.4.2":
+  version "0.4.2"
+  resolved "https://registry.npmjs.org/@a1knla/cakeui/-/cakeui-0.4.2.tgz#8e5b10c0fa1929345bb2ccb717833ee7d037ed6a"
+  integrity sha512-dNPNrw1QCJHrAlRGhQhB5frr30bDVsi5fuJWslqJ0H+azTdNS0Fjy5pfhjb0slBZmCcqx4KJlhhI5E0f9iyG7g==
 
 "@babel/code-frame@^7.0.0", "@babel/code-frame@^7.12.13", "@babel/code-frame@^7.29.7":
   version "7.29.7"

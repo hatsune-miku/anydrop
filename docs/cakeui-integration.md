@@ -19,7 +19,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 ## 安装包与维护
 
-当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.4.0`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
+当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.4.2`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
 
 历史版本 0.3.0 的 CakeUI 提交为 `4b6adeb5b5d9ddf222fdcc3b0b0cd11f32b01ec6`，发布标签为 `v0.3.0`。[发布工作流](https://github.com/hatsune-miku/cakeui/actions/runs/35437433832)已成功完成，注册表包摘要与经测试的安装包一致，见 [发布核验记录](verification/cakeui-npm-release.json)。这份核验记录保留为 0.3.0 的历史记录。
 
@@ -36,6 +36,14 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 `yarn test:desktop` 与 `VISUAL_ENGINE=webkit yarn test:desktop` 覆盖六种预设、颜色校验、RGB 规范化、预览取消、异步保存期间的焦点和禁用、各方案记忆、取消重置、系统明暗变化和三个窗口重新加载 / 快照同步。Rust 设置测试覆盖旧配置读取、完整主题文档往返、兼容字段更新及显式清除配置。
 
 2026-11-10 升级至 0.4.0 后，主窗口采用组件库新的紧凑卡片圆角。旧基线比较结果见 [Chromium](verification/cakeui-0.4-chromium-comparison.json) 与 [WebKit](verification/cakeui-0.4-webkit-comparison.json)，这两份报告记录的是更新前差异，不能视为旧基线通过。人工检查后更新 `tests/visual/baseline/`；接收窗口基线同时对齐现有测试场景的 540 × 690 视口，旧文件仍为 400 × 500，无法直接逐像素比较。原始迁移基线 `before-cakeui` 保留。更新后 Chromium / WebKit 共 36 个场景通过，见 [0.4.0 回归报告](verification/cakeui-0.4-regression.json)。
+
+## 0.4.2 无边框分区
+
+主界面 Card 在所有配色和两种密度下均不绘制默认边框或阴影，分区只依靠卡片与页面的底色差异。修正在 CakeUI 完成，AnyDrop 不额外覆盖组件库样式；更多设置中的外观区仍是业务显式设置的边界。输入框、按钮与键盘焦点维持各自边线。
+
+`yarn test:theme` 和 `VISUAL_ENGINE=webkit yarn test:theme` 检查六种预设加自定义颜色的浅深模式，逐个验证主面板没有 border / box-shadow，并保存真实截图。该检查补充原有以粉色为主的视觉回归，覆盖此次特殊配色问题。
+
+此次移除旧卡片轮廓造成的基线差异已人工检查，见 [Chromium](verification/cakeui-0.4.2-chromium-comparison.json) 与 [WebKit](verification/cakeui-0.4.2-webkit-comparison.json)。接收浮窗和预览窗口与旧基线一致；主窗口基线更新为无边框效果，原始迁移基线保持不变。更新后两个引擎的 36 个场景均无超阈值变化像素；Chromium 最小窗口场景合计有 4 个原始像素差异，其余场景逐像素一致，见 [0.4.2 回归报告](verification/cakeui-0.4.2-regression.json)。
 
 ## 迁移验证
 
