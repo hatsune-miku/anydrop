@@ -19,7 +19,7 @@ UI and UX follow [CakeDesign (CD)](https://raw.githubusercontent.com/hatsune-mik
 
 The current AnyDrop project has never used Figma for preliminary design. Figma references in legacy records are not design sources for this project.
 
-AnyDrop is the visual source of truth for CakeUI. The desktop app uses CakeUI 0.4.2 from npm, with pink / compact as the default and the full preset / custom-color theme editor available in settings; visual conflicts are resolved in CakeUI itself. The exact package version and integrity are recorded in `yarn.lock`.
+AnyDrop is the visual source of truth for CakeUI. The desktop app uses CakeUI 0.5.0 from npm, with pink / compact as the default and the full preset / custom-color theme editor available in settings; visual conflicts are resolved in CakeUI itself. The exact package version and integrity are recorded in `yarn.lock`.
 
 ## Current integration notes
 

@@ -30,6 +30,7 @@ const themeLabels = {
   reset: '重置当前配色',
   invalidColor: '请输入不含透明度的 HEX 或 RGB 颜色',
   storageError: '主题未能保存，请重试',
+  retry: '重试',
   loading: '正在读取主题…',
 }
 

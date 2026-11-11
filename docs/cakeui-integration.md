@@ -1,6 +1,6 @@
 # CakeUI 接入与外观验证
 
-更新：2026-11-10。
+更新：2026-11-11。
 
 ## 样式来源与实现
 
@@ -19,7 +19,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 ## 安装包与维护
 
-当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.4.2`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
+当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.5.0`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
 
 历史版本 0.3.0 的 CakeUI 提交为 `4b6adeb5b5d9ddf222fdcc3b0b0cd11f32b01ec6`，发布标签为 `v0.3.0`。[发布工作流](https://github.com/hatsune-miku/cakeui/actions/runs/35437433832)已成功完成，注册表包摘要与经测试的安装包一致，见 [发布核验记录](verification/cakeui-npm-release.json)。这份核验记录保留为 0.3.0 的历史记录。
 
@@ -31,7 +31,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 原生 `appearanceConfig` 保存完整 version=2 的 `ThemeConfig`，包括 `customColor` 和各方案的 `options`。`appearanceTheme` 与 `darkMode` 保持为当前方案和模式的兼容入口，原生保存时同步到主题文档；现有主界面深色开关和 HTTP / MCP 调用继续有效。旧设置没有 `appearanceConfig` 时，按已有配色与明暗选择生成配置。前端使用 CakeUI 的 `validateThemeConfig` 校验后读取，损坏的扩展配置回退到兼容字段，不影响窗口加载。
 
-设置读取沿用宿主快照；`ThemeSettings.storage` 的保存方法写入原生设置，不使用 localStorage。未应用的草稿只在当前 Provider 内预览。存储失败显示错误并允许重新应用。主题入口显式聚焦，使 WebKit 关闭嵌套弹窗后也能恢复入口焦点；写入期间沿用组件的 aria-disabled 状态，保留焦点并防止重复打开。
+设置读取沿用宿主快照；`ThemeSettings.storage` 的保存方法写入原生设置，不使用 localStorage。未应用的草稿只在当前 Provider 内预览。存储失败显示具体原因，并通过中文“重试”按钮再次保存当前配置。主题入口显式聚焦，使 WebKit 关闭嵌套弹窗后也能恢复入口焦点；写入期间沿用组件的 aria-disabled 状态，保留焦点并防止重复打开。
 
 `yarn test:desktop` 与 `VISUAL_ENGINE=webkit yarn test:desktop` 覆盖六种预设、颜色校验、RGB 规范化、预览取消、异步保存期间的焦点和禁用、各方案记忆、取消重置、系统明暗变化和三个窗口重新加载 / 快照同步。Rust 设置测试覆盖旧配置读取、完整主题文档往返、兼容字段更新及显式清除配置。
 
@@ -44,6 +44,14 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 `yarn test:theme` 和 `VISUAL_ENGINE=webkit yarn test:theme` 检查六种预设加自定义颜色的浅深模式，逐个验证主面板没有 border / box-shadow，并保存真实截图。该检查补充原有以粉色为主的视觉回归，覆盖此次特殊配色问题。
 
 此次移除旧卡片轮廓造成的基线差异已人工检查，见 [Chromium](verification/cakeui-0.4.2-chromium-comparison.json) 与 [WebKit](verification/cakeui-0.4.2-webkit-comparison.json)。接收浮窗和预览窗口与旧基线一致；主窗口基线更新为无边框效果，原始迁移基线保持不变。更新后两个引擎的 36 个场景均无超阈值变化像素；Chromium 最小窗口场景合计有 4 个原始像素差异，其余场景逐像素一致，见 [0.4.2 回归报告](verification/cakeui-0.4.2-regression.json)。
+
+## 0.5.0 组件与主题更新
+
+升级到官方 npm 的 `@a1knla/cakeui@0.5.0`，锁文件固定下载地址和完整性摘要。上游变更见 [0.5.0 源码提交](https://github.com/hatsune-miku/cakeui/commit/0e3822054d6757137e072f213873ad3e5da39346)。现有 `CakeProvider`、`ThemeSettings.storage` 与 version=2 主题配置兼容，无需迁移原生设置；新增 `labels.retry` 使用中文“重试”。
+
+沿用组件库新版外观：所有配色下自绘选择控件，两种密度统一字体栈，紧凑日志与提示字号提高到 12px，弹窗增加退出过渡，粉色辅助文字与状态色改善对比度。主面板仍然无边框、无阴影，强调色色值保持不变。AnyDrop 未增加样式覆盖来抵消这些上游调整。
+
+升级前后差异保存在 [Chromium](verification/cakeui-0.5.0-chromium-comparison.json) 与 [WebKit](verification/cakeui-0.5.0-webkit-comparison.json)。人工检查主界面、最小窗口与主题设置后，将完整产品视觉基线更新为 0.5.0；原始迁移基线不变。生产构建、两个引擎的全配色无边框检查、设置交互与 36 个视觉场景均通过，保存失败后的中文重试也已验证，见 [0.5.0 回归报告](verification/cakeui-0.5.0-regression.json)。
 
 ## 迁移验证
 
@@ -59,7 +67,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 2026-09-20 将软件更新、自启、键位绑定收入「更多设置」二级弹窗后，完整产品基线更新为新的设置布局；上面的安装来源比较报告保留为历史验证。此次 36 个场景中，设置区之外的超阈值差异为零，接收 / 预览窗口不变，详见 [设置调整的区域比较](verification/more-settings-visual.json)。`before-cakeui` 原始迁移基线没有改动，CakeUI npm 包与公开 API 也没有变化。
 
-已有粉色按钮白字和浅色弱文字未全部达到 WCAG AA 的 4.5:1 对比度：约为 3.93:1 和 3.42:1。本次按维护者要求保留 AnyDrop 配色；CakeUI 浏览器测试明确记录有限的已知颜色对比度例外，其余无障碍违规仍会失败。此项不能描述为“完整 AA 通过”。
+0.3.0 迁移时，粉色按钮白字和浅色弱文字未全部达到 WCAG AA 的 4.5:1 对比度：约为 3.93:1 和 3.42:1。当时按维护者要求保留 AnyDrop 配色；CakeUI 浏览器测试明确记录有限的已知颜色对比度例外，其余无障碍违规仍会失败。0.5.0 已修正辅助文字、危险色与选中文字，固定粉色强调底的白字仍约 3.94:1，不能描述为“完整 AA 通过”。
 
 ## 复现
 
