@@ -1,0 +1,388 @@
+{
+  "date": "2026-11-12",
+  "cakeui": "0.5.1",
+  "cakeuiCommit": "31389254e3e31f2c197d567da1f303ae533305d6",
+  "publishWorkflow": "https://github.com/hatsune-miku/cakeui/actions/runs/43211175733",
+  "registryIntegrity": "sha512-nQvzA+QGcnIKfj5UTETWzrBGAumiQxa3+3TXqWi0J3IF7HauRq5HB9xHLrUAQMb1tbLPL1I6zsbDikTUctEiew==",
+  "publishedArtifactMatchesLocalPackage": true,
+  "cakeuiChecks": {
+    "unitTests": 53,
+    "browserTests": 42,
+    "packageCheck": "passed",
+    "documentationExamples": 14
+  },
+  "productionBuild": "passed",
+  "desktopChecks": {
+    "chromium": "passed",
+    "webkit": "passed"
+  },
+  "productionStyleChecks": {
+    "chromium": "passed",
+    "webkit": "passed"
+  },
+  "baselineChange": "Only WebKit compact light/dark baselines changed for native scrollbar track insets.",
+  "nativeScrollbarPixelChecks": [
+    {
+      "height": 770,
+      "selector": ".device-list",
+      "end": false,
+      "first": 4,
+      "last": 178,
+      "clientHeight": 608,
+      "scrollHeight": 2012,
+      "scrollTop": 0
+    },
+    {
+      "height": 770,
+      "selector": ".device-list",
+      "end": true,
+      "first": 409,
+      "last": 583,
+      "clientHeight": 608,
+      "scrollHeight": 2012,
+      "scrollTop": 1404
+    },
+    {
+      "height": 770,
+      "selector": ".transfer-list",
+      "end": false,
+      "first": 4,
+      "last": 21,
+      "clientHeight": 199,
+      "scrollHeight": 1932,
+      "scrollTop": 0
+    },
+    {
+      "height": 770,
+      "selector": ".transfer-list",
+      "end": true,
+      "first": 157,
+      "last": 174,
+      "clientHeight": 199,
+      "scrollHeight": 1932,
+      "scrollTop": 1733
+    },
+    {
+      "height": 770,
+      "selector": ".log-list",
+      "end": false,
+      "first": 4,
+      "last": 30,
+      "clientHeight": 199,
+      "scrollHeight": 1250,
+      "scrollTop": 0
+    },
+    {
+      "height": 770,
+      "selector": ".log-list",
+      "end": true,
+      "first": 148,
+      "last": 174,
+      "clientHeight": 199,
+      "scrollHeight": 1250,
+      "scrollTop": 1051
+    },
+    {
+      "height": 580,
+      "selector": ".device-list",
+      "end": false,
+      "first": 4,
+      "last": 84,
+      "clientHeight": 418,
+      "scrollHeight": 2012,
+      "scrollTop": 0
+    },
+    {
+      "height": 580,
+      "selector": ".device-list",
+      "end": true,
+      "first": 313,
+      "last": 393,
+      "clientHeight": 418,
+      "scrollHeight": 2012,
+      "scrollTop": 1594
+    },
+    {
+      "height": 580,
+      "selector": ".transfer-list",
+      "end": false,
+      "first": 4,
+      "last": 20,
+      "clientHeight": 104,
+      "scrollHeight": 1932,
+      "scrollTop": 0
+    },
+    {
+      "height": 580,
+      "selector": ".transfer-list",
+      "end": true,
+      "first": 63,
+      "last": 79,
+      "clientHeight": 104,
+      "scrollHeight": 1932,
+      "scrollTop": 1828
+    },
+    {
+      "height": 580,
+      "selector": ".log-list",
+      "end": false,
+      "first": 4,
+      "last": 20,
+      "clientHeight": 104,
+      "scrollHeight": 1250,
+      "scrollTop": 0
+    },
+    {
+      "height": 580,
+      "selector": ".log-list",
+      "end": true,
+      "first": 63,
+      "last": 79,
+      "clientHeight": 104,
+      "scrollHeight": 1250,
+      "scrollTop": 1146
+    },
+    {
+      "height": 580,
+      "selector": ".settings-scroll",
+      "end": false,
+      "first": 24,
+      "last": 357,
+      "clientHeight": 412,
+      "scrollHeight": 474,
+      "scrollTop": 0
+    },
+    {
+      "height": 580,
+      "selector": ".settings-scroll",
+      "end": true,
+      "first": 74,
+      "last": 407,
+      "clientHeight": 412,
+      "scrollHeight": 474,
+      "scrollTop": 62
+    }
+  ],
+  "engines": {
+    "chromium": [
+      {
+        "name": "chromium-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 9,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 9,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 1,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 1,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 1,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 1,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 11,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 8,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ],
+    "webkit": [
+      {
+        "name": "webkit-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ]
+  }
+}

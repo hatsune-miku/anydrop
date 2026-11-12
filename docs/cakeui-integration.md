@@ -1,6 +1,6 @@
 # CakeUI 接入与外观验证
 
-更新：2026-11-11。
+更新：2026-11-12。
 
 ## 样式来源与实现
 
@@ -19,7 +19,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 ## 安装包与维护
 
-当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.5.0`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
+当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.5.1`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
 
 历史版本 0.3.0 的 CakeUI 提交为 `4b6adeb5b5d9ddf222fdcc3b0b0cd11f32b01ec6`，发布标签为 `v0.3.0`。[发布工作流](https://github.com/hatsune-miku/cakeui/actions/runs/35437433832)已成功完成，注册表包摘要与经测试的安装包一致，见 [发布核验记录](verification/cakeui-npm-release.json)。这份核验记录保留为 0.3.0 的历史记录。
 
@@ -99,3 +99,14 @@ VISUAL_ENGINE=webkit yarn test:visual --migration
 ```
 
 测试结果与差异图写入 `test-results/visual/`。只有有意改变完整产品外观并人工检查后，才使用 `--record` 更新完整回归基线。组件库独立执行 `npm run check`、`npm run test:package` 和 `npm run test:browser`。
+
+
+## 0.5.1 滚动与主题设置修正
+
+圆角容器沿用原生滚动，使用 CakeUI 的轨道内缩变量，不改容器尺寸、内容高度或滚动范围。设备、传输、日志列表的纵向起点保留 4px，终点内缩一个大圆角；主设置区从大圆角内开始，底部保留 4px。没有引入虚拟列表。
+
+浏览器默认焦点外框在 CakeUI 主题作用域统一移除，键盘控件保留内描边。主题弹窗固定外部尺寸，切换选项和自定义色时不重新居中；小窗口仅滚动正文，标题与底部操作保持可见。文字明暗只修改强调区文字和图标，不再调整背景或透明度。
+
+`yarn test:styles` 与 `VISUAL_ENGINE=webkit yarn test:styles` 验证单次原始鼠标点击、主题弹窗尺寸、容器无外框和滚动范围；WebKit 额外从实际截图中定位滑块，检查四类容器在顶部 / 底部均避开圆角。Chromium 的 macOS 无头模式不绘制滚动条，因此不把其截图作为滑块像素验证。组件库测试覆盖全部预设和自定义色在 foreground 切换前后的背景一致性。
+
+正式 npm 包与本地通过验证的 tgz 完整性摘要一致。生产构建、双引擎交互与样式检查、36 个视觉场景全部通过，见 [0.5.1 回归记录](verification/cakeui-0.5.1-regression.json)。视觉基线仅更新 WebKit 的浅色 / 深色小窗口滚动条位置，[更新前差异](verification/cakeui-0.5.1-webkit-comparison.json)保留供核查。

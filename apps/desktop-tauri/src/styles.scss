@@ -45,24 +45,6 @@
   height: 100vh;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: rgba(138, 128, 122, 0.3);
-  border-radius: 99px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(138, 128, 122, 0.52);
-}
-
 * {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
@@ -313,6 +295,8 @@ textarea {
 .device-list,
 .transfer-list,
 .dialog-list {
+  --cake-scrollbar-inset-start: 4px;
+  --cake-scrollbar-inset-end: var(--cake-radius-large);
   display: grid;
   align-content: start;
   gap: 4px;
@@ -568,6 +552,8 @@ textarea {
 }
 
 .log-list {
+  --cake-scrollbar-inset-start: 4px;
+  --cake-scrollbar-inset-end: var(--cake-radius-large);
   flex: 1;
   height: auto;
   min-height: 0;
@@ -592,6 +578,8 @@ textarea {
 }
 
 .settings-scroll {
+  --cake-scrollbar-inset-start: var(--cake-radius-large);
+  --cake-scrollbar-inset-end: 4px;
   display: flex;
   flex: 1;
   flex-direction: column;

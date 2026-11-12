@@ -19,7 +19,8 @@
     "mobile:ios": "yarn workspace @anydrop/mobile ios",
     "mobile:typecheck": "yarn workspace @anydrop/mobile typecheck",
     "mobile:apk": "yarn workspace @anydrop/mobile android:apk",
-    "test:theme": "node scripts/theme-check.mjs"
+    "test:theme": "node scripts/theme-check.mjs",
+    "test:styles": "node scripts/style-check.mjs"
   },
   "devDependencies": {
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
