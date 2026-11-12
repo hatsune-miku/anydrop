@@ -1,0 +1,110 @@
+[
+  {
+    "name": "webkit-light-main.png",
+    "changedPixels": 30622,
+    "rawChangedPixels": 47886,
+    "ratio": 0.03751776525361431
+  },
+  {
+    "name": "webkit-light-mac.png",
+    "changedPixels": 30594,
+    "rawChangedPixels": 47808,
+    "ratio": 0.037483459936290126
+  },
+  {
+    "name": "webkit-light-compact.png",
+    "changedPixels": 27707,
+    "rawChangedPixels": 42900,
+    "ratio": 0.04683400946585531
+  },
+  {
+    "name": "webkit-light-empty.png",
+    "changedPixels": 25660,
+    "rawChangedPixels": 43300,
+    "ratio": 0.03143837294780691
+  },
+  {
+    "name": "webkit-light-send.png",
+    "changedPixels": 29521,
+    "rawChangedPixels": 45069,
+    "ratio": 0.03616883116883117
+  },
+  {
+    "name": "webkit-light-hover.png",
+    "changedPixels": 30326,
+    "rawChangedPixels": 47339,
+    "ratio": 0.037155109041901495
+  },
+  {
+    "name": "webkit-light-hint.png",
+    "changedPixels": 31137,
+    "rawChangedPixels": 48642,
+    "ratio": 0.03814873805439843
+  },
+  {
+    "name": "webkit-light-receive.png",
+    "changedPixels": 7988,
+    "rawChangedPixels": 9885,
+    "ratio": 0.021438539989264628
+  },
+  {
+    "name": "webkit-light-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  },
+  {
+    "name": "webkit-dark-main.png",
+    "changedPixels": 33297,
+    "rawChangedPixels": 50283,
+    "ratio": 0.04079514824797844
+  },
+  {
+    "name": "webkit-dark-mac.png",
+    "changedPixels": 33269,
+    "rawChangedPixels": 50205,
+    "ratio": 0.040760842930654254
+  },
+  {
+    "name": "webkit-dark-compact.png",
+    "changedPixels": 30042,
+    "rawChangedPixels": 45022,
+    "ratio": 0.050780933062880326
+  },
+  {
+    "name": "webkit-dark-empty.png",
+    "changedPixels": 28059,
+    "rawChangedPixels": 45386,
+    "ratio": 0.03437760352854693
+  },
+  {
+    "name": "webkit-dark-send.png",
+    "changedPixels": 16959,
+    "rawChangedPixels": 47335,
+    "ratio": 0.020777995589316343
+  },
+  {
+    "name": "webkit-dark-hover.png",
+    "changedPixels": 33001,
+    "rawChangedPixels": 49736,
+    "ratio": 0.04043249203626562
+  },
+  {
+    "name": "webkit-dark-hint.png",
+    "changedPixels": 34048,
+    "rawChangedPixels": 51104,
+    "ratio": 0.041715265866209265
+  },
+  {
+    "name": "webkit-dark-receive.png",
+    "changedPixels": 8441,
+    "rawChangedPixels": 10135,
+    "ratio": 0.02265432098765432
+  },
+  {
+    "name": "webkit-dark-preview.png",
+    "changedPixels": 0,
+    "rawChangedPixels": 0,
+    "ratio": 0
+  }
+]

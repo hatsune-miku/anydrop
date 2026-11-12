@@ -123,7 +123,7 @@ try {
         platform: 'MacIntel',
         now: epoch,
       })
-      await auxiliary.goto(`http://127.0.0.1:1420/?window=${label}`)
+      await auxiliary.goto(`${process.env.VISUAL_URL || 'http://127.0.0.1:1420'}/?window=${label}`)
       await auxiliary.waitForFunction(() => document.querySelector('.app-theme')?.dataset.theme === 'custom')
       assert.equal(await auxiliary.locator('.app-theme').getAttribute('data-density'), 'comfortable')
       await auxiliary.evaluate((next) => window.__emit('snapshot', next), {

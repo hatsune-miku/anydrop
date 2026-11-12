@@ -1,0 +1,303 @@
+{
+  "date": "2026-11-12",
+  "cakeui": "0.6.1",
+  "cakeuiCommit": "921a6ac699dab5b1892467af0dbca7a8027d7bb8",
+  "publishWorkflow": "https://github.com/hatsune-miku/cakeui/actions/runs/43222566786",
+  "testedPackageIntegrity": "sha512-7UM36Y/wzZcjRcXAgS9aZDECd0ky+la6juuSOo+PmTX6j5mdnB+2wF+ce3pO7s9itAoRbtj3mCqN71yt7+bNrw==",
+  "registryVerification": "passed",
+  "cakeuiChecks": {
+    "unitTests": 56,
+    "chromiumFullBaselineTests": 48,
+    "patchChromiumTests": 12,
+    "webkitThemeAndPreferenceTests": 12,
+    "packageCheck": "passed",
+    "documentationExamples": 14,
+    "chromiumFullCITests": 49
+  },
+  "productionBuild": "passed",
+  "desktopChecks": {
+    "chromium": "passed",
+    "webkit": "passed"
+  },
+  "productionStyleChecks": {
+    "chromium": "passed",
+    "webkit": "passed"
+  },
+  "allSchemeBorderChecks": {
+    "chromium": "passed",
+    "webkit": "passed"
+  },
+  "coverage": [
+    "Blank first pointer click preserves every theme group rectangle",
+    "Each theme choice takes effect on first pointer click",
+    "Pointer focus stays unadorned; keyboard focus remains visible",
+    "Global threshold and role preferences preserve fills",
+    "Single component overrides save through native settings in main and receive windows",
+    "Cancelled pointerdown/mousedown preserve shortcut input focus",
+    "Per-scheme light/dark overrides and independent reset",
+    "Both engine screenshots across nine scenes and two modes"
+  ],
+  "systemWebKit": {
+    "reproducedFieldsetHeightsBeforeClick": [
+      212,
+      92,
+      92
+    ],
+    "reproducedFieldsetHeightsAfterClick": [
+      182,
+      62,
+      62
+    ],
+    "replacementDivGroupHeights": [
+      182,
+      62,
+      62
+    ],
+    "manualCheck": "stable blank click, long right-press menu, component override and local-adjustment list"
+  },
+  "gallery": {
+    "release": "20261112T125702Z",
+    "url": "https://gallery.vanillacake.cn/?page=docs",
+    "docsBytesMimeAndMissing404": "passed",
+    "browserDocumentRoute": "passed"
+  },
+  "visualBaselineChange": "Reviewed automatic text colors and neutral borderless button fills. Geometry unchanged. Original migration baseline retained.",
+  "visualResults": {
+    "chromium": [
+      {
+        "name": "chromium-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 10,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 10,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 1,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 15,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 5,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 9,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 10,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 14,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 9,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 8,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 4,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "chromium-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ],
+    "webkit": [
+      {
+        "name": "webkit-light-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-light-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-main.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-mac.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-compact.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-empty.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-send.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hover.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-hint.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-receive.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      },
+      {
+        "name": "webkit-dark-preview.png",
+        "changedPixels": 0,
+        "rawChangedPixels": 0,
+        "ratio": 0
+      }
+    ]
+  },
+  "registryIntegrity": "sha512-7UM36Y/wzZcjRcXAgS9aZDECd0ky+la6juuSOo+PmTX6j5mdnB+2wF+ce3pO7s9itAoRbtj3mCqN71yt7+bNrw==",
+  "publishedArtifactMatchesLocalPackage": true,
+  "officialDependencyBuildMatchesTestedBuild": true,
+  "browserDistribution": {
+    "version": "0.6.1",
+    "files": {
+      "cakeui.css": "8890130b3a842eee55fc39343c34922b3323df620ce4b2da593116b652e027b7",
+      "cakeui.min.js": "654e114b3096cd3cbbc334fc1dcd2a86152862abde76e014e5da66f88dffc5fb"
+    },
+    "publicBytesMimeCors": "passed"
+  },
+  "publishJobs": [
+    "validation: success",
+    "npm: success",
+    "browser distribution: success"
+  ]
+}

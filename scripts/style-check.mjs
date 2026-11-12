@@ -69,6 +69,19 @@ try {
     await page.getByLabel('主题色与明暗', { exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '主题设置', exact: true })
     const original = await dialog.boundingBox()
+    const groups = dialog.locator('.cake-theme-settings-group')
+    const beforeBlankClick = await groups.evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().toJSON())
+    )
+    // System WebKit previously counted legend height twice, then moved every group after a blank click.
+    await dialog
+      .locator('.cake-theme-settings-options')
+      .first()
+      .click({ position: { x: 480, y: 15 } })
+    assert.deepEqual(
+      await groups.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON())),
+      beforeBlankClick
+    )
     for (const name of ['葡萄', '自定义', '浅色文字', '深色文字', '粉']) {
       const target = dialog.getByRole('radio', { name, exact: true })
       await target.scrollIntoViewIfNeeded()
@@ -80,13 +93,64 @@ try {
     await dialog.evaluate((element) => element.focus())
     assert.equal(await dialog.evaluate((element) => getComputedStyle(element).outlineStyle), 'none')
     await page.screenshot({ path: `${output}/${engine}-${height}-theme.png`, animations: 'disabled' })
+    await dialog.getByRole('button', { name: '取消', exact: true }).last().click()
+    await page.getByRole('button', { name: '完成', exact: true }).click()
+    await page.locator('.desktop-more-settings-dialog').waitFor({ state: 'hidden' })
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    const button = page.getByRole('button', { name: '选择文件', exact: true })
+    const background = await button.evaluate((element) => getComputedStyle(element).backgroundColor)
+    const rect = await button.boundingBox()
+    await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2)
+    await page.mouse.down({ button: 'right' })
+    const menu = page.getByRole('menu', { name: '文字颜色', exact: true })
+    await menu.waitFor()
+    await page.mouse.up({ button: 'right' })
+    await menu.getByRole('menuitemradio', { name: '浅色', exact: true }).click()
+    await page.waitForFunction(() =>
+      window.__testCalls.some(
+        ({ cmd, args }) =>
+          cmd === 'save_settings' &&
+          Object.keys(args.settings.appearanceConfig?.options.pink?.components?.light ?? {}).length > 0
+      )
+    )
+    assert.equal(await button.evaluate((element) => getComputedStyle(element).color), 'rgb(255, 255, 255)')
+    await page.mouse.move(0, 0)
+    assert.equal(await button.evaluate((element) => getComputedStyle(element).backgroundColor), background)
+    assert.equal(await button.evaluate((element) => getComputedStyle(element).boxShadow), 'none')
+    await menu.getByRole('menuitemradio', { name: '跟随用途', exact: true }).click()
+    await page.keyboard.press('Escape')
     assert.deepEqual(errors, [])
     await page.close()
   }
+  const popupSnapshot = snapshot(false)
+  popupSnapshot.transfers.unshift({
+    ...popupSnapshot.transfers[0],
+    key: '104',
+    direction: 'incoming',
+    status: 1,
+    fileName: '设计素材.zip',
+  })
+  const popup = await browser.newPage({ viewport: { width: 540, height: 690 } })
+  await popup.addInitScript(installMock, { snap: popupSnapshot, label: 'receive', platform: 'MacIntel', now: epoch })
+  await popup.goto(`${base}/?window=receive`)
+  const receive = popup.getByRole('button', { name: '接收', exact: true })
+  await receive.focus()
+  await popup.keyboard.press('Alt+Shift+c')
+  await popup.getByRole('menuitemradio', { name: '浅色', exact: true }).click()
+  await popup.waitForFunction(() =>
+    window.__testCalls.some(
+      ({ cmd, args }) =>
+        cmd === 'save_settings' &&
+        Object.keys(args.settings.appearanceConfig?.options.pink?.components?.light ?? {}).length > 0
+    )
+  )
+  assert.equal(await receive.evaluate((element) => getComputedStyle(element).color), 'rgb(255, 255, 255)')
+  assert(!(await popup.evaluate(() => window.__testCalls.some(({ cmd }) => cmd === 'accept_transfer'))))
+  await popup.close()
 } finally {
   await browser.close()
 }
 await writeFile(`${output}/${engine}-report.json`, JSON.stringify(results, null, 2) + '\n')
 console.log(
-  `${engine}: scrollbar endpoints, unchanged scroll range, single-click theme choices and dialog focus passed`
+  `${engine}: scrollbar endpoints, blank-click group stability, single-click theme choices, pointer focus and native component-preference persistence passed`
 )

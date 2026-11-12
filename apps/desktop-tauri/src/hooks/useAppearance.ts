@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { createThemeConfig, updateThemeConfig, validateThemeConfig } from '@a1knla/cakeui/theme'
+import { createThemeConfig, resolveThemeOptions, updateThemeConfig, validateThemeConfig } from '@a1knla/cakeui/theme'
+import type { ThemeStorageAdapter } from '@a1knla/cakeui/theme'
+import { invoke } from '@tauri-apps/api/core'
 
-import type { AppearanceSettings } from '../types'
+import type { AppearanceSettings, Snapshot } from '../types'
 
 export function useAppearance(settings: AppearanceSettings) {
   const { appearanceConfig, appearanceTheme, darkMode: savedDarkMode } = settings
@@ -15,6 +17,25 @@ export function useAppearance(settings: AppearanceSettings) {
       mode: savedDarkMode == null ? 'system' : savedDarkMode ? 'dark' : 'light',
     })
   }, [appearanceConfig, appearanceTheme, savedDarkMode])
+  // Auxiliary windows have no visible settings entry, but component preferences use the same native storage.
+  const storage = useMemo<ThemeStorageAdapter>(
+    () => ({
+      load: () => null,
+      save: async (next) => {
+        const current = await invoke<Snapshot>('get_snapshot')
+        const { mode } = resolveThemeOptions(next)
+        await invoke('save_settings', {
+          settings: {
+            ...current.settings,
+            appearanceConfig: next,
+            appearanceTheme: next.scheme,
+            darkMode: mode === 'system' ? null : mode === 'dark',
+          },
+        })
+      },
+    }),
+    []
+  )
   const [systemDark, setSystemDark] = useState(window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
@@ -30,7 +51,9 @@ export function useAppearance(settings: AppearanceSettings) {
   }, [darkMode])
   return {
     darkMode,
+    storage,
     provider: {
+      locale: 'zh-CN' as const,
       defaultConfig: config,
       density: settings.appearanceDensity ?? 'compact',
     },

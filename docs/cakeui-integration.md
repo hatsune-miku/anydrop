@@ -6,7 +6,7 @@
 
 **AnyDrop 是样式基准。** 遇到颜色、密度或组件默认值冲突，直接修改 `/Users/miku/projects/cakeui`；AnyDrop 不用另一套覆盖颜色抵消 CakeUI 的默认主题。CakeDesign 提供设计原则，现有 AnyDrop 界面提供实际配色、尺寸和排版。Figma 与已退役项目不作为当前设计来源。
 
-主窗口、接收浮窗和预览窗口接入 `CakeProvider`，默认使用粉色主题和 compact 密度。更多设置中的外观区使用细边框分组，接入 CakeUI 官方 `ThemeSettings`：提供蓝、粉、金、豆沙、绿豆沙、葡萄六种预设和自定义颜色，支持颜色选择器、HEX / RGB 输入、浅色 / 深色 / 跟随系统以及自动 / 浅色 / 深色强调区文字。编辑时在当前窗口预览，应用后保存至原生 `settings.json` 并同步到三个窗口；取消、Esc 或关闭撤销预览。不同方案的明暗与前景独立记忆，切换预设保留自定义颜色。界面密度仍可单独选择紧凑 / 舒适，跟随系统时实时响应系统明暗变化。按钮、卡片、复选框、输入框、进度条、日志及悬浮提示使用真实 CakeUI 组件；新增更新详情使用 CakeUI Dialog。设备行、传输行、窗口控制与文件发送确认保留应用业务布局。
+主窗口、接收浮窗和预览窗口接入 `CakeProvider`，默认使用粉色主题和 compact 密度。更多设置中的外观区使用细边框分组，接入 CakeUI 官方 `ThemeSettings`：提供蓝、粉、金、豆沙、绿豆沙、葡萄六种预设和自定义颜色，支持颜色选择器、HEX / RGB 输入、浅色 / 深色 / 跟随系统以及自动 / 浅色 / 深色文字。编辑时在当前窗口预览，应用后保存至原生 `settings.json` 并同步到三个窗口；取消、Esc 或关闭撤销预览。不同方案的明暗与前景独立记忆，切换预设保留自定义颜色。界面密度仍可单独选择紧凑 / 舒适，跟随系统时实时响应系统明暗变化。按钮、卡片、复选框、输入框、进度条、日志及悬浮提示使用真实 CakeUI 组件；新增更新详情使用 CakeUI Dialog。设备行、传输行、窗口控制与文件发送确认保留应用业务布局。
 
 CakeUI 本次修改包括：
 
@@ -19,7 +19,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 ## 安装包与维护
 
-当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.5.1`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
+当前使用官方 npm 注册表上的 **`@a1knla/cakeui@0.6.1`**，精确版本、下载地址和 integrity 写入 `yarn.lock`。临时 vendored 安装包已移除，克隆 AnyDrop 后直接 `yarn install --frozen-lockfile` 即可安装。
 
 历史版本 0.3.0 的 CakeUI 提交为 `4b6adeb5b5d9ddf222fdcc3b0b0cd11f32b01ec6`，发布标签为 `v0.3.0`。[发布工作流](https://github.com/hatsune-miku/cakeui/actions/runs/35437433832)已成功完成，注册表包摘要与经测试的安装包一致，见 [发布核验记录](verification/cakeui-npm-release.json)。这份核验记录保留为 0.3.0 的历史记录。
 
@@ -31,7 +31,7 @@ AnyDrop 的 SCSS 负责应用布局和业务状态；旧变量通过语义映射
 
 原生 `appearanceConfig` 保存完整 version=2 的 `ThemeConfig`，包括 `customColor` 和各方案的 `options`。`appearanceTheme` 与 `darkMode` 保持为当前方案和模式的兼容入口，原生保存时同步到主题文档；现有主界面深色开关和 HTTP / MCP 调用继续有效。旧设置没有 `appearanceConfig` 时，按已有配色与明暗选择生成配置。前端使用 CakeUI 的 `validateThemeConfig` 校验后读取，损坏的扩展配置回退到兼容字段，不影响窗口加载。
 
-设置读取沿用宿主快照；`ThemeSettings.storage` 的保存方法写入原生设置，不使用 localStorage。未应用的草稿只在当前 Provider 内预览。存储失败显示具体原因，并通过中文“重试”按钮再次保存当前配置。主题入口显式聚焦，使 WebKit 关闭嵌套弹窗后也能恢复入口焦点；写入期间沿用组件的 aria-disabled 状态，保留焦点并防止重复打开。
+设置读取沿用宿主快照；`ThemeSettings.storage` 的保存方法写入原生设置，不使用 localStorage。未应用的草稿只在当前 Provider 内预览。存储失败显示具体原因，并通过中文“重试”按钮再次保存当前配置。CakeUI 统一聚焦按钮，使 WebKit 关闭嵌套弹窗后也能恢复入口焦点；写入期间沿用组件的 aria-disabled 状态，保留焦点并防止重复打开。
 
 `yarn test:desktop` 与 `VISUAL_ENGINE=webkit yarn test:desktop` 覆盖六种预设、颜色校验、RGB 规范化、预览取消、异步保存期间的焦点和禁用、各方案记忆、取消重置、系统明暗变化和三个窗口重新加载 / 快照同步。Rust 设置测试覆盖旧配置读取、完整主题文档往返、兼容字段更新及显式清除配置。
 
@@ -110,3 +110,16 @@ VISUAL_ENGINE=webkit yarn test:visual --migration
 `yarn test:styles` 与 `VISUAL_ENGINE=webkit yarn test:styles` 验证单次原始鼠标点击、主题弹窗尺寸、容器无外框和滚动范围；WebKit 额外从实际截图中定位滑块，检查四类容器在顶部 / 底部均避开圆角。Chromium 的 macOS 无头模式不绘制滚动条，因此不把其截图作为滑块像素验证。组件库测试覆盖全部预设和自定义色在 foreground 切换前后的背景一致性。
 
 正式 npm 包与本地通过验证的 tgz 完整性摘要一致。生产构建、双引擎交互与样式检查、36 个视觉场景全部通过，见 [0.5.1 回归记录](verification/cakeui-0.5.1-regression.json)。视觉基线仅更新 WebKit 的浅色 / 深色小窗口滚动条位置，[更新前差异](verification/cakeui-0.5.1-webkit-comparison.json)保留供核查。
+
+
+## 0.6.1 文字偏好与原生交互
+
+文字颜色提供自动 / 浅色 / 深色与全局明暗阈值。局部调整可按普通按钮、强调按钮、选中项、正文、输入控件与状态文字分别覆盖，规则按当前配色的浅深模式保存。单个 CakeUI 组件支持长按右键 600ms，或聚焦后按 Alt+Shift+C；菜单可恢复跟随用途，也可独立选择自动 / 浅色 / 深色。单组件优先于用途规则，用途规则优先于全局偏好，背景保持不变。
+
+组件身份由 CakeUI 结合类型、可访问名称、具名区域与结构自动识别。AnyDrop 不给普通组件逐个配置标识；完全同构的动态列表仍无法仅凭 DOM 保证业务身份，必要时可使用库的可选 data-cake-theme-key。主窗口沿用 ThemeSettings.storage；接收浮窗挂载隐藏设置入口来注册同一原生存储，菜单修改会保存并同步到其他窗口，不执行业务按钮动作。预览窗口读取已保存的全局和用途规则。
+
+系统 WebKit 首次交互会重算 fieldset / legend 的高度，造成内部分组移动；CakeUI 改用带 radiogroup 语义的布局，保留原生 radio 键盘行为。焦点指示区分指针与键盘，鼠标点击及关闭弹窗后的恢复焦点不画内描边；键盘导航继续显示。普通按钮无常驻边框，背景略微加深。开关、状态圆点与滚动条使用独立的基础颜色，不随文字偏好变色。
+
+AnyDrop 仅设置中文 locale 并复用库提供的交互；已删除原来的主题入口聚焦补丁。单组件菜单复用原生保存错误和重试逻辑；在主题设置中修改单组件时进入草稿，应用提交、取消撤销。新版自动文字按背景重新计算，所以视觉基线中的文字色与普通按钮底色会变化。
+
+生产构建、两个引擎的设置 / 快捷键 / 嵌套弹窗检查、空白处首次点击、组件菜单原生保存、全配色无边框检查与 36 个视觉场景均通过。基线经过人工检查后更新；两端对新基线的超阈值变化像素均为零，少量原始像素差异来自抗锯齿。详见 [0.6.1 回归记录](verification/cakeui-0.6.1-regression.json)及更新前的 [Chromium](verification/cakeui-0.6.1-chromium-comparison.json) / [WebKit](verification/cakeui-0.6.1-webkit-comparison.json) 对比。

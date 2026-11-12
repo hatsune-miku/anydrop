@@ -21,7 +21,7 @@ const themeLabels = {
   system: '跟随系统',
   light: '浅色',
   dark: '深色',
-  foreground: '强调色文字',
+  foreground: '文字颜色',
   auto: '自动',
   lightForeground: '浅色文字',
   darkForeground: '深色文字',
@@ -90,7 +90,6 @@ export default function AppearanceSettings({
             disabled={disabled && !savingTheme}
             storage={storage}
             labels={themeLabels}
-            onClickCapture={(event) => event.currentTarget.focus()}
           >
             {schemeName}
           </ThemeSettings>

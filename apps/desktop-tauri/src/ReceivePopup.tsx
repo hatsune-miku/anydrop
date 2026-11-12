@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Check, Copy, FolderInput, FolderOpen, TriangleAlert, X } from 'lucide-react'
 
-import { Button, CakeProvider, ProgressBar } from '@a1knla/cakeui'
+import { Button, CakeProvider, ProgressBar, ThemeSettings } from '@a1knla/cakeui'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -45,7 +45,7 @@ function isTerminal(status: number) {
 
 export default function ReceivePopup() {
   const [settings, setSettings] = useState<AppearanceSettings>(fallbackSettings)
-  const { provider: appearance } = useAppearance(settings)
+  const { provider: appearance, storage: appearanceStorage } = useAppearance(settings)
   const [transfers, setTransfers] = useState<Record<string, Transfer>>({})
   // Keys the popup is responsible for showing. Seeded from incoming-file
   // events and any already-active incoming transfers in the initial snapshot.
@@ -406,6 +406,9 @@ export default function ReceivePopup() {
 
   return (
     <CakeProvider className="app-theme popup-shell" {...appearance}>
+      <div hidden>
+        <ThemeSettings storage={appearanceStorage} />
+      </div>
       <div className="popup-body">
         <div className="popup-content" ref={content}>
           {requests
