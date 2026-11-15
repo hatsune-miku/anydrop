@@ -80,11 +80,11 @@ fn legacy_duplicate_and_delayed_network_writes_never_rebroadcast() {
         "127.0.0.1".into(),
         port,
         Arc::new(Box::new(move |packet, _| {
-            tx.send(write_text(&text_state, packet.text())).unwrap();
+            tx.send(receive_text(&text_state, packet.text())).unwrap();
         })),
         Arc::new(Box::new(move |packet, _| {
             let result =
-                io::decode(packet.png_bytes()).and_then(|image| write_image(&image_state, &image));
+                io::decode(packet.png_bytes()).and_then(|image| receive_image(&image_state, &image));
             image_tx.send(result).unwrap();
         })),
         Arc::new(DiscoveryService::new()),

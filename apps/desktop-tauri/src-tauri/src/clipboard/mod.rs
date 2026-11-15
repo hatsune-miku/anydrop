@@ -1,6 +1,7 @@
 mod io;
 #[cfg(test)]
 mod legacy_tests;
+mod receiver;
 
 use super::{emit_snapshot, outgoing, AppHandle, Backend};
 use anydrop::service::{
@@ -23,6 +24,7 @@ pub struct ClipboardState {
     /// Only writes performed by AnyDrop arm suppression. An outgoing send
     /// doesn't touch the OS clipboard and must never suppress the next copy.
     written_revision: Option<u64>,
+    receiver: receiver::Receiver,
     #[cfg(not(any(windows, target_os = "macos")))]
     written_fingerprint: Option<(u64, Instant)>,
 }
@@ -121,33 +123,56 @@ fn retry_write(
 }
 
 pub fn write_text(state: &Mutex<ClipboardState>, text: &str) -> Result<(), String> {
+    apply_text(state, text, true)
+}
+
+pub fn receive_text(state: &Mutex<ClipboardState>, text: &str) -> Result<(), String> {
+    apply_text(state, text, false)
+}
+
+fn apply_text(state: &Mutex<ClipboardState>, text: &str, force: bool) -> Result<(), String> {
     let mut state = state.lock().unwrap();
-    retry_write(|clipboard| clipboard.set_text(text))?;
-    state.written_revision = io::revision();
+    let outcome = state
+        .receiver
+        .apply(receiver::Incoming::Text(text), force)?;
+    if let receiver::WriteOutcome::Written(revision) = outcome {
+        state.written_revision = revision;
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            state.written_fingerprint =
+                Some((fingerprint(&Content::Text(text.to_owned())), Instant::now()));
+        }
+    }
     state.last_text = text.chars().take(200).collect();
     state.last_received_text = text.to_owned();
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        state.written_fingerprint =
-            Some((fingerprint(&Content::Text(text.to_owned())), Instant::now()));
-    }
     Ok(())
 }
 
+#[cfg(test)]
 pub fn write_image(state: &Mutex<ClipboardState>, image: &RgbaImage) -> Result<(), String> {
+    apply_image(state, image, true)
+}
+
+pub fn receive_image(state: &Mutex<ClipboardState>, image: &RgbaImage) -> Result<(), String> {
+    apply_image(state, image, false)
+}
+
+fn apply_image(
+    state: &Mutex<ClipboardState>,
+    image: &RgbaImage,
+    force: bool,
+) -> Result<(), String> {
     let mut state = state.lock().unwrap();
-    retry_write(|clipboard| {
-        clipboard.set_image(arboard::ImageData {
-            width: image.width() as usize,
-            height: image.height() as usize,
-            bytes: std::borrow::Cow::Borrowed(image),
-        })
-    })?;
-    state.written_revision = io::revision();
-    #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        state.written_fingerprint =
-            Some((fingerprint(&Content::Image(image.clone())), Instant::now()));
+    let outcome = state
+        .receiver
+        .apply(receiver::Incoming::Image(image), force)?;
+    if let receiver::WriteOutcome::Written(revision) = outcome {
+        state.written_revision = revision;
+        #[cfg(not(any(windows, target_os = "macos")))]
+        {
+            state.written_fingerprint =
+                Some((fingerprint(&Content::Image(image.clone())), Instant::now()));
+        }
     }
     Ok(())
 }
@@ -498,6 +523,48 @@ mod tests {
         assert!(!changes.needs_read(8, Some(8)));
         assert!(!changes.copied(2, now + Duration::from_millis(400), true));
         assert!(!changes.copied(2, now + Duration::from_secs(8), true));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    #[ignore = "Uses the system clipboard; run only on an isolated test desktop"]
+    fn native_remote_bridge_rewrites_do_not_cause_another_receive_write() {
+        let state = Mutex::new(ClipboardState::default());
+        let mut clipboard = arboard::Clipboard::new().unwrap();
+        clipboard.set_text("initial").unwrap();
+        receive_text(&state, "received\n文本").unwrap();
+        let own_revision = io::revision().unwrap();
+        assert_eq!(state.lock().unwrap().written_revision, Some(own_revision));
+        for _ in 0..5 {
+            // Simulate a remote-control app replacing our content with a new
+            // native generation, including Windows newline conversion.
+            clipboard.set_text("received\r\n文本").unwrap();
+            let external_revision = io::revision().unwrap();
+            assert_ne!(external_revision, own_revision);
+            receive_text(&state, "received\n文本").unwrap();
+            assert_eq!(io::revision(), Some(external_revision));
+            assert_eq!(state.lock().unwrap().written_revision, Some(own_revision));
+        }
+        clipboard.set_text("new local text").unwrap();
+        let local_revision = io::revision().unwrap();
+        receive_text(&state, "received\n文本").unwrap();
+        assert_ne!(io::revision(), Some(local_revision));
+        let image = RgbaImage::from_pixel(3, 2, image::Rgba([201, 40, 19, 255]));
+        receive_image(&state, &image).unwrap();
+        let own_revision = io::revision().unwrap();
+        for _ in 0..5 {
+            clipboard
+                .set_image(arboard::ImageData {
+                    width: image.width() as usize,
+                    height: image.height() as usize,
+                    bytes: std::borrow::Cow::Borrowed(&image),
+                })
+                .unwrap();
+            let external_revision = io::revision().unwrap();
+            receive_image(&state, &image).unwrap();
+            assert_eq!(io::revision(), Some(external_revision));
+            assert_eq!(state.lock().unwrap().written_revision, Some(own_revision));
+        }
     }
 
     #[cfg(any(windows, target_os = "macos"))]

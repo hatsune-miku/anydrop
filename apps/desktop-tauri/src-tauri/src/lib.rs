@@ -1118,7 +1118,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 popup_enabled = settings.clipboard_popup_enabled;
             }
 
-            if let Err(error) = clipboard::write_text(&text_clipboard, &text) {
+            if let Err(error) = clipboard::receive_text(&text_clipboard, &text) {
                 if let Some(backend) = text_app.try_state::<Backend>() {
                     backend.set_status(&error);
                     backend.log(error);
@@ -1183,7 +1183,7 @@ fn start_runtime(app: &AppHandle, backend: &Backend, settings: AppSettings) -> R
                 }
             };
             let (w, h) = img.dimensions();
-            if let Err(error) = clipboard::write_image(&image_clipboard, &img) {
+            if let Err(error) = clipboard::receive_image(&image_clipboard, &img) {
                 if let Some(backend) = image_app.try_state::<Backend>() {
                     backend.set_status(&error);
                     backend.log(error);
